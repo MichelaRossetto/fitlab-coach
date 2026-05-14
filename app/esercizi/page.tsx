@@ -44,24 +44,37 @@ function AddExerciseForm({ onSuccess, onCancel }: { onSuccess: () => void; onCan
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      <div>
-        <label className="label">Nome esercizio *</label>
-        <input className="input" placeholder="es. Squat bulgaro" value={name} onChange={e => setName(e.target.value)} autoFocus />
-      </div>
+      {/* 1. Categoria */}
       <div>
         <label className="label">Categoria</label>
-        <select className="input" value={category} onChange={e => { setCategory(e.target.value); setSubcategory("CARDIO"); setSubSubcategory("UPPER"); }}>
-          {LIBRARY_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-        </select>
+        <div className="flex flex-wrap gap-2">
+          {LIBRARY_CATEGORIES.map(c => (
+            <button key={c} type="button"
+              onClick={() => { setCategory(c); setSubcategory("CARDIO"); setSubSubcategory("UPPER"); }}
+              className={`px-3 py-1.5 rounded-xl text-sm font-medium border transition-colors ${category === c ? "border-transparent text-black" : "border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400"}`}
+              style={category === c ? { backgroundColor: CATEGORY_COLOR[c] } : {}}
+            >{c}</button>
+          ))}
+        </div>
       </div>
+
+      {/* 2. Sottocategoria (solo WARMUP) */}
       {showSub && (
         <div>
           <label className="label">Sottocategoria</label>
-          <select className="input" value={subcategory} onChange={e => { setSubcategory(e.target.value); setSubSubcategory("UPPER"); }}>
-            {WARMUP_SUBCATEGORIES.map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
+          <div className="flex gap-2">
+            {WARMUP_SUBCATEGORIES.map(s => (
+              <button key={s} type="button"
+                onClick={() => { setSubcategory(s); setSubSubcategory("UPPER"); }}
+                className={`flex-1 py-2 rounded-xl text-sm font-medium border transition-colors ${subcategory === s ? "border-transparent text-black" : "border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400"}`}
+                style={subcategory === s ? { backgroundColor: "#C0D738" } : {}}
+              >{s}</button>
+            ))}
+          </div>
         </div>
       )}
+
+      {/* 3. Zona (solo MOBILITÀ e ATTIVAZIONE) */}
       {showSubSub && (
         <div>
           <label className="label">Zona</label>
@@ -69,13 +82,20 @@ function AddExerciseForm({ onSuccess, onCancel }: { onSuccess: () => void; onCan
             {WARMUP_SUB_SUBCATEGORIES.map(z => (
               <button key={z} type="button"
                 onClick={() => setSubSubcategory(z)}
-                className={`flex-1 py-2 rounded-xl text-sm font-medium border transition-colors ${subSubcategory === z ? "border-transparent text-black" : "border-gray-200 dark:border-gray-600 text-gray-500"}`}
+                className={`flex-1 py-2 rounded-xl text-sm font-medium border transition-colors ${subSubcategory === z ? "border-transparent text-black" : "border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400"}`}
                 style={subSubcategory === z ? { backgroundColor: "#C0D738" } : {}}
               >{z}</button>
             ))}
           </div>
         </div>
       )}
+
+      {/* 4. Nome esercizio */}
+      <div>
+        <label className="label">Nome esercizio *</label>
+        <input className="input" placeholder="es. Squat bulgaro" value={name} onChange={e => setName(e.target.value)} />
+      </div>
+
       {error && <p className="text-sm text-red-500">{error}</p>}
       <div className="flex gap-2 pt-1">
         <button type="button" className="btn-secondary flex-1" onClick={onCancel}>Annulla</button>
