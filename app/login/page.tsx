@@ -30,7 +30,7 @@ export default function LoginPage() {
         {/* Logo */}
         <div className="text-center mb-8">
           <h1 className="font-black text-4xl tracking-tight">
-            <span style={{ color: "#D4E600" }}>FIT</span>
+            <span style={{ color: "#C0D738" }}>FIT</span>
             <span className="text-gray-900">LAB</span>
           </h1>
           <p className="text-sm text-gray-400 mt-1">Coach App</p>

@@ -24,7 +24,7 @@ export function Header({ backHref, title, subtitle, right }: HeaderProps) {
         <div className="flex items-center justify-between py-3 border-b border-gray-50 dark:border-gray-800">
           <Link href="/" className="flex items-center gap-2">
             <span className="font-black text-2xl tracking-tight leading-none">
-              <span style={{ color: "#D4E600" }}>FIT</span>
+              <span style={{ color: "#C0D738" }}>FIT</span>
               <span className="text-gray-900 dark:text-white">LAB</span>
             </span>
           </Link>

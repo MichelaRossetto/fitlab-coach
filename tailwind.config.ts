@@ -11,7 +11,7 @@ const config: Config = {
     extend: {
       colors: {
         fitlab: {
-          yellow: "#D4E600",
+          yellow: "#C0D738",
           black: "#111111",
         },
       },

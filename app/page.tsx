@@ -142,7 +142,7 @@ export default function Dashboard() {
         <div className="max-w-2xl mx-auto px-4 py-4 flex items-center justify-between">
           <div>
             <h1 className="font-black text-2xl tracking-tight leading-none">
-              <span style={{ color: "#D4E600" }}>FIT</span>
+              <span style={{ color: "#C0D738" }}>FIT</span>
               <span className="text-gray-900 dark:text-white">LAB</span>
             </h1>
             <p className="text-xs text-gray-400 mt-0.5">Michela · Coach App</p>
@@ -241,7 +241,7 @@ export default function Dashboard() {
                     className="w-11 h-11 rounded-full flex items-center justify-center flex-shrink-0
                                font-bold text-sm border-2"
                     style={{
-                      borderColor: "#D4E600",
+                      borderColor: "#C0D738",
                       backgroundColor: "#f9fce0",
                       color: "#111",
                     }}
