@@ -380,6 +380,25 @@ export default function ClientPage() {
           )}
         </div>
 
+        {/* Bottone PayPal — solo vista cliente */}
+        {isClientView && client.paypal_link && (
+          <div className="pb-2">
+            <a
+              href={client.paypal_link}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center justify-center gap-2.5 w-full py-3.5 rounded-2xl font-semibold text-white transition-opacity hover:opacity-90"
+              style={{ backgroundColor: "#003087" }}
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M7.076 21.337H2.47a.641.641 0 0 1-.633-.74L4.944 2.79A.859.859 0 0 1 5.79 2.1h7.373c2.573 0 4.35.565 5.278 1.68.894 1.073.894 2.48.457 4.128-.018.065-.035.13-.054.196C17.976 11.174 16.02 13 12.26 13H9.833a.859.859 0 0 0-.848.722l-.97 6.115a.641.641 0 0 1-.633.54h-.306z"/>
+                <path d="M20.995 7.503c-.018.113-.038.228-.06.345-.994 5.105-4.395 6.872-8.737 6.872H9.833a.859.859 0 0 0-.848.722l-1.272 8.057a.641.641 0 0 0 .633.74h4.44a.752.752 0 0 0 .743-.634l.03-.163.588-3.727.038-.205a.752.752 0 0 1 .743-.634h.468c3.03 0 5.403-1.23 6.097-4.79.29-1.487.14-2.728-.626-3.6a2.99 2.99 0 0 0-.855-.983z"/>
+              </svg>
+              Paga abbonamento con PayPal
+            </a>
+          </div>
+        )}
+
         {/* Delete — solo per coach */}
         {!isClientView && (
           <div className="pb-4 text-center">

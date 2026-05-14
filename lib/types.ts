@@ -7,6 +7,7 @@ export interface Client {
   phone: string | null;
   notes: string | null;
   subscription_end: string | null;
+  paypal_link: string | null;
 }
 
 export interface TrainingMonth {
