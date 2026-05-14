@@ -29,6 +29,9 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="it" suppressHydrationWarning>
+      <head>
+        <link rel="apple-touch-icon" sizes="180x180" href="/apple-icon.png" />
+      </head>
       <body className={`${inter.variable} font-sans`}>
         <ThemeProvider>{children}</ThemeProvider>
       </body>
