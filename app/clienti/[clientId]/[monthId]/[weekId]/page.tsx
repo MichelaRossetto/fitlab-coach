@@ -117,7 +117,7 @@ export default function WeekPage() {
     : null;
 
   if (loading) return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
       <Header backHref={`/clienti/${clientId}/${monthId}`} title="Caricamento..." />
       <div className="max-w-2xl mx-auto px-4 py-8 animate-pulse space-y-3">
         {[...Array(3)].map((_, i) => <div key={i} className="card h-24 bg-gray-100" />)}
@@ -135,7 +135,7 @@ export default function WeekPage() {
   );
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
       <Header
         backHref={`/clienti/${clientId}/${monthId}`}
         title={`Settimana ${week.week_number}`}
@@ -153,7 +153,7 @@ export default function WeekPage() {
         {(week.date_start || week.date_end || week.notes) && (
           <div className="card p-4">
             {(week.date_start || week.date_end) && (
-              <div className="flex items-center gap-2 text-sm text-gray-600">
+              <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
                 {week.date_start && <span className="capitalize">{formatDate(week.date_start)}</span>}
                 {week.date_start && week.date_end && <span>—</span>}
@@ -180,7 +180,7 @@ export default function WeekPage() {
                 <div key={day.id} className="card overflow-hidden">
                   <Link
                     href={`/clienti/${clientId}/${monthId}/${weekId}/${day.id}`}
-                    className="flex items-center gap-3.5 p-4 hover:bg-gray-50 transition-colors group"
+                    className="flex items-center gap-3.5 p-4 hover:bg-gray-50 transition-colors group dark:hover:bg-gray-700"
                   >
                     <div
                       className="w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm flex-shrink-0"
@@ -189,7 +189,7 @@ export default function WeekPage() {
                       D{day.day_number}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="font-semibold text-gray-900 text-sm">{day.label}</div>
+                      <div className="font-semibold text-gray-900 text-sm dark:text-gray-100">{day.label}</div>
                       {day.day_date && (
                         <div className="text-xs text-gray-400 mt-0.5 capitalize">{formatDate(day.day_date)}</div>
                       )}
@@ -216,13 +216,18 @@ export default function WeekPage() {
         </div>
 
         {/* Delete week */}
-        <div className="card p-4 border-red-100">
-          <p className="section-label text-red-400">Elimina settimana</p>
+        <div className="pb-4 text-center">
           {!deleteConfirm ? (
-            <button className="btn-danger text-sm w-full" onClick={() => setDeleteConfirm(true)}>Elimina Settimana {week.week_number}</button>
+            <button
+              className="text-xs text-gray-300 hover:text-red-400 transition-colors"
+              onClick={() => setDeleteConfirm(true)}
+            >
+              Elimina settimana
+            </button>
           ) : (
-            <div className="space-y-2">
-              <p className="text-sm text-red-600">Sicura? Verranno eliminati tutti i giorni e allenamenti di questa settimana.</p>
+            <div className="card p-4 border-red-100 text-center space-y-3">
+              <p className="text-sm text-red-500 font-medium">Eliminare la settimana {week.week_number}?</p>
+              <p className="text-xs text-gray-400">Questa azione è irreversibile e cancella tutti i giorni e gli allenamenti.</p>
               <div className="flex gap-2">
                 <button className="btn-secondary flex-1 text-sm" onClick={() => setDeleteConfirm(false)}>Annulla</button>
                 <button className="btn-danger flex-1 text-sm" onClick={handleDeleteWeek} disabled={deleting}>{deleting ? "Eliminando..." : "Sì, elimina"}</button>

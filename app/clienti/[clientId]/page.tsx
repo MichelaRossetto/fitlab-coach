@@ -122,20 +122,8 @@ export default function ClientPage() {
   const [loading, setLoading] = useState(true);
   const [showEdit, setShowEdit] = useState(false);
   const [showNewMonth, setShowNewMonth] = useState(false);
-  const [showRenew, setShowRenew] = useState(false);
-  const [renewDate, setRenewDate] = useState("");
-  const [renewSaving, setRenewSaving] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
-
-  const handleRenew = async () => {
-    if (!renewDate) return;
-    setRenewSaving(true);
-    await supabase.from("clients").update({ subscription_end: renewDate }).eq("id", clientId);
-    setRenewSaving(false);
-    setShowRenew(false);
-    fetch();
-  };
 
   const fetch = useCallback(async () => {
     setLoading(true);
@@ -158,7 +146,7 @@ export default function ClientPage() {
   };
 
   if (loading) return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
       <Header backHref="/" title="Caricamento..." />
       <div className="max-w-2xl mx-auto px-4 py-8">
         <div className="animate-pulse space-y-4">
@@ -179,7 +167,7 @@ export default function ClientPage() {
   );
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
       <Header
         backHref="/"
         title={`${client.name} ${client.surname}`}
@@ -203,24 +191,18 @@ export default function ClientPage() {
               {getInitials(client.name, client.surname)}
             </div>
             <div className="flex-1 min-w-0">
-              <h2 className="font-bold text-lg text-gray-900">{client.name} {client.surname}</h2>
+              <h2 className="font-bold text-lg text-gray-900 dark:text-gray-100">{client.name} {client.surname}</h2>
               <div className="flex items-center gap-2 flex-wrap">
                 <StatusBadge subscriptionEnd={client.subscription_end} />
-                <button
-                  onClick={() => { setRenewDate(client.subscription_end ?? ""); setShowRenew(true); }}
-                  className="text-xs text-gray-400 hover:text-gray-600 underline underline-offset-2 transition-colors"
-                >
-                  modifica scadenza
-                </button>
               </div>
               {client.email && (
-                <div className="flex items-center gap-1.5 mt-2 text-sm text-gray-500">
+                <div className="flex items-center gap-1.5 mt-2 text-sm text-gray-500 dark:text-gray-400">
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
                   {client.email}
                 </div>
               )}
               {client.phone && (
-                <div className="flex items-center gap-1.5 mt-1 text-sm text-gray-500">
+                <div className="flex items-center gap-1.5 mt-1 text-sm text-gray-500 dark:text-gray-400">
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 13a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.6 2.18h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L7.91 9.91a16 16 0 0 0 6.18 6.18l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
                   {client.phone}
                 </div>
@@ -254,10 +236,10 @@ export default function ClientPage() {
                 <Link
                   key={m.id}
                   href={`/clienti/${clientId}/${m.id}`}
-                  className="card p-4 flex items-center justify-between hover:bg-gray-50 transition-colors group"
+                  className="card p-4 flex items-center justify-between hover:bg-gray-50 transition-colors group dark:hover:bg-gray-700"
                 >
                   <div>
-                    <div className="font-semibold text-gray-900">{m.label}</div>
+                    <div className="font-semibold text-gray-900 dark:text-gray-100">{m.label}</div>
                     {m.notes && <div className="text-sm text-gray-400 mt-0.5">{m.notes}</div>}
                   </div>
                   <svg className="text-gray-300 group-hover:text-gray-500 transition-colors"
@@ -302,25 +284,6 @@ export default function ClientPage() {
         <NewMonthForm clientId={clientId} onSuccess={() => { setShowNewMonth(false); fetch(); }} onCancel={() => setShowNewMonth(false)} />
       </Modal>
 
-      <Modal open={showRenew} onClose={() => setShowRenew(false)} title="Modifica scadenza abbonamento">
-        <div className="space-y-4">
-          <div>
-            <label className="label">Nuova data di scadenza</label>
-            <input
-              className="input"
-              type="date"
-              value={renewDate}
-              onChange={e => setRenewDate(e.target.value)}
-            />
-          </div>
-          <div className="flex gap-2 pt-1">
-            <button className="btn-secondary flex-1" onClick={() => setShowRenew(false)}>Annulla</button>
-            <button className="btn-primary flex-1" onClick={handleRenew} disabled={renewSaving || !renewDate}>
-              {renewSaving ? "Salvo..." : "Salva"}
-            </button>
-          </div>
-        </div>
-      </Modal>
     </div>
   );
 }

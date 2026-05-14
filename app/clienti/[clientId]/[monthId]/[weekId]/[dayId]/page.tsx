@@ -36,7 +36,7 @@ interface ExerciseRowProps {
 function ExerciseRow({ exercise, editing, onUpdate, onDelete, onSave }: ExerciseRowProps) {
   if (editing) {
     return (
-      <div className="p-3 border-b border-gray-100 last:border-0 space-y-2 bg-amber-50">
+      <div className="p-3 border-b border-gray-100 last:border-0 space-y-2 bg-amber-50 dark:bg-amber-900/20 dark:border-gray-700">
         <input
           className="input text-sm font-medium"
           placeholder="Nome esercizio *"
@@ -68,7 +68,7 @@ function ExerciseRow({ exercise, editing, onUpdate, onDelete, onSave }: Exercise
           </div>
         </div>
         <div className="flex gap-2">
-          <button className="btn-danger flex-1 text-xs py-1.5" onClick={() => onDelete(exercise.id)}>Elimina</button>
+          <button className="text-xs text-gray-300 hover:text-red-400 transition-colors py-1.5" onClick={() => onDelete(exercise.id)}>Elimina</button>
           <button className="btn-primary flex-1 text-xs py-1.5" onClick={() => onSave(exercise.id)}>Salva</button>
         </div>
       </div>
@@ -76,28 +76,28 @@ function ExerciseRow({ exercise, editing, onUpdate, onDelete, onSave }: Exercise
   }
 
   return (
-    <div className="flex items-start gap-3 px-4 py-3 border-b border-gray-100 last:border-0">
+    <div className="flex items-start gap-3 px-4 py-3 border-b border-gray-100 last:border-0 dark:border-gray-700">
       <div className="w-1.5 h-1.5 rounded-full bg-gray-300 mt-2 flex-shrink-0" />
       <div className="flex-1 min-w-0">
-        <div className="font-medium text-sm text-gray-900">{exercise.name}</div>
+        <div className="font-medium text-sm text-gray-900 dark:text-gray-100">{exercise.name}</div>
         <div className="flex flex-wrap gap-2 mt-1">
           {exercise.sets && (
-            <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">
+            <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full dark:bg-gray-700 dark:text-gray-300">
               {exercise.sets} serie
             </span>
           )}
           {exercise.reps && (
-            <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">
+            <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full dark:bg-gray-700 dark:text-gray-300">
               {exercise.reps} reps
             </span>
           )}
           {exercise.load && (
-            <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full font-medium">
+            <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full font-medium dark:bg-gray-700 dark:text-gray-300">
               {exercise.load}
             </span>
           )}
           {exercise.rest_time && (
-            <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">
+            <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full dark:bg-gray-700 dark:text-gray-300">
               ⏱ {exercise.rest_time}
             </span>
           )}
@@ -128,13 +128,13 @@ function SectionBlock({ section, editingExId, onToggleEdit, onUpdateEx, onDelete
   return (
     <div className="card overflow-hidden">
       {/* Section header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-gray-700">
         <div className="flex items-center gap-2">
           <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
             style={{ backgroundColor: color + "20", color }}>
             {SECTION_ICONS[section.section_type]}
           </div>
-          <span className="font-bold text-sm text-gray-900 uppercase tracking-wide">
+          <span className="font-bold text-sm text-gray-900 uppercase tracking-wide dark:text-gray-100">
             {SECTION_LABELS[section.section_type]}
           </span>
           <span className="text-xs text-gray-400">{exercises.length} es.</span>
@@ -156,7 +156,7 @@ function SectionBlock({ section, editingExId, onToggleEdit, onUpdateEx, onDelete
         </div>
       ) : (
         exercises.map(ex => (
-          <div key={ex.id} onClick={() => !editingExId && onToggleEdit(ex.id)} className={editingExId === ex.id ? "" : "cursor-pointer hover:bg-gray-50 transition-colors"}>
+          <div key={ex.id} onClick={() => !editingExId && onToggleEdit(ex.id)} className={editingExId === ex.id ? "" : "cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"}>
             <ExerciseRow
               exercise={ex}
               editing={editingExId === ex.id}
@@ -299,7 +299,7 @@ export default function DayPage() {
   const totalExercises = sections.reduce((acc, s) => acc + (s.exercises?.length ?? 0), 0);
 
   if (loading) return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
       <Header backHref={`/clienti/${clientId}/${monthId}/${weekId}`} title="Caricamento..." />
       <div className="max-w-2xl mx-auto px-4 py-8 animate-pulse space-y-4">
         {[...Array(4)].map((_, i) => <div key={i} className="card h-32 bg-gray-100" />)}
@@ -317,7 +317,7 @@ export default function DayPage() {
   );
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
       <Header
         backHref={`/clienti/${clientId}/${monthId}/${weekId}`}
         title={day.label}
@@ -334,16 +334,16 @@ export default function DayPage() {
       <main className="max-w-2xl mx-auto px-4 py-5 space-y-4">
         {/* Edit hint */}
         {totalExercises > 0 && !editingExId && (
-          <div className="flex items-center gap-2 bg-blue-50 border border-blue-100 rounded-xl px-3 py-2">
+          <div className="flex items-center gap-2 bg-blue-50 border border-blue-100 rounded-xl px-3 py-2 dark:bg-blue-900/20 dark:border-blue-900/30">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#3B82F6" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-            <span className="text-xs text-blue-600">Tocca un esercizio per modificarlo</span>
+            <span className="text-xs text-blue-600 dark:text-blue-400">Tocca un esercizio per modificarlo</span>
           </div>
         )}
 
         {/* Notes */}
         {day.notes && (
           <div className="card p-4 border-l-4" style={{ borderLeftColor: "#D4E600" }}>
-            <p className="text-sm text-gray-600 italic">{day.notes}</p>
+            <p className="text-sm text-gray-600 italic dark:text-gray-300">{day.notes}</p>
           </div>
         )}
 

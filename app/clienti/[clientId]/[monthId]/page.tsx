@@ -95,7 +95,7 @@ export default function MonthPage() {
   const formatDate = (d: string | null) => d ? new Date(d).toLocaleDateString("it-IT", { day: "2-digit", month: "2-digit" }) : "";
 
   if (loading) return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
       <Header backHref={`/clienti/${clientId}`} title="Caricamento..." />
       <div className="max-w-2xl mx-auto px-4 py-8 animate-pulse space-y-3">
         {[...Array(3)].map((_, i) => <div key={i} className="card h-20 bg-gray-100" />)}
@@ -113,7 +113,7 @@ export default function MonthPage() {
   );
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
       <Header
         backHref={`/clienti/${clientId}`}
         title={month.label}
@@ -129,7 +129,7 @@ export default function MonthPage() {
       <main className="max-w-2xl mx-auto px-4 py-5 space-y-5">
         {month.notes && (
           <div className="card p-4 border-l-4" style={{ borderLeftColor: "#D4E600" }}>
-            <p className="text-sm text-gray-600 italic">{month.notes}</p>
+            <p className="text-sm text-gray-600 italic dark:text-gray-300">{month.notes}</p>
           </div>
         )}
 
@@ -149,7 +149,7 @@ export default function MonthPage() {
                 <Link
                   key={week.id}
                   href={`/clienti/${clientId}/${monthId}/${week.id}`}
-                  className="card p-4 flex items-center justify-between hover:bg-gray-50 transition-colors group"
+                  className="card p-4 flex items-center justify-between hover:bg-gray-50 transition-colors group dark:hover:bg-gray-700"
                 >
                   <div className="flex items-center gap-3">
                     <div
@@ -159,7 +159,7 @@ export default function MonthPage() {
                       S{week.week_number}
                     </div>
                     <div>
-                      <div className="font-semibold text-gray-900">Settimana {week.week_number}</div>
+                      <div className="font-semibold text-gray-900 dark:text-gray-100">Settimana {week.week_number}</div>
                       {(week.date_start || week.date_end) && (
                         <div className="text-sm text-gray-400 mt-0.5">
                           {formatDate(week.date_start)} — {formatDate(week.date_end)}
@@ -179,15 +179,18 @@ export default function MonthPage() {
         </div>
 
         {/* Delete */}
-        <div className="card p-4 border-red-100">
-          <p className="section-label text-red-400">Elimina mese</p>
+        <div className="pb-4 text-center">
           {!deleteConfirm ? (
-            <button className="btn-danger text-sm w-full" onClick={() => setDeleteConfirm(true)}>
-              Elimina {month.label}
+            <button
+              className="text-xs text-gray-300 hover:text-red-400 transition-colors"
+              onClick={() => setDeleteConfirm(true)}
+            >
+              Elimina mese
             </button>
           ) : (
-            <div className="space-y-2">
-              <p className="text-sm text-red-600">Sicura? Verranno eliminati anche tutte le settimane e gli allenamenti di questo mese.</p>
+            <div className="card p-4 border-red-100 text-center space-y-3">
+              <p className="text-sm text-red-500 font-medium">Eliminare {month.label}?</p>
+              <p className="text-xs text-gray-400">Questa azione è irreversibile e cancella tutte le settimane e gli allenamenti.</p>
               <div className="flex gap-2">
                 <button className="btn-secondary flex-1 text-sm" onClick={() => setDeleteConfirm(false)}>Annulla</button>
                 <button className="btn-danger flex-1 text-sm" onClick={handleDeleteMonth} disabled={deleting}>{deleting ? "Eliminando..." : "Sì, elimina"}</button>

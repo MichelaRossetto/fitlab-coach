@@ -10,9 +10,9 @@ import { Modal } from "@/components/Modal";
 // ─── Stat card ───────────────────────────────────────────────
 function StatCard({ label, value, color }: { label: string; value: number; color: string }) {
   return (
-    <div className="bg-white rounded-xl border border-gray-100 p-3 text-center">
+    <div className="bg-white rounded-xl border border-gray-100 p-3 text-center dark:bg-gray-800 dark:border-gray-700">
       <div className={`text-2xl font-bold ${color}`}>{value}</div>
-      <div className="text-[11px] text-gray-500 mt-0.5">{label}</div>
+      <div className="text-[11px] text-gray-500 mt-0.5 dark:text-gray-400">{label}</div>
     </div>
   );
 }
@@ -98,6 +98,11 @@ function NewClientForm({ onSuccess, onCancel }: NewClientFormProps) {
 export default function Dashboard() {
   const router = useRouter();
   const [clients, setClients] = useState<Client[]>([]);
+
+  const toggleTheme = () => {
+    const isDark = document.documentElement.classList.toggle("dark");
+    localStorage.setItem("theme", isDark ? "dark" : "light");
+  };
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [showModal, setShowModal] = useState(false);
@@ -131,24 +136,38 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
       {/* Header */}
-      <header className="bg-white border-b border-gray-100 sticky top-0 z-40">
+      <header className="bg-white border-b border-gray-100 sticky top-0 z-40 dark:bg-gray-900 dark:border-gray-700">
         <div className="max-w-2xl mx-auto px-4 py-4 flex items-center justify-between">
           <div>
             <h1 className="font-black text-2xl tracking-tight leading-none">
               <span style={{ color: "#D4E600" }}>FIT</span>
-              <span className="text-gray-900">LAB</span>
+              <span className="text-gray-900 dark:text-white">LAB</span>
             </h1>
             <p className="text-xs text-gray-400 mt-0.5">Michela · Coach App</p>
           </div>
-          <button
-            onClick={() => setShowModal(true)}
-            className="flex items-center gap-2 btn-primary text-sm"
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 5v14M5 12h14"/></svg>
-            Nuovo cliente
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={toggleTheme}
+              className="text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300 transition-colors"
+            >
+              {/* Luna visibile in light mode, sole in dark mode */}
+              <svg className="dark:hidden" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+              </svg>
+              <svg className="hidden dark:block" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+              </svg>
+            </button>
+            <button
+              onClick={() => setShowModal(true)}
+              className="flex items-center gap-2 btn-primary text-sm"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 5v14M5 12h14"/></svg>
+              Nuovo cliente
+            </button>
+          </div>
         </div>
       </header>
 
@@ -156,7 +175,7 @@ export default function Dashboard() {
         {/* Stats */}
         {!loading && clients.length > 0 && (
           <div className="grid grid-cols-3 gap-3">
-            <StatCard label="Totali" value={stats.total} color="text-gray-900" />
+            <StatCard label="Totali" value={stats.total} color="text-gray-900 dark:text-gray-100" />
             <StatCard label="In scadenza" value={stats.expiring} color="text-amber-600" />
             <StatCard label="Scaduti" value={stats.expired} color="text-red-500" />
           </div>
@@ -210,12 +229,12 @@ export default function Dashboard() {
         ) : (
           <div>
             <p className="section-label">{sorted.length} client{sorted.length === 1 ? "e" : "i"}</p>
-            <div className="card divide-y divide-gray-50">
+            <div className="card divide-y divide-gray-50 dark:divide-gray-700">
               {sorted.map(client => (
                 <Link
                   key={client.id}
                   href={`/clienti/${client.id}`}
-                  className="flex items-center gap-3.5 p-4 hover:bg-gray-50 transition-colors group"
+                  className="flex items-center gap-3.5 p-4 hover:bg-gray-50 transition-colors group dark:hover:bg-gray-700"
                 >
                   {/* Avatar */}
                   <div
@@ -232,7 +251,7 @@ export default function Dashboard() {
 
                   {/* Info */}
                   <div className="flex-1 min-w-0">
-                    <div className="font-semibold text-gray-900 text-sm truncate">
+                    <div className="font-semibold text-gray-900 text-sm truncate dark:text-gray-100">
                       {client.name} {client.surname}
                     </div>
                     <div className="mt-1">
