@@ -87,6 +87,19 @@ export const SECTION_LABELS: Record<SectionType, string> = {
 
 export const SECTION_ORDER: SectionType[] = ["warmup", "strength", "accessories", "workout"];
 
+export interface ExerciseLibrary {
+  id: string;
+  created_at: string;
+  name: string;
+  category: string;
+  subcategory: string | null;
+  sub_subcategory: string | null;
+}
+
+export const LIBRARY_CATEGORIES = ["WARMUP", "FORZA", "ACCESSORI", "CORE TRAINING", "WORKOUT"] as const;
+export const WARMUP_SUBCATEGORIES = ["CARDIO", "MOBILITÀ", "ATTIVAZIONE"] as const;
+export const WARMUP_SUB_SUBCATEGORIES = ["UPPER", "LOWER", "FULL"] as const;
+
 export const MONTH_NAMES = [
   "Gennaio", "Febbraio", "Marzo", "Aprile", "Maggio", "Giugno",
   "Luglio", "Agosto", "Settembre", "Ottobre", "Novembre", "Dicembre",
