@@ -1,6 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { supabase } from "@/lib/supabase";
 
 interface HeaderProps {
   backHref?: string;
@@ -11,6 +12,11 @@ interface HeaderProps {
 
 export function Header({ backHref, title, subtitle, right }: HeaderProps) {
   const router = useRouter();
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    router.push("/login");
+  };
 
   return (
     <header className="bg-white border-b border-gray-100 sticky top-0 z-40">
@@ -23,7 +29,20 @@ export function Header({ backHref, title, subtitle, right }: HeaderProps) {
               <span className="text-gray-900">LAB</span>
             </span>
           </Link>
-          <span className="text-xs text-gray-400 font-medium">Michela · Coach</span>
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-gray-400 font-medium">Michela · Coach</span>
+            <button
+              onClick={handleLogout}
+              className="text-xs text-gray-300 hover:text-gray-500 transition-colors"
+              title="Esci"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+                <polyline points="16 17 21 12 16 7"/>
+                <line x1="21" y1="12" x2="9" y2="12"/>
+              </svg>
+            </button>
+          </div>
         </div>
 
         {/* Sub-header with back + title */}
