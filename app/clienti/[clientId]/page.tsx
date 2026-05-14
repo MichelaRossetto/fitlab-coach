@@ -227,6 +227,7 @@ export default function ClientPage() {
   const [months, setMonths] = useState<TrainingMonth[]>([]);
   const [lastWeekAny, setLastWeekAny] = useState<TrainingWeek | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isClientView, setIsClientView] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [showNewMonth, setShowNewMonth] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
@@ -234,13 +235,19 @@ export default function ClientPage() {
 
   const fetch = useCallback(async () => {
     setLoading(true);
-    const [{ data: c }, { data: m }] = await Promise.all([
+    const [{ data: c }, { data: m }, { data: userData }] = await Promise.all([
       supabase.from("clients").select("*").eq("id", clientId).single(),
       supabase.from("training_months").select("*").eq("client_id", clientId)
         .order("year", { ascending: false }).order("month_num", { ascending: false }),
+      supabase.auth.getUser(),
     ]);
     setClient(c);
     setMonths(m ?? []);
+
+    // Se l'utente loggato è il cliente stesso → vista sola lettura
+    if (c && userData.user?.email === c.email) {
+      setIsClientView(true);
+    }
 
     const { data: allWeeks } = await supabase
       .from("training_weeks")
@@ -286,13 +293,15 @@ export default function ClientPage() {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
       <Header
-        backHref="/"
+        backHref={isClientView ? undefined : "/"}
         title={`${client.name} ${client.surname}`}
-        subtitle="Profilo cliente"
+        subtitle={isClientView ? "Il tuo piano" : "Profilo cliente"}
         right={
-          <button onClick={() => setShowEdit(true)} className="btn-secondary text-xs py-1.5 px-3">
-            Modifica
-          </button>
+          !isClientView ? (
+            <button onClick={() => setShowEdit(true)} className="btn-secondary text-xs py-1.5 px-3">
+              Modifica
+            </button>
+          ) : undefined
         }
       />
 
@@ -335,10 +344,12 @@ export default function ClientPage() {
         <div>
           <div className="flex items-center justify-between mb-3">
             <p className="section-label">Programmi di allenamento</p>
-            <button onClick={() => setShowNewMonth(true)} className="btn-primary text-xs py-1.5 px-3 flex items-center gap-1">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 5v14M5 12h14"/></svg>
-              Aggiungi mese
-            </button>
+            {!isClientView && (
+              <button onClick={() => setShowNewMonth(true)} className="btn-primary text-xs py-1.5 px-3 flex items-center gap-1">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 5v14M5 12h14"/></svg>
+                Aggiungi mese
+              </button>
+            )}
           </div>
 
           {months.length === 0 ? (
@@ -369,28 +380,30 @@ export default function ClientPage() {
           )}
         </div>
 
-        {/* Delete — small and discrete at the bottom */}
-        <div className="pb-4 text-center">
-          {!deleteConfirm ? (
-            <button
-              className="text-xs text-gray-300 hover:text-red-400 transition-colors"
-              onClick={() => setDeleteConfirm(true)}
-            >
-              Elimina cliente
-            </button>
-          ) : (
-            <div className="card p-4 border-red-100 text-center space-y-3">
-              <p className="text-sm text-red-500 font-medium">Eliminare {client.name} {client.surname}?</p>
-              <p className="text-xs text-gray-400">Questa azione è irreversibile e cancella tutti gli allenamenti.</p>
-              <div className="flex gap-2">
-                <button className="btn-secondary flex-1 text-sm" onClick={() => setDeleteConfirm(false)}>Annulla</button>
-                <button className="btn-danger flex-1 text-sm" onClick={handleDelete} disabled={deleting}>
-                  {deleting ? "Eliminando..." : "Sì, elimina"}
-                </button>
+        {/* Delete — solo per coach */}
+        {!isClientView && (
+          <div className="pb-4 text-center">
+            {!deleteConfirm ? (
+              <button
+                className="text-xs text-gray-300 hover:text-red-400 transition-colors"
+                onClick={() => setDeleteConfirm(true)}
+              >
+                Elimina cliente
+              </button>
+            ) : (
+              <div className="card p-4 border-red-100 text-center space-y-3">
+                <p className="text-sm text-red-500 font-medium">Eliminare {client.name} {client.surname}?</p>
+                <p className="text-xs text-gray-400">Questa azione è irreversibile e cancella tutti gli allenamenti.</p>
+                <div className="flex gap-2">
+                  <button className="btn-secondary flex-1 text-sm" onClick={() => setDeleteConfirm(false)}>Annulla</button>
+                  <button className="btn-danger flex-1 text-sm" onClick={handleDelete} disabled={deleting}>
+                    {deleting ? "Eliminando..." : "Sì, elimina"}
+                  </button>
+                </div>
               </div>
-            </div>
-          )}
-        </div>
+            )}
+          </div>
+        )}
       </main>
 
       <Modal open={showEdit} onClose={() => setShowEdit(false)} title="Modifica cliente">
