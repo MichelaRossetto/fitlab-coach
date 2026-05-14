@@ -79,6 +79,7 @@ export default function WeekPage() {
   const [days, setDays] = useState<TrainingDay[]>([]);
   const [monthLabel, setMonthLabel] = useState("");
   const [clientName, setClientName] = useState("");
+  const [isClientView, setIsClientView] = useState(false);
   const [loading, setLoading] = useState(true);
   const [showNewDay, setShowNewDay] = useState(false);
   const [showEditDates, setShowEditDates] = useState(false);
@@ -101,16 +102,20 @@ export default function WeekPage() {
 
   const fetch = useCallback(async () => {
     setLoading(true);
-    const [{ data: w }, { data: d }, { data: m }, { data: c }] = await Promise.all([
+    const [{ data: w }, { data: d }, { data: m }, { data: c }, { data: userData }] = await Promise.all([
       supabase.from("training_weeks").select("*").eq("id", weekId).single(),
       supabase.from("training_days").select("*").eq("week_id", weekId).order("day_number"),
       supabase.from("training_months").select("label").eq("id", monthId).single(),
-      supabase.from("clients").select("name, surname").eq("id", clientId).single(),
+      supabase.from("clients").select("name, surname, email").eq("id", clientId).single(),
+      supabase.auth.getUser(),
     ]);
     setWeek(w);
     setDays(d ?? []);
     if (m) setMonthLabel(m.label);
-    if (c) setClientName(`${c.name} ${c.surname}`);
+    if (c) {
+      setClientName(`${c.name} ${c.surname}`);
+      setIsClientView(c.email === userData.user?.email);
+    }
     setLoading(false);
   }, [weekId, monthId, clientId]);
 
@@ -155,12 +160,12 @@ export default function WeekPage() {
         backHref={`/clienti/${clientId}/${monthId}`}
         title={`Settimana ${week.week_number}`}
         subtitle={`${clientName} · ${monthLabel}`}
-        right={
+        right={!isClientView ? (
           <button onClick={() => setShowNewDay(true)} className="btn-primary text-xs py-1.5 px-3 flex items-center gap-1">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 5v14M5 12h14"/></svg>
             Giorno
           </button>
-        }
+        ) : undefined}
       />
 
       <main className="max-w-2xl mx-auto px-4 py-5 space-y-5">
@@ -174,12 +179,14 @@ export default function WeekPage() {
                 : <span className="text-gray-400 dark:text-gray-500">Nessuna data</span>
               }
             </div>
-            <button
-              onClick={() => { setEditDateStart(week.date_start ?? ""); setEditDateEnd(week.date_end ?? ""); setShowEditDates(true); }}
-              className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 underline underline-offset-2 transition-colors"
-            >
-              modifica
-            </button>
+            {!isClientView && (
+              <button
+                onClick={() => { setEditDateStart(week.date_start ?? ""); setEditDateEnd(week.date_end ?? ""); setShowEditDates(true); }}
+                className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 underline underline-offset-2 transition-colors"
+              >
+                modifica
+              </button>
+            )}
           </div>
           {week.notes && <p className="text-sm text-gray-500 italic mt-2 dark:text-gray-400">{week.notes}</p>}
         </div>
@@ -192,7 +199,7 @@ export default function WeekPage() {
             <div className="card p-8 text-center">
               <div className="text-3xl mb-2">⚡</div>
               <p className="text-sm text-gray-500">Nessun giorno ancora.</p>
-              <button className="btn-primary mt-3 text-sm" onClick={() => setShowNewDay(true)}>Crea Giorno 1</button>
+              {!isClientView && <button className="btn-primary mt-3 text-sm" onClick={() => setShowNewDay(true)}>Crea Giorno 1</button>}
             </div>
           ) : (
             <div className="space-y-3">
@@ -220,23 +227,25 @@ export default function WeekPage() {
                       <path d="M9 18l6-6-6-6"/>
                     </svg>
                   </Link>
-                  {/* Quick delete row */}
-                  <div className="px-4 pb-3 flex justify-end">
-                    <button
-                      onClick={() => handleDeleteDay(day.id)}
-                      className="text-xs text-red-400 hover:text-red-600 transition-colors"
-                    >
-                      Elimina giorno
-                    </button>
-                  </div>
+                  {/* Quick delete row — solo coach */}
+                  {!isClientView && (
+                    <div className="px-4 pb-3 flex justify-end">
+                      <button
+                        onClick={() => handleDeleteDay(day.id)}
+                        className="text-xs text-red-400 hover:text-red-600 transition-colors"
+                      >
+                        Elimina giorno
+                      </button>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
           )}
         </div>
 
-        {/* Delete week */}
-        <div className="pb-4 text-center">
+        {/* Delete week — solo coach */}
+        {!isClientView && <div className="pb-4 text-center">
           {!deleteConfirm ? (
             <button
               className="text-xs text-gray-300 hover:text-red-400 transition-colors"
@@ -254,7 +263,7 @@ export default function WeekPage() {
               </div>
             </div>
           )}
-        </div>
+        </div>}
       </main>
 
       <Modal open={showEditDates} onClose={() => setShowEditDates(false)} title="Modifica date settimana">

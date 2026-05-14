@@ -102,6 +102,7 @@ export default function MonthPage() {
   const [lastWeekAny, setLastWeekAny] = useState<TrainingWeek | null>(null);
   const [subscriptionEnd, setSubscriptionEnd] = useState<string | null>(null);
   const [clientName, setClientName] = useState("");
+  const [isClientView, setIsClientView] = useState(false);
   const [loading, setLoading] = useState(true);
   const [showNewWeek, setShowNewWeek] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
@@ -109,14 +110,19 @@ export default function MonthPage() {
 
   const fetch = useCallback(async () => {
     setLoading(true);
-    const [{ data: m }, { data: w }, { data: c }] = await Promise.all([
+    const [{ data: m }, { data: w }, { data: c }, { data: userData }] = await Promise.all([
       supabase.from("training_months").select("*").eq("id", monthId).single(),
       supabase.from("training_weeks").select("*").eq("month_id", monthId).order("week_number"),
-      supabase.from("clients").select("name, surname, subscription_end").eq("id", clientId).single(),
+      supabase.from("clients").select("name, surname, subscription_end, email").eq("id", clientId).single(),
+      supabase.auth.getUser(),
     ]);
     setMonth(m);
     setWeeks(w ?? []);
-    if (c) { setClientName(`${c.name} ${c.surname}`); setSubscriptionEnd(c.subscription_end ?? null); }
+    if (c) {
+      setClientName(`${c.name} ${c.surname}`);
+      setSubscriptionEnd(c.subscription_end ?? null);
+      setIsClientView(c.email === userData.user?.email);
+    }
 
     // Ultima settimana con data_end tra tutti i mesi del cliente
     const { data: allWeeks } = await supabase
@@ -165,12 +171,12 @@ export default function MonthPage() {
         backHref={`/clienti/${clientId}`}
         title={month.label}
         subtitle={clientName}
-        right={
+        right={!isClientView ? (
           <button onClick={() => setShowNewWeek(true)} className="btn-primary text-xs py-1.5 px-3 flex items-center gap-1">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 5v14M5 12h14"/></svg>
             Aggiungi
           </button>
-        }
+        ) : undefined}
       />
 
       <main className="max-w-2xl mx-auto px-4 py-5 space-y-5">
@@ -188,7 +194,7 @@ export default function MonthPage() {
             <div className="card p-8 text-center">
               <div className="text-3xl mb-2">📋</div>
               <p className="text-sm text-gray-500">Nessuna settimana ancora.</p>
-              <button className="btn-primary mt-3 text-sm" onClick={() => setShowNewWeek(true)}>Crea Settimana 1</button>
+              {!isClientView && <button className="btn-primary mt-3 text-sm" onClick={() => setShowNewWeek(true)}>Crea Settimana 1</button>}
             </div>
           ) : (
             <div className="space-y-3">
@@ -225,8 +231,8 @@ export default function MonthPage() {
           )}
         </div>
 
-        {/* Delete */}
-        <div className="pb-4 text-center">
+        {/* Delete — solo coach */}
+        {!isClientView && <div className="pb-4 text-center">
           {!deleteConfirm ? (
             <button
               className="text-xs text-gray-300 hover:text-red-400 transition-colors"
@@ -244,7 +250,7 @@ export default function MonthPage() {
               </div>
             </div>
           )}
-        </div>
+        </div>}
       </main>
 
       <Modal open={showNewWeek} onClose={() => setShowNewWeek(false)} title="Nuova settimana">
