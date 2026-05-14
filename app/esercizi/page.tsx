@@ -138,6 +138,19 @@ export default function EserciziPage() {
     (e.subcategory ?? "").toLowerCase().includes(search.toLowerCase())
   );
 
+  // Apri automaticamente le categorie con risultati quando si cerca
+  useEffect(() => {
+    if (search.trim()) {
+      const newOpen: Record<string, boolean> = {};
+      LIBRARY_CATEGORIES.forEach(cat => {
+        newOpen[cat] = filtered.some(e => e.category === cat);
+      });
+      setOpenCategories(newOpen);
+    } else {
+      setOpenCategories({});
+    }
+  }, [search, exercises]);
+
   // Raggruppa: category → subcategory → sub_subcategory → esercizi
   const grouped = LIBRARY_CATEGORIES.reduce((acc, cat) => {
     const catExercises = filtered.filter(e => e.category === cat);
@@ -195,7 +208,7 @@ export default function EserciziPage() {
             {LIBRARY_CATEGORIES.map(cat => {
               if (!grouped[cat]) return null;
               const color = CATEGORY_COLOR[cat];
-              const isOpen = openCategories[cat] !== false; // aperto di default
+              const isOpen = openCategories[cat] === true; // chiuso di default
               const count = filtered.filter(e => e.category === cat).length;
 
               return (
@@ -221,27 +234,35 @@ export default function EserciziPage() {
                       {cat === "WARMUP" ? (
                         // WARMUP: subcategory → sub_subcategory
                         Object.entries(grouped[cat]).map(([sub, subData]: [string, any]) => (
-                          <div key={sub}>
-                            <div className="px-4 py-2 bg-gray-50 dark:bg-gray-800">
-                              <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{sub}</span>
+                          <div key={sub} className="mb-1">
+                            {/* Badge sottocategoria */}
+                            <div className="px-4 pt-3 pb-2 flex items-center gap-2">
+                              <span className="px-2.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider text-black" style={{ backgroundColor: "#C0D738" }}>{sub}</span>
                             </div>
                             {sub === "CARDIO" ? (
-                              subData["_"].map((ex: ExerciseLibrary) => <ExerciseRow key={ex.id} ex={ex} onDelete={() => setDeleteId(ex.id)} />)
+                              <div className="mx-4 mb-3 rounded-xl border border-gray-100 dark:border-gray-700 overflow-hidden">
+                                {subData["_"].map((ex: ExerciseLibrary) => <ExerciseRow key={ex.id} ex={ex} onDelete={() => setDeleteId(ex.id)} />)}
+                              </div>
                             ) : (
-                              Object.entries(subData).map(([zone, zoneExs]: [string, any]) => (
-                                <div key={zone}>
-                                  <div className="px-6 py-1.5 bg-gray-50/50 dark:bg-gray-800/50 flex items-center gap-2">
-                                    <span className="text-[11px] font-medium text-gray-400 uppercase tracking-wider">{zone}</span>
+                              <div className="mx-4 mb-3 space-y-2">
+                                {Object.entries(subData).map(([zone, zoneExs]: [string, any]) => (
+                                  <div key={zone} className="rounded-xl border border-gray-100 dark:border-gray-700 overflow-hidden">
+                                    {/* Badge zona */}
+                                    <div className="px-3 py-1.5 bg-gray-100 dark:bg-gray-700 flex items-center gap-2">
+                                      <span className="text-[11px] font-bold uppercase tracking-widest text-gray-500 dark:text-gray-300">{zone}</span>
+                                    </div>
+                                    {zoneExs.map((ex: ExerciseLibrary) => <ExerciseRow key={ex.id} ex={ex} onDelete={() => setDeleteId(ex.id)} />)}
                                   </div>
-                                  {zoneExs.map((ex: ExerciseLibrary) => <ExerciseRow key={ex.id} ex={ex} onDelete={() => setDeleteId(ex.id)} indent />)}
-                                </div>
-                              ))
+                                ))}
+                              </div>
                             )}
                           </div>
                         ))
                       ) : (
                         // Altre categorie: lista piatta
-                        grouped[cat]["_"]["_"].map((ex: ExerciseLibrary) => <ExerciseRow key={ex.id} ex={ex} onDelete={() => setDeleteId(ex.id)} />)
+                        <div className="mx-4 my-3 rounded-xl border border-gray-100 dark:border-gray-700 overflow-hidden">
+                          {grouped[cat]["_"]["_"].map((ex: ExerciseLibrary) => <ExerciseRow key={ex.id} ex={ex} onDelete={() => setDeleteId(ex.id)} />)}
+                        </div>
                       )}
                     </div>
                   )}
