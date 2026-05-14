@@ -9,6 +9,14 @@ export const metadata: Metadata = {
   title: "FitLab · Coach App",
   description: "Gestionale allenamenti per personal trainer",
   manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "FitLab",
+  },
+  icons: {
+    apple: "/icon-192.png",
+  },
 };
 
 export const viewport: Viewport = {

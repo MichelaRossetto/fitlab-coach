@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
-import { Client, TrainingMonth, getInitials, MONTH_NAMES } from "@/lib/types";
+import { Client, TrainingMonth, TrainingWeek, getInitials, MONTH_NAMES } from "@/lib/types";
 import { Header } from "@/components/Header";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Modal } from "@/components/Modal";
@@ -58,30 +58,103 @@ function EditClientForm({ client, onSuccess, onCancel }: {
 }
 
 // ─── New Month Form ───────────────────────────────────────────
-function NewMonthForm({ clientId, onSuccess, onCancel }: {
-  clientId: string; onSuccess: () => void; onCancel: () => void;
+function NewMonthForm({ clientId, existingMonths, lastWeekAny, subscriptionEnd, onSuccess, onCancel }: {
+  clientId: string; existingMonths: TrainingMonth[]; lastWeekAny: TrainingWeek | null; subscriptionEnd: string | null; onSuccess: () => void; onCancel: () => void;
 }) {
   const now = new Date();
-  const [year, setYear] = useState(now.getFullYear());
-  const [month, setMonth] = useState(now.getMonth() + 1);
+  const nextMonth = (() => {
+    if (existingMonths.length === 0) return { year: now.getFullYear(), month: now.getMonth() + 1 };
+    const latest = existingMonths.reduce((a, b) =>
+      a.year !== b.year ? (a.year > b.year ? a : b) : (a.month_num > b.month_num ? a : b)
+    );
+    return latest.month_num === 12
+      ? { year: latest.year + 1, month: 1 }
+      : { year: latest.year, month: latest.month_num + 1 };
+  })();
+
+  const calcStartDate = () => {
+    const nextMonday = (from: Date) => {
+      const d = new Date(from);
+      const day = d.getDay();
+      const daysToMonday = day === 1 ? 0 : day === 0 ? 1 : 8 - day;
+      d.setDate(d.getDate() + daysToMonday);
+      return d;
+    };
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const c1 = lastWeekAny?.date_end
+      ? nextMonday(new Date(new Date(lastWeekAny.date_end).setDate(new Date(lastWeekAny.date_end).getDate() + 1)))
+      : null;
+    const c2 = subscriptionEnd
+      ? nextMonday(new Date(new Date(subscriptionEnd).setDate(new Date(subscriptionEnd).getDate() + 1)))
+      : null;
+    let start = nextMonday(today);
+    if (c1 && c1 >= today && c1 > start) start = c1;
+    if (c2 && c2 >= today && c2 > start) start = c2;
+    return start.toISOString().split("T")[0];
+  };
+
+  const [year, setYear] = useState(nextMonth.year);
+  const [month, setMonth] = useState(nextMonth.month);
   const [notes, setNotes] = useState("");
+  const [weekCount, setWeekCount] = useState(4);
+  const [daysPerWeek, setDaysPerWeek] = useState(3);
+  const [startDate, setStartDate] = useState(calcStartDate);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    setStartDate(calcStartDate());
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lastWeekAny, subscriptionEnd]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
     const label = `${MONTH_NAMES[month - 1]} ${year}`;
-    const { error: err } = await supabase.from("training_months").insert({
+    const { data: newMonth, error: err } = await supabase.from("training_months").insert({
       client_id: clientId, label, year, month_num: month,
       notes: notes.trim() || null,
-    });
+    }).select().single();
+    if (err) { setSaving(false); setError(err.message); return; }
+
+    if (weekCount > 0 && newMonth) {
+      const weeksToInsert = [];
+      let cur = new Date(startDate);
+      for (let i = 0; i < weekCount; i++) {
+        const end = new Date(cur);
+        end.setDate(end.getDate() + 4);
+        weeksToInsert.push({
+          month_id: newMonth.id,
+          week_number: i + 1,
+          date_start: cur.toISOString().split("T")[0],
+          date_end: end.toISOString().split("T")[0],
+          notes: null,
+        });
+        cur = new Date(cur);
+        cur.setDate(cur.getDate() + 7);
+      }
+      const { data: createdWeeks } = await supabase.from("training_weeks").insert(weeksToInsert).select();
+
+      if (daysPerWeek > 0 && createdWeeks) {
+        const daysToInsert = createdWeeks.flatMap(w =>
+          Array.from({ length: daysPerWeek }, (_, j) => ({
+            week_id: w.id,
+            day_number: j + 1,
+            label: `Giorno ${j + 1}`,
+            day_date: null,
+            notes: null,
+          }))
+        );
+        await supabase.from("training_days").insert(daysToInsert);
+      }
+    }
+
     setSaving(false);
-    if (err) { setError(err.message); return; }
     onSuccess();
   };
 
-  const years = [now.getFullYear() - 1, now.getFullYear(), now.getFullYear() + 1];
+  const years = [now.getFullYear() - 1, now.getFullYear(), now.getFullYear() + 1, now.getFullYear() + 2];
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
@@ -102,10 +175,43 @@ function NewMonthForm({ clientId, onSuccess, onCancel }: {
       <div><label className="label">Note (opzionale)</label>
         <textarea className="input resize-none" rows={2} placeholder="Obiettivi del mese..." value={notes} onChange={e => setNotes(e.target.value)} />
       </div>
+
+      {/* Auto-generate weeks */}
+      <div className="border-t border-gray-100 dark:border-gray-700 pt-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <label className="label mb-0 text-gray-700 dark:text-gray-300">Settimane da creare</label>
+          <select className="input w-20 text-center" value={weekCount} onChange={e => setWeekCount(Number(e.target.value))}>
+            {[0, 1, 2, 3, 4, 5, 6, 7, 8].map(n => <option key={n} value={n}>{n}</option>)}
+          </select>
+        </div>
+        {weekCount > 0 && (
+          <>
+            <div className="flex items-center justify-between">
+              <label className="label mb-0 text-gray-700 dark:text-gray-300">Giorni per settimana</label>
+              <select className="input w-20 text-center" value={daysPerWeek} onChange={e => setDaysPerWeek(Number(e.target.value))}>
+                {[0, 1, 2, 3, 4, 5, 6, 7].map(n => <option key={n} value={n}>{n}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="label">A partire dal (lunedì)</label>
+              <input className="input" type="date" value={startDate} onChange={e => setStartDate(e.target.value)} />
+              <p className="text-xs text-gray-400 mt-1.5">
+                {weekCount} settiman{weekCount === 1 ? "a" : "e"} lun–ven
+                {daysPerWeek > 0 ? ` · ${daysPerWeek} giorn${daysPerWeek === 1 ? "o" : "i"}/sett. · ${weekCount * daysPerWeek} giorni totali` : ""}
+              </p>
+            </div>
+          </>
+        )}
+      </div>
+
       {error && <p className="text-sm text-red-500">{error}</p>}
       <div className="flex gap-2 pt-1">
         <button type="button" className="btn-secondary flex-1" onClick={onCancel}>Annulla</button>
-        <button type="submit" className="btn-primary flex-1" disabled={saving}>{saving ? "Creo..." : "Crea mese"}</button>
+        <button type="submit" className="btn-primary flex-1" disabled={saving}>
+          {saving ? "Creo..." : weekCount > 0
+            ? `Crea mese + ${weekCount}sett${daysPerWeek > 0 ? ` + ${daysPerWeek}gg/sett` : ""}`
+            : "Crea mese"}
+        </button>
       </div>
     </form>
   );
@@ -119,6 +225,7 @@ export default function ClientPage() {
 
   const [client, setClient] = useState<Client | null>(null);
   const [months, setMonths] = useState<TrainingMonth[]>([]);
+  const [lastWeekAny, setLastWeekAny] = useState<TrainingWeek | null>(null);
   const [loading, setLoading] = useState(true);
   const [showEdit, setShowEdit] = useState(false);
   const [showNewMonth, setShowNewMonth] = useState(false);
@@ -134,6 +241,16 @@ export default function ClientPage() {
     ]);
     setClient(c);
     setMonths(m ?? []);
+
+    const { data: allWeeks } = await supabase
+      .from("training_weeks")
+      .select("*, training_months!inner(client_id)")
+      .eq("training_months.client_id", clientId)
+      .not("date_end", "is", null)
+      .order("date_end", { ascending: false })
+      .limit(1);
+    setLastWeekAny(allWeeks?.[0] ?? null);
+
     setLoading(false);
   }, [clientId]);
 
@@ -281,7 +398,9 @@ export default function ClientPage() {
       </Modal>
 
       <Modal open={showNewMonth} onClose={() => setShowNewMonth(false)} title="Nuovo mese di allenamento">
-        <NewMonthForm clientId={clientId} onSuccess={() => { setShowNewMonth(false); fetch(); }} onCancel={() => setShowNewMonth(false)} />
+        <NewMonthForm clientId={clientId} existingMonths={months}
+          lastWeekAny={lastWeekAny} subscriptionEnd={client?.subscription_end ?? null}
+          onSuccess={() => { setShowNewMonth(false); fetch(); }} onCancel={() => setShowNewMonth(false)} />
       </Modal>
 
     </div>

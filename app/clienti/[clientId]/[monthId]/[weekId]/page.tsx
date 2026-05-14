@@ -81,8 +81,23 @@ export default function WeekPage() {
   const [clientName, setClientName] = useState("");
   const [loading, setLoading] = useState(true);
   const [showNewDay, setShowNewDay] = useState(false);
+  const [showEditDates, setShowEditDates] = useState(false);
+  const [editDateStart, setEditDateStart] = useState("");
+  const [editDateEnd, setEditDateEnd] = useState("");
+  const [savingDates, setSavingDates] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
+
+  const handleEditDates = async () => {
+    setSavingDates(true);
+    await supabase.from("training_weeks").update({
+      date_start: editDateStart || null,
+      date_end: editDateEnd || null,
+    }).eq("id", weekId);
+    setSavingDates(false);
+    setShowEditDates(false);
+    fetch();
+  };
 
   const fetch = useCallback(async () => {
     setLoading(true);
@@ -150,19 +165,24 @@ export default function WeekPage() {
 
       <main className="max-w-2xl mx-auto px-4 py-5 space-y-5">
         {/* Week info */}
-        {(week.date_start || week.date_end || week.notes) && (
-          <div className="card p-4">
-            {(week.date_start || week.date_end) && (
-              <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-                {week.date_start && <span className="capitalize">{formatDate(week.date_start)}</span>}
-                {week.date_start && week.date_end && <span>—</span>}
-                {week.date_end && <span className="capitalize">{formatDate(week.date_end)}</span>}
-              </div>
-            )}
-            {week.notes && <p className="text-sm text-gray-500 italic mt-1">{week.notes}</p>}
+        <div className="card p-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+              {week.date_start
+                ? <><span className="capitalize">{formatDate(week.date_start)}</span>{week.date_end && <><span>—</span><span className="capitalize">{formatDate(week.date_end)}</span></>}</>
+                : <span className="text-gray-400 dark:text-gray-500">Nessuna data</span>
+              }
+            </div>
+            <button
+              onClick={() => { setEditDateStart(week.date_start ?? ""); setEditDateEnd(week.date_end ?? ""); setShowEditDates(true); }}
+              className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 underline underline-offset-2 transition-colors"
+            >
+              modifica
+            </button>
           </div>
-        )}
+          {week.notes && <p className="text-sm text-gray-500 italic mt-2 dark:text-gray-400">{week.notes}</p>}
+        </div>
 
         {/* Days */}
         <div>
@@ -236,6 +256,19 @@ export default function WeekPage() {
           )}
         </div>
       </main>
+
+      <Modal open={showEditDates} onClose={() => setShowEditDates(false)} title="Modifica date settimana">
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div><label className="label">Dal</label><input className="input" type="date" value={editDateStart} onChange={e => setEditDateStart(e.target.value)} /></div>
+            <div><label className="label">Al</label><input className="input" type="date" value={editDateEnd} onChange={e => setEditDateEnd(e.target.value)} /></div>
+          </div>
+          <div className="flex gap-2 pt-1">
+            <button className="btn-secondary flex-1" onClick={() => setShowEditDates(false)}>Annulla</button>
+            <button className="btn-primary flex-1" onClick={handleEditDates} disabled={savingDates}>{savingDates ? "Salvo..." : "Salva"}</button>
+          </div>
+        </div>
+      </Modal>
 
       <Modal open={showNewDay} onClose={() => setShowNewDay(false)} title="Nuovo giorno">
         <NewDayForm weekId={weekId} existingCount={days.length}

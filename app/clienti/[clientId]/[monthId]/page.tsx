@@ -8,12 +8,46 @@ import { Header } from "@/components/Header";
 import { Modal } from "@/components/Modal";
 
 // ─── New Week Form ────────────────────────────────────────────
-function NewWeekForm({ monthId, existingCount, onSuccess, onCancel }: {
-  monthId: string; existingCount: number; onSuccess: () => void; onCancel: () => void;
+function NewWeekForm({ monthId, existingCount, lastWeek, subscriptionEnd, onSuccess, onCancel }: {
+  monthId: string; existingCount: number; lastWeek: TrainingWeek | null; subscriptionEnd: string | null; onSuccess: () => void; onCancel: () => void;
 }) {
   const [weekNum, setWeekNum] = useState(existingCount + 1);
-  const [dateStart, setDateStart] = useState("");
-  const [dateEnd, setDateEnd] = useState("");
+  const calcNextDates = () => {
+    const nextMonday = (from: Date) => {
+      const d = new Date(from);
+      const day = d.getDay();
+      const daysToMonday = day === 1 ? 0 : day === 0 ? 1 : 8 - day;
+      d.setDate(d.getDate() + daysToMonday);
+      return d;
+    };
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    // Candidate 1: giorno dopo l'ultima settimana
+    const c1 = lastWeek?.date_end
+      ? nextMonday(new Date(new Date(lastWeek.date_end).setDate(new Date(lastWeek.date_end).getDate() + 1)))
+      : null;
+
+    // Candidate 2: giorno dopo la scadenza abbonamento
+    const c2 = subscriptionEnd
+      ? nextMonday(new Date(new Date(subscriptionEnd).setDate(new Date(subscriptionEnd).getDate() + 1)))
+      : null;
+
+    // Prendi la data più recente tra i candidati, mai nel passato
+    let start = nextMonday(today);
+    if (c1 && c1 >= today && c1 > start) start = c1;
+    if (c2 && c2 >= today && c2 > start) start = c2;
+
+    const end = new Date(start);
+    end.setDate(end.getDate() + 4);
+    return {
+      start: start.toISOString().split("T")[0],
+      end: end.toISOString().split("T")[0],
+    };
+  };
+  const next = calcNextDates();
+  const [dateStart, setDateStart] = useState(next.start);
+  const [dateEnd, setDateEnd] = useState(next.end);
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -65,6 +99,8 @@ export default function MonthPage() {
 
   const [month, setMonth] = useState<TrainingMonth | null>(null);
   const [weeks, setWeeks] = useState<TrainingWeek[]>([]);
+  const [lastWeekAny, setLastWeekAny] = useState<TrainingWeek | null>(null);
+  const [subscriptionEnd, setSubscriptionEnd] = useState<string | null>(null);
   const [clientName, setClientName] = useState("");
   const [loading, setLoading] = useState(true);
   const [showNewWeek, setShowNewWeek] = useState(false);
@@ -76,11 +112,22 @@ export default function MonthPage() {
     const [{ data: m }, { data: w }, { data: c }] = await Promise.all([
       supabase.from("training_months").select("*").eq("id", monthId).single(),
       supabase.from("training_weeks").select("*").eq("month_id", monthId).order("week_number"),
-      supabase.from("clients").select("name, surname").eq("id", clientId).single(),
+      supabase.from("clients").select("name, surname, subscription_end").eq("id", clientId).single(),
     ]);
     setMonth(m);
     setWeeks(w ?? []);
-    if (c) setClientName(`${c.name} ${c.surname}`);
+    if (c) { setClientName(`${c.name} ${c.surname}`); setSubscriptionEnd(c.subscription_end ?? null); }
+
+    // Ultima settimana con data_end tra tutti i mesi del cliente
+    const { data: allWeeks } = await supabase
+      .from("training_weeks")
+      .select("*, training_months!inner(client_id)")
+      .eq("training_months.client_id", clientId)
+      .not("date_end", "is", null)
+      .order("date_end", { ascending: false })
+      .limit(1);
+    setLastWeekAny(allWeeks?.[0] ?? null);
+
     setLoading(false);
   }, [monthId, clientId]);
 
@@ -202,6 +249,8 @@ export default function MonthPage() {
 
       <Modal open={showNewWeek} onClose={() => setShowNewWeek(false)} title="Nuova settimana">
         <NewWeekForm monthId={monthId} existingCount={weeks.length}
+          lastWeek={weeks.length > 0 ? weeks[weeks.length - 1] : lastWeekAny}
+          subscriptionEnd={subscriptionEnd}
           onSuccess={() => { setShowNewWeek(false); fetch(); }} onCancel={() => setShowNewWeek(false)} />
       </Modal>
     </div>

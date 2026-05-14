@@ -8,6 +8,7 @@ import {
   SectionType, SECTION_LABELS, SECTION_ORDER,
 } from "@/lib/types";
 import { Header } from "@/components/Header";
+import { Modal } from "@/components/Modal";
 
 // ─── Section icons ────────────────────────────────────────────
 const SECTION_ICONS: Record<SectionType, React.ReactNode> = {
@@ -174,6 +175,181 @@ function SectionBlock({ section, editingExId, onToggleEdit, onUpdateEx, onDelete
   );
 }
 
+// ─── Bulk Add Modal ───────────────────────────────────────────
+type BulkRow = { name: string; sets: string; reps: string; load: string; rest_time: string; notes: string };
+const emptyRow = (): BulkRow => ({ name: "", sets: "", reps: "", load: "", rest_time: "", notes: "" });
+
+function BulkAddModal({ sections, onSave, onCancel }: {
+  sections: WorkoutSection[];
+  onSave: (data: Record<string, BulkRow[]>) => Promise<void>;
+  onCancel: () => void;
+}) {
+  const [data, setData] = useState<Record<string, BulkRow[]>>(() =>
+    Object.fromEntries(sections.map(s => [s.id, [emptyRow()]]))
+  );
+  const [activeTab, setActiveTab] = useState<SectionType>(sections[0]?.section_type ?? "warmup");
+  const [saving, setSaving] = useState(false);
+  const [suggestions, setSuggestions] = useState<Record<string, string[]>>({});
+  const [focusedField, setFocusedField] = useState<{ sectionId: string; idx: number } | null>(null);
+
+  useEffect(() => {
+    const load = async () => {
+      const { data: exData } = await supabase
+        .from("exercises")
+        .select("name, workout_sections!inner(section_type)");
+      if (!exData) return;
+      const byType: Record<string, Set<string>> = {};
+      exData.forEach((ex: any) => {
+        const type = ex.workout_sections?.section_type;
+        if (!type || !ex.name?.trim()) return;
+        if (!byType[type]) byType[type] = new Set();
+        byType[type].add(ex.name.trim());
+      });
+      const bySectionId: Record<string, string[]> = {};
+      sections.forEach(s => {
+        bySectionId[s.id] = Array.from(byType[s.section_type] ?? []).sort();
+      });
+      setSuggestions(bySectionId);
+    };
+    load();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const addRow = (sectionId: string) =>
+    setData(prev => ({ ...prev, [sectionId]: [...prev[sectionId], emptyRow()] }));
+
+  const updateRow = (sectionId: string, idx: number, field: keyof BulkRow, value: string) =>
+    setData(prev => ({
+      ...prev,
+      [sectionId]: prev[sectionId].map((r, i) => i === idx ? { ...r, [field]: value } : r),
+    }));
+
+  const removeRow = (sectionId: string, idx: number) =>
+    setData(prev => ({
+      ...prev,
+      [sectionId]: prev[sectionId].filter((_, i) => i !== idx).length > 0
+        ? prev[sectionId].filter((_, i) => i !== idx)
+        : [emptyRow()],
+    }));
+
+  const totalFilled = Object.values(data).reduce((acc, rows) =>
+    acc + rows.filter(r => r.name.trim()).length, 0
+  );
+
+  const handleSave = async () => {
+    setSaving(true);
+    await onSave(data);
+    setSaving(false);
+  };
+
+  const activeSection = sections.find(s => s.section_type === activeTab);
+
+  const getFiltered = (sectionId: string, query: string) => {
+    const all = suggestions[sectionId] ?? [];
+    if (!query.trim()) return all;
+    return all.filter(n => n.toLowerCase().includes(query.toLowerCase()));
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Tabs */}
+      <div className="flex gap-1 bg-gray-100 dark:bg-gray-700/50 rounded-xl p-1">
+        {sections.map(s => {
+          const count = (data[s.id] ?? []).filter(r => r.name.trim()).length;
+          return (
+            <button
+              key={s.id}
+              onClick={() => { setActiveTab(s.section_type); setFocusedField(null); }}
+              className={`flex-1 text-xs py-1.5 rounded-lg font-medium transition-colors ${
+                activeTab === s.section_type
+                  ? "bg-white dark:bg-gray-700 shadow-sm"
+                  : "text-gray-400 dark:text-gray-500"
+              }`}
+              style={activeTab === s.section_type ? { color: SECTION_COLORS[s.section_type] } : {}}
+            >
+              {SECTION_LABELS[s.section_type]}
+              {count > 0 && <span className="ml-1 text-[10px] font-bold opacity-80">{count}</span>}
+            </button>
+          );
+        })}
+      </div>
+
+      {activeSection && (
+        <div className="space-y-2">
+          {(data[activeSection.id] ?? []).map((row, idx) => {
+            const isFocused = focusedField?.sectionId === activeSection.id && focusedField?.idx === idx;
+            const filtered = isFocused ? getFiltered(activeSection.id, row.name) : [];
+            const color = SECTION_COLORS[activeSection.section_type];
+            return (
+              <div key={idx} className="space-y-1.5 p-3 bg-gray-50 dark:bg-gray-700/40 rounded-xl">
+                <div className="flex gap-2 items-center">
+                  <input
+                    className="input text-sm flex-1"
+                    placeholder="Nome esercizio"
+                    value={row.name}
+                    onChange={e => updateRow(activeSection.id, idx, "name", e.target.value)}
+                    onFocus={() => setFocusedField({ sectionId: activeSection.id, idx })}
+                    onBlur={() => setTimeout(() => setFocusedField(null), 150)}
+                  />
+                  <button onClick={() => removeRow(activeSection.id, idx)} className="text-gray-300 hover:text-red-400 transition-colors flex-shrink-0">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 6 6 18M6 6l12 12"/></svg>
+                  </button>
+                </div>
+
+                {isFocused && filtered.length > 0 && (
+                  <div className="rounded-xl border border-gray-200 dark:border-gray-600 overflow-hidden bg-white dark:bg-gray-800 max-h-44 overflow-y-auto">
+                    {filtered.map(name => (
+                      <button
+                        key={name}
+                        type="button"
+                        onMouseDown={e => {
+                          e.preventDefault();
+                          updateRow(activeSection.id, idx, "name", name);
+                          setFocusedField(null);
+                        }}
+                        className="w-full text-left flex items-center gap-2.5 px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors border-b border-gray-100 dark:border-gray-700 last:border-0"
+                      >
+                        <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
+                        <span className="text-sm text-gray-800 dark:text-gray-200">{name}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                <div className="grid grid-cols-4 gap-1.5">
+                  <input className="input text-xs text-center" placeholder="Serie" value={row.sets} onChange={e => updateRow(activeSection.id, idx, "sets", e.target.value)} />
+                  <input className="input text-xs text-center" placeholder="Reps" value={row.reps} onChange={e => updateRow(activeSection.id, idx, "reps", e.target.value)} />
+                  <input className="input text-xs text-center" placeholder="Carico" value={row.load} onChange={e => updateRow(activeSection.id, idx, "load", e.target.value)} />
+                  <input className="input text-xs text-center" placeholder='Rec."' value={row.rest_time} onChange={e => updateRow(activeSection.id, idx, "rest_time", e.target.value)} />
+                </div>
+                <input className="input text-xs" placeholder="Note (opz.)" value={row.notes} onChange={e => updateRow(activeSection.id, idx, "notes", e.target.value)} />
+              </div>
+            );
+          })}
+          <button
+            onClick={() => addRow(activeSection.id)}
+            className="w-full py-2 rounded-xl border-2 border-dashed text-xs font-medium transition-colors"
+            style={{ borderColor: SECTION_COLORS[activeSection.section_type] + "50", color: SECTION_COLORS[activeSection.section_type] }}
+          >
+            + Aggiungi esercizio
+          </button>
+        </div>
+      )}
+
+      <div className="flex gap-2 pt-1 border-t border-gray-100 dark:border-gray-700">
+        <button className="btn-secondary flex-1" onClick={onCancel}>Annulla</button>
+        <button
+          className="btn-primary flex-1"
+          onClick={handleSave}
+          disabled={saving || totalFilled === 0}
+        >
+          {saving ? "Salvo..." : totalFilled > 0 ? `Salva ${totalFilled} esercizi` : "Salva"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Day/Workout Page ────────────────────────────────────
 export default function DayPage() {
   const params = useParams();
@@ -189,6 +365,7 @@ export default function DayPage() {
   const [loading, setLoading] = useState(true);
   const [editingExId, setEditingExId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [showBulkAdd, setShowBulkAdd] = useState(false);
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
@@ -296,6 +473,30 @@ export default function DayPage() {
     setEditingExId(prev => prev === id ? null : id);
   };
 
+  const handleBulkSave = async (data: Record<string, BulkRow[]>) => {
+    const toInsert = sections.flatMap(section => {
+      const rows = data[section.id] ?? [];
+      const existingCount = section.exercises?.length ?? 0;
+      return rows
+        .filter(r => r.name.trim())
+        .map((r, i) => ({
+          section_id: section.id,
+          name: r.name.trim(),
+          sets: r.sets.trim() || null,
+          reps: r.reps.trim() || null,
+          load: r.load.trim() || null,
+          rest_time: r.rest_time.trim() || null,
+          notes: r.notes.trim() || null,
+          order_index: existingCount + i,
+        }));
+    });
+    if (toInsert.length > 0) {
+      await supabase.from("exercises").insert(toInsert);
+      await fetchAll();
+    }
+    setShowBulkAdd(false);
+  };
+
   const totalExercises = sections.reduce((acc, s) => acc + (s.exercises?.length ?? 0), 0);
 
   if (loading) return (
@@ -323,11 +524,19 @@ export default function DayPage() {
         title={day.label}
         subtitle={`${clientName} · ${weekLabel}`}
         right={
-          saving ? (
-            <span className="text-xs text-amber-600 font-medium animate-pulse">Salvo...</span>
-          ) : (
-            <span className="text-xs text-green-600 font-medium">{totalExercises} esercizi</span>
-          )
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowBulkAdd(true)}
+              className="btn-primary text-xs py-1.5 px-3 flex items-center gap-1"
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 5v14M5 12h14"/></svg>
+              Compila
+            </button>
+            {saving
+              ? <span className="text-xs text-amber-600 font-medium animate-pulse">Salvo...</span>
+              : <span className="text-xs text-green-600 font-medium">{totalExercises} esercizi</span>
+            }
+          </div>
         }
       />
 
@@ -361,9 +570,18 @@ export default function DayPage() {
           />
         ))}
 
-        {/* Print / Share hint */}
         <div className="h-6" />
       </main>
+
+      <Modal open={showBulkAdd} onClose={() => setShowBulkAdd(false)} title="Compila giorno">
+        {showBulkAdd && sections.length > 0 && (
+          <BulkAddModal
+            sections={sections}
+            onSave={handleBulkSave}
+            onCancel={() => setShowBulkAdd(false)}
+          />
+        )}
+      </Modal>
     </div>
   );
 }
