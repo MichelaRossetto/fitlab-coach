@@ -19,11 +19,12 @@ function StatCard({ label, value, color }: { label: string; value: number; color
 
 // ─── New Client Form ─────────────────────────────────────────
 interface NewClientFormProps {
+  trainerId: string;
   onSuccess: () => void;
   onCancel: () => void;
 }
 
-function NewClientForm({ onSuccess, onCancel }: NewClientFormProps) {
+function NewClientForm({ trainerId, onSuccess, onCancel }: NewClientFormProps) {
   const [form, setForm] = useState({
     name: "", surname: "", email: "", phone: "",
     subscription_end: "", notes: "",
@@ -46,6 +47,7 @@ function NewClientForm({ onSuccess, onCancel }: NewClientFormProps) {
       phone: form.phone.trim() || null,
       subscription_end: form.subscription_end || null,
       notes: form.notes.trim() || null,
+      trainer_id: trainerId,
     });
     setSaving(false);
     if (err) { setError(err.message); return; }
@@ -98,17 +100,30 @@ function NewClientForm({ onSuccess, onCancel }: NewClientFormProps) {
 export default function Dashboard() {
   const router = useRouter();
   const [clients, setClients] = useState<Client[]>([]);
+  const [trainerId, setTrainerId] = useState<string>("");
+  const [trainerEmail, setTrainerEmail] = useState<string>("");
 
   const toggleTheme = () => {
     const isDark = document.documentElement.classList.toggle("dark");
     localStorage.setItem("theme", isDark ? "dark" : "light");
   };
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    router.push("/login");
+  };
+
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [showModal, setShowModal] = useState(false);
 
   const fetchClients = useCallback(async () => {
     setLoading(true);
+    const { data: userData } = await supabase.auth.getUser();
+    if (userData.user) {
+      setTrainerId(userData.user.id);
+      setTrainerEmail(userData.user.email ?? "");
+    }
     const { data } = await supabase
       .from("clients")
       .select("*")
@@ -145,19 +160,27 @@ export default function Dashboard() {
               <span style={{ color: "#C0D738" }}>FIT</span>
               <span className="text-gray-900 dark:text-white">LAB</span>
             </h1>
-            <p className="text-xs text-gray-400 mt-0.5">Michela · Coach App</p>
+            <p className="text-xs text-gray-400 mt-0.5 truncate max-w-[160px]">{trainerEmail || "Coach App"}</p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             <button
               onClick={toggleTheme}
-              className="text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300 transition-colors"
+              className="text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300 transition-colors p-1"
             >
-              {/* Luna visibile in light mode, sole in dark mode */}
               <svg className="dark:hidden" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
               </svg>
               <svg className="hidden dark:block" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+              </svg>
+            </button>
+            <button
+              onClick={handleLogout}
+              className="text-gray-400 hover:text-red-400 transition-colors p-1"
+              title="Logout"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>
               </svg>
             </button>
             <button
@@ -274,6 +297,7 @@ export default function Dashboard() {
       {/* New client modal */}
       <Modal open={showModal} onClose={() => setShowModal(false)} title="Nuovo cliente">
         <NewClientForm
+          trainerId={trainerId}
           onSuccess={() => { setShowModal(false); fetchClients(); }}
           onCancel={() => setShowModal(false)}
         />
