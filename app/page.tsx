@@ -120,9 +120,21 @@ export default function Dashboard() {
   const fetchClients = useCallback(async () => {
     setLoading(true);
     const { data: userData } = await supabase.auth.getUser();
-    if (userData.user) {
-      setTrainerId(userData.user.id);
-      setTrainerEmail(userData.user.email ?? "");
+    const user = userData.user;
+    if (user) {
+      setTrainerId(user.id);
+      setTrainerEmail(user.email ?? "");
+
+      // Se l'utente è un cliente (email presente nella tabella clients), redirect al suo piano
+      const { data: clientMatch } = await supabase
+        .from("clients")
+        .select("id")
+        .eq("email", user.email)
+        .maybeSingle();
+      if (clientMatch) {
+        router.replace(`/clienti/${clientMatch.id}`);
+        return;
+      }
     }
     const { data } = await supabase
       .from("clients")
@@ -130,7 +142,7 @@ export default function Dashboard() {
       .order("surname", { ascending: true });
     setClients(data ?? []);
     setLoading(false);
-  }, []);
+  }, [router]);
 
   useEffect(() => { fetchClients(); }, [fetchClients]);
 
