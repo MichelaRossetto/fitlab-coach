@@ -101,6 +101,9 @@ export interface ExerciseLibrary {
 export const LIBRARY_CATEGORIES = ["WARMUP", "FORZA", "ACCESSORI", "CORE TRAINING", "WORKOUT"] as const;
 export const WARMUP_SUBCATEGORIES = ["CARDIO", "MOBILITÀ", "ATTIVAZIONE"] as const;
 export const WARMUP_SUB_SUBCATEGORIES = ["UPPER", "LOWER", "FULL"] as const;
+export const FORZA_SUBCATEGORIES = ["LOWER BODY", "UPPER BODY", "FULL BODY"] as const;
+export const ACCESSORI_SUBCATEGORIES = ["BODYWEIGHT", "MANUBRI", "KETTLEBELL", "BILANCIERE"] as const;
+export const CORE_SUBCATEGORIES = ["ISOMETRICI", "NON ISOMETRICI"] as const;
 
 export const MONTH_NAMES = [
   "Gennaio", "Febbraio", "Marzo", "Aprile", "Maggio", "Giugno",

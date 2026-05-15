@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
-import { ExerciseLibrary, LIBRARY_CATEGORIES, WARMUP_SUBCATEGORIES, WARMUP_SUB_SUBCATEGORIES } from "@/lib/types";
+import { ExerciseLibrary, LIBRARY_CATEGORIES, WARMUP_SUBCATEGORIES, WARMUP_SUB_SUBCATEGORIES, FORZA_SUBCATEGORIES, ACCESSORI_SUBCATEGORIES, CORE_SUBCATEGORIES } from "@/lib/types";
 import { Header } from "@/components/Header";
 import { Modal } from "@/components/Modal";
 
@@ -24,8 +24,8 @@ function AddExerciseForm({ onSuccess, onCancel }: { onSuccess: () => void; onCan
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
-  const showSub = category === "WARMUP";
-  const showSubSub = showSub && (subcategory === "MOBILITÀ" || subcategory === "ATTIVAZIONE");
+  const showSub = category === "WARMUP" || category === "FORZA" || category === "ACCESSORI" || category === "CORE TRAINING";
+  const showSubSub = category === "WARMUP" && (subcategory === "MOBILITÀ" || subcategory === "ATTIVAZIONE");
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -50,7 +50,11 @@ function AddExerciseForm({ onSuccess, onCancel }: { onSuccess: () => void; onCan
         <div className="flex flex-wrap gap-2">
           {LIBRARY_CATEGORIES.map(c => (
             <button key={c} type="button"
-              onClick={() => { setCategory(c); setSubcategory("CARDIO"); setSubSubcategory("UPPER"); }}
+              onClick={() => {
+                setCategory(c);
+                setSubcategory(c === "WARMUP" ? "CARDIO" : c === "FORZA" ? "LOWER BODY" : c === "ACCESSORI" ? "BODYWEIGHT" : c === "CORE TRAINING" ? "ISOMETRICI" : "");
+                setSubSubcategory("UPPER");
+              }}
               className={`px-3 py-1.5 rounded-xl text-sm font-medium border transition-colors ${category === c ? "border-transparent text-black" : "border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400"}`}
               style={category === c ? { backgroundColor: CATEGORY_COLOR[c] } : {}}
             >{c}</button>
@@ -58,16 +62,16 @@ function AddExerciseForm({ onSuccess, onCancel }: { onSuccess: () => void; onCan
         </div>
       </div>
 
-      {/* 2. Sottocategoria (solo WARMUP) */}
+      {/* 2. Sottocategoria (WARMUP o FORZA) */}
       {showSub && (
         <div>
           <label className="label">Sottocategoria</label>
-          <div className="flex gap-2">
-            {WARMUP_SUBCATEGORIES.map(s => (
+          <div className="flex gap-2 flex-wrap">
+            {(category === "WARMUP" ? WARMUP_SUBCATEGORIES : category === "FORZA" ? FORZA_SUBCATEGORIES : category === "ACCESSORI" ? ACCESSORI_SUBCATEGORIES : CORE_SUBCATEGORIES).map(s => (
               <button key={s} type="button"
                 onClick={() => { setSubcategory(s); setSubSubcategory("UPPER"); }}
                 className={`flex-1 py-2 rounded-xl text-sm font-medium border transition-colors ${subcategory === s ? "border-transparent text-black" : "border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400"}`}
-                style={subcategory === s ? { backgroundColor: "#C0D738" } : {}}
+                style={subcategory === s ? { backgroundColor: CATEGORY_COLOR[category] } : {}}
               >{s}</button>
             ))}
           </div>
@@ -113,6 +117,8 @@ export default function EserciziPage() {
   const [search, setSearch] = useState("");
   const [showAdd, setShowAdd] = useState(false);
   const [openCategories, setOpenCategories] = useState<Record<string, boolean>>({});
+  const [openSubs, setOpenSubs] = useState<Record<string, boolean>>({});
+  const [openZones, setOpenZones] = useState<Record<string, boolean>>({});
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
   const fetchExercises = useCallback(async () => {
@@ -131,6 +137,8 @@ export default function EserciziPage() {
   };
 
   const toggleCategory = (cat: string) => setOpenCategories(p => ({ ...p, [cat]: !p[cat] }));
+  const toggleSub = (cat: string, sub: string) => setOpenSubs(p => ({ ...p, [`${cat}__${sub}`]: !p[`${cat}__${sub}`] }));
+  const toggleZone = (cat: string, sub: string, zone: string) => setOpenZones(p => ({ ...p, [`${cat}__${sub}__${zone}`]: !p[`${cat}__${sub}__${zone}`] }));
 
   const filtered = exercises.filter(e =>
     e.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -138,16 +146,24 @@ export default function EserciziPage() {
     (e.subcategory ?? "").toLowerCase().includes(search.toLowerCase())
   );
 
-  // Apri automaticamente le categorie con risultati quando si cerca
+  // Apri automaticamente categorie/sottocategorie/zone con risultati quando si cerca
   useEffect(() => {
     if (search.trim()) {
-      const newOpen: Record<string, boolean> = {};
-      LIBRARY_CATEGORIES.forEach(cat => {
-        newOpen[cat] = filtered.some(e => e.category === cat);
+      const cats: Record<string, boolean> = {};
+      const subs: Record<string, boolean> = {};
+      const zones: Record<string, boolean> = {};
+      filtered.forEach(e => {
+        cats[e.category] = true;
+        if (e.subcategory) subs[`${e.category}__${e.subcategory}`] = true;
+        if (e.sub_subcategory) zones[`${e.category}__${e.subcategory}__${e.sub_subcategory}`] = true;
       });
-      setOpenCategories(newOpen);
+      setOpenCategories(cats);
+      setOpenSubs(subs);
+      setOpenZones(zones);
     } else {
       setOpenCategories({});
+      setOpenSubs({});
+      setOpenZones({});
     }
   }, [search, exercises]);
 
@@ -171,6 +187,24 @@ export default function EserciziPage() {
         }
         return subAcc;
       }, {} as Record<string, Record<string, ExerciseLibrary[]>>);
+    } else if (cat === "FORZA") {
+      acc[cat] = FORZA_SUBCATEGORIES.reduce((subAcc, sub) => {
+        const subExercises = catExercises.filter(e => e.subcategory === sub);
+        if (subExercises.length > 0) subAcc[sub] = subExercises;
+        return subAcc;
+      }, {} as Record<string, ExerciseLibrary[]>);
+    } else if (cat === "ACCESSORI") {
+      acc[cat] = ACCESSORI_SUBCATEGORIES.reduce((subAcc, sub) => {
+        const subExercises = catExercises.filter(e => e.subcategory === sub);
+        if (subExercises.length > 0) subAcc[sub] = subExercises;
+        return subAcc;
+      }, {} as Record<string, ExerciseLibrary[]>);
+    } else if (cat === "CORE TRAINING") {
+      acc[cat] = CORE_SUBCATEGORIES.reduce((subAcc, sub) => {
+        const subExercises = catExercises.filter(e => e.subcategory === sub);
+        if (subExercises.length > 0) subAcc[sub] = subExercises;
+        return subAcc;
+      }, {} as Record<string, ExerciseLibrary[]>);
     } else {
       acc[cat] = { "_": { "_": catExercises } };
     }
@@ -232,34 +266,76 @@ export default function EserciziPage() {
                   {isOpen && (
                     <div className="border-t border-gray-100 dark:border-gray-700">
                       {cat === "WARMUP" ? (
-                        // WARMUP: subcategory → sub_subcategory
-                        Object.entries(grouped[cat]).map(([sub, subData]: [string, any]) => (
-                          <div key={sub} className="mb-1">
-                            {/* Badge sottocategoria */}
-                            <div className="px-4 pt-3 pb-2 flex items-center gap-2">
-                              <span className="px-2.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider text-black" style={{ backgroundColor: "#C0D738" }}>{sub}</span>
-                            </div>
-                            {sub === "CARDIO" ? (
-                              <div className="mx-4 mb-3 rounded-xl border border-gray-100 dark:border-gray-700 overflow-hidden">
-                                {subData["_"].map((ex: ExerciseLibrary) => <ExerciseRow key={ex.id} ex={ex} onDelete={() => setDeleteId(ex.id)} />)}
-                              </div>
-                            ) : (
-                              <div className="mx-4 mb-3 space-y-2">
-                                {Object.entries(subData).map(([zone, zoneExs]: [string, any]) => (
-                                  <div key={zone} className="rounded-xl border border-gray-100 dark:border-gray-700 overflow-hidden">
-                                    {/* Badge zona */}
-                                    <div className="px-3 py-1.5 bg-gray-100 dark:bg-gray-700 flex items-center gap-2">
-                                      <span className="text-[11px] font-bold uppercase tracking-widest text-gray-500 dark:text-gray-300">{zone}</span>
-                                    </div>
-                                    {zoneExs.map((ex: ExerciseLibrary) => <ExerciseRow key={ex.id} ex={ex} onDelete={() => setDeleteId(ex.id)} />)}
+                        Object.entries(grouped[cat]).map(([sub, subData]: [string, any]) => {
+                          const subKey = `${cat}__${sub}`;
+                          const isSubOpen = openSubs[subKey] === true;
+                          const subCount = sub === "CARDIO"
+                            ? subData["_"].length
+                            : Object.values(subData).reduce((a: number, v: any) => a + v.length, 0);
+                          return (
+                            <div key={sub} className="border-b border-gray-100 dark:border-gray-700 last:border-0">
+                              <button onClick={() => toggleSub(cat, sub)}
+                                className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+                                <div className="flex items-center gap-2">
+                                  <span className="px-2.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider text-black" style={{ backgroundColor: "#C0D738" }}>{sub}</span>
+                                  <span className="text-xs text-gray-400">{subCount}</span>
+                                </div>
+                                <svg className={`text-gray-400 transition-transform ${isSubOpen ? "rotate-90" : ""}`} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 18l6-6-6-6"/></svg>
+                              </button>
+                              {isSubOpen && (
+                                sub === "CARDIO" ? (
+                                  <div className="mx-4 mb-3 rounded-xl border border-gray-100 dark:border-gray-700 overflow-hidden">
+                                    {subData["_"].map((ex: ExerciseLibrary) => <ExerciseRow key={ex.id} ex={ex} onDelete={() => setDeleteId(ex.id)} />)}
                                   </div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        ))
+                                ) : (
+                                  <div className="mx-4 mb-3 space-y-2">
+                                    {Object.entries(subData).map(([zone, zoneExs]: [string, any]) => {
+                                      const zoneKey = `${cat}__${sub}__${zone}`;
+                                      const isZoneOpen = openZones[zoneKey] === true;
+                                      return (
+                                        <div key={zone} className="rounded-xl border border-gray-100 dark:border-gray-700 overflow-hidden">
+                                          <button onClick={() => toggleZone(cat, sub, zone)}
+                                            className="w-full flex items-center justify-between px-3 py-2 bg-gray-50 dark:bg-gray-700/60 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
+                                            <div className="flex items-center gap-2">
+                                              <span className="text-[11px] font-bold uppercase tracking-widest text-gray-500 dark:text-gray-300">{zone}</span>
+                                              <span className="text-xs text-gray-400">{zoneExs.length}</span>
+                                            </div>
+                                            <svg className={`text-gray-400 transition-transform ${isZoneOpen ? "rotate-90" : ""}`} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 18l6-6-6-6"/></svg>
+                                          </button>
+                                          {isZoneOpen && zoneExs.map((ex: ExerciseLibrary) => <ExerciseRow key={ex.id} ex={ex} onDelete={() => setDeleteId(ex.id)} />)}
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                )
+                              )}
+                            </div>
+                          );
+                        })
+                      ) : cat === "FORZA" || cat === "ACCESSORI" || cat === "CORE TRAINING" ? (
+                        Object.entries(grouped[cat]).map(([sub, subExs]: [string, any]) => {
+                          const subKey = `${cat}__${sub}`;
+                          const isSubOpen = openSubs[subKey] === true;
+                          const subColor = CATEGORY_COLOR[cat];
+                          return (
+                            <div key={sub} className="border-b border-gray-100 dark:border-gray-700 last:border-0">
+                              <button onClick={() => toggleSub(cat, sub)}
+                                className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+                                <div className="flex items-center gap-2">
+                                  <span className="px-2.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider text-white" style={{ backgroundColor: subColor }}>{sub}</span>
+                                  <span className="text-xs text-gray-400">{subExs.length}</span>
+                                </div>
+                                <svg className={`text-gray-400 transition-transform ${isSubOpen ? "rotate-90" : ""}`} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 18l6-6-6-6"/></svg>
+                              </button>
+                              {isSubOpen && (
+                                <div className="mx-4 mb-3 rounded-xl border border-gray-100 dark:border-gray-700 overflow-hidden">
+                                  {subExs.map((ex: ExerciseLibrary) => <ExerciseRow key={ex.id} ex={ex} onDelete={() => setDeleteId(ex.id)} />)}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })
                       ) : (
-                        // Altre categorie: lista piatta
                         <div className="mx-4 my-3 rounded-xl border border-gray-100 dark:border-gray-700 overflow-hidden">
                           {grouped[cat]["_"]["_"].map((ex: ExerciseLibrary) => <ExerciseRow key={ex.id} ex={ex} onDelete={() => setDeleteId(ex.id)} />)}
                         </div>
