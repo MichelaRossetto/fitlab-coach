@@ -19,11 +19,12 @@ function StatCard({ label, value, color }: { label: string; value: number; color
 
 // ─── New Client Form ─────────────────────────────────────────
 interface NewClientFormProps {
+  trainerId: string;
   onSuccess: () => void;
   onCancel: () => void;
 }
 
-function NewClientForm({ onSuccess, onCancel }: NewClientFormProps) {
+function NewClientForm({ trainerId, onSuccess, onCancel }: NewClientFormProps) {
   const [form, setForm] = useState({
     name: "", surname: "", email: "", phone: "",
     subscription_end: "", notes: "",
@@ -46,6 +47,7 @@ function NewClientForm({ onSuccess, onCancel }: NewClientFormProps) {
       phone: form.phone.trim() || null,
       subscription_end: form.subscription_end || null,
       notes: form.notes.trim() || null,
+      trainer_id: trainerId,
     });
     setSaving(false);
     if (err) { setError(err.message); return; }
@@ -98,24 +100,55 @@ function NewClientForm({ onSuccess, onCancel }: NewClientFormProps) {
 export default function Dashboard() {
   const router = useRouter();
   const [clients, setClients] = useState<Client[]>([]);
+  const [scheduleCounts, setScheduleCounts] = useState<Record<string, number>>({});
+  const [trainerId, setTrainerId] = useState<string>("");
+  const [trainerEmail, setTrainerEmail] = useState<string>("");
 
   const toggleTheme = () => {
     const isDark = document.documentElement.classList.toggle("dark");
     localStorage.setItem("theme", isDark ? "dark" : "light");
   };
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    router.push("/login");
+  };
+
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [showModal, setShowModal] = useState(false);
 
   const fetchClients = useCallback(async () => {
     setLoading(true);
-    const { data } = await supabase
-      .from("clients")
-      .select("*")
-      .order("surname", { ascending: true });
+    const { data: userData } = await supabase.auth.getUser();
+    const user = userData.user;
+    if (user) {
+      setTrainerId(user.id);
+      setTrainerEmail(user.email ?? "");
+
+      // Se l'utente è un cliente (email presente nella tabella clients), redirect al suo piano
+      const { data: clientMatch } = await supabase
+        .from("clients")
+        .select("id")
+        .eq("email", user.email)
+        .maybeSingle();
+      if (clientMatch) {
+        router.replace(`/clienti/${clientMatch.id}`);
+        return;
+      }
+    }
+    const [{ data }, { data: schedData }] = await Promise.all([
+      supabase.from("clients").select("*").order("surname", { ascending: true }),
+      supabase.from("client_schedule").select("client_id"),
+    ]);
     setClients(data ?? []);
+    const counts: Record<string, number> = {};
+    schedData?.forEach((s: any) => {
+      counts[s.client_id] = (counts[s.client_id] ?? 0) + 1;
+    });
+    setScheduleCounts(counts);
     setLoading(false);
-  }, []);
+  }, [router]);
 
   useEffect(() => { fetchClients(); }, [fetchClients]);
 
@@ -145,14 +178,13 @@ export default function Dashboard() {
               <span style={{ color: "#C0D738" }}>FIT</span>
               <span className="text-gray-900 dark:text-white">LAB</span>
             </h1>
-            <p className="text-xs text-gray-400 mt-0.5">Michela · Coach App</p>
+            <p className="text-xs text-gray-400 mt-0.5 truncate max-w-[160px]">{trainerEmail || "Coach App"}</p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             <button
               onClick={toggleTheme}
-              className="text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300 transition-colors"
+              className="text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300 transition-colors p-1"
             >
-              {/* Luna visibile in light mode, sole in dark mode */}
               <svg className="dark:hidden" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
               </svg>
@@ -165,6 +197,15 @@ export default function Dashboard() {
                 <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
               </svg>
             </Link>
+            <button
+              onClick={handleLogout}
+              className="text-gray-400 hover:text-red-400 transition-colors p-1"
+              title="Logout"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>
+              </svg>
+            </button>
             <button
               onClick={() => setShowModal(true)}
               className="flex items-center gap-2 btn-primary text-sm"
@@ -256,8 +297,15 @@ export default function Dashboard() {
 
                   {/* Info */}
                   <div className="flex-1 min-w-0">
-                    <div className="font-semibold text-gray-900 text-sm truncate dark:text-gray-100">
-                      {client.name} {client.surname}
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-gray-900 text-sm truncate dark:text-gray-100">
+                        {client.name} {client.surname}
+                      </span>
+                      {scheduleCounts[client.id] && (
+                        <span className="text-[11px] font-medium text-gray-400 flex-shrink-0">
+                          {scheduleCounts[client.id]}x/sett
+                        </span>
+                      )}
                     </div>
                     <div className="mt-1">
                       <StatusBadge subscriptionEnd={client.subscription_end} />
@@ -279,6 +327,7 @@ export default function Dashboard() {
       {/* New client modal */}
       <Modal open={showModal} onClose={() => setShowModal(false)} title="Nuovo cliente">
         <NewClientForm
+          trainerId={trainerId}
           onSuccess={() => { setShowModal(false); fetchClients(); }}
           onCancel={() => setShowModal(false)}
         />

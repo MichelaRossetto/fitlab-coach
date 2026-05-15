@@ -7,6 +7,7 @@ export interface Client {
   phone: string | null;
   notes: string | null;
   subscription_end: string | null;
+  paypal_link: string | null;
 }
 
 export interface TrainingMonth {
@@ -104,3 +105,14 @@ export const MONTH_NAMES = [
   "Gennaio", "Febbraio", "Marzo", "Aprile", "Maggio", "Giugno",
   "Luglio", "Agosto", "Settembre", "Ottobre", "Novembre", "Dicembre",
 ];
+
+export interface ClientSchedule {
+  id: string;
+  client_id: string;
+  day_of_week: number; // 0=Lun … 5=Sab
+  time: string;        // "08:00" etc.
+}
+
+export const DAY_NAMES_SHORT    = ["Lun", "Mar", "Mer", "Gio", "Ven", "Sab"];
+export const TIME_SLOTS_MORNING   = ["08:00", "09:00", "10:00", "11:00", "12:00", "13:00"];
+export const TIME_SLOTS_AFTERNOON = ["14:00", "15:00", "16:00", "17:00", "18:00", "19:00"];
