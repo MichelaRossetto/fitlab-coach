@@ -306,7 +306,7 @@ export default function Dashboard() {
                         <span className="text-[11px] font-medium flex-shrink-0 flex items-center gap-0.5" style={{ color: "#8a9a00" }}>
                           {scheduleDays[client.id].map((d, i) => (
                             <span key={d}>
-                              {["L","M","M","G","V","S"][d]}
+                              {["L","M","M","G","V"][d]}
                               {i < scheduleDays[client.id].length - 1 && <span className="text-gray-400 mx-0.5">·</span>}
                             </span>
                           ))}

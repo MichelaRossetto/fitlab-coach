@@ -113,6 +113,6 @@ export interface ClientSchedule {
   time: string;        // "08:00" etc.
 }
 
-export const DAY_NAMES_SHORT    = ["Lun", "Mar", "Mer", "Gio", "Ven", "Sab"];
+export const DAY_NAMES_SHORT    = ["Lun", "Mar", "Mer", "Gio", "Ven"];
 export const TIME_SLOTS_MORNING   = ["08:00", "09:00", "10:00", "11:00", "12:00", "13:00"];
 export const TIME_SLOTS_AFTERNOON = ["14:00", "15:00", "16:00", "17:00", "18:00", "19:00"];

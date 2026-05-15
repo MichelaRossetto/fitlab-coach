@@ -221,7 +221,7 @@ function NewMonthForm({ clientId, existingMonths, lastWeekAny, subscriptionEnd, 
 }
 
 // ─── Schedule Section ─────────────────────────────────────────
-const DAY_ABBREV = ["L", "M", "M", "G", "V", "S"];
+const DAY_ABBREV = ["L", "M", "M", "G", "V"];
 
 function ScheduleSection({ clientId, isClientView }: { clientId: string; isClientView: boolean }) {
   const [open, setOpen] = useState(false);
