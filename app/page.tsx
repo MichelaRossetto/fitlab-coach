@@ -100,7 +100,7 @@ function NewClientForm({ trainerId, onSuccess, onCancel }: NewClientFormProps) {
 export default function Dashboard() {
   const router = useRouter();
   const [clients, setClients] = useState<Client[]>([]);
-  const [scheduleCounts, setScheduleCounts] = useState<Record<string, number>>({});
+  const [scheduleDays, setScheduleDays] = useState<Record<string, number[]>>({});
   const [trainerId, setTrainerId] = useState<string>("");
   const [trainerEmail, setTrainerEmail] = useState<string>("");
 
@@ -139,14 +139,15 @@ export default function Dashboard() {
     }
     const [{ data }, { data: schedData }] = await Promise.all([
       supabase.from("clients").select("*").order("surname", { ascending: true }),
-      supabase.from("client_schedule").select("client_id"),
+      supabase.from("client_schedule").select("client_id, day_of_week").order("day_of_week"),
     ]);
     setClients(data ?? []);
-    const counts: Record<string, number> = {};
+    const days: Record<string, number[]> = {};
     schedData?.forEach((s: any) => {
-      counts[s.client_id] = (counts[s.client_id] ?? 0) + 1;
+      if (!days[s.client_id]) days[s.client_id] = [];
+      days[s.client_id].push(s.day_of_week);
     });
-    setScheduleCounts(counts);
+    setScheduleDays(days);
     setLoading(false);
   }, [router]);
 
@@ -301,9 +302,14 @@ export default function Dashboard() {
                       <span className="font-semibold text-gray-900 text-sm truncate dark:text-gray-100">
                         {client.name} {client.surname}
                       </span>
-                      {scheduleCounts[client.id] && (
-                        <span className="text-[11px] font-medium text-gray-400 flex-shrink-0">
-                          {scheduleCounts[client.id]}x/sett
+                      {scheduleDays[client.id]?.length > 0 && (
+                        <span className="text-[11px] font-medium flex-shrink-0 flex items-center gap-0.5" style={{ color: "#8a9a00" }}>
+                          {scheduleDays[client.id].map((d, i) => (
+                            <span key={d}>
+                              {["L","M","M","G","V","S"][d]}
+                              {i < scheduleDays[client.id].length - 1 && <span className="text-gray-400 mx-0.5">·</span>}
+                            </span>
+                          ))}
                         </span>
                       )}
                     </div>

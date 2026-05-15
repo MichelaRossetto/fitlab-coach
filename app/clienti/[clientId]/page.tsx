@@ -271,6 +271,7 @@ function ScheduleSection({ clientId, isClientView }: { clientId: string; isClien
     if (rows.length > 0) await supabase.from("client_schedule").insert(rows);
     setSchedule({ ...editSchedule });
     setEditing(false);
+    setOpen(false); // chiude → header aggiornato visibile subito
     setSaving(false);
   };
 
