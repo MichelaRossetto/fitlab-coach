@@ -3,7 +3,10 @@ import { useState, useEffect, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
-import { Client, TrainingMonth, TrainingWeek, getInitials, MONTH_NAMES } from "@/lib/types";
+import {
+  Client, TrainingMonth, TrainingWeek, getInitials, MONTH_NAMES,
+  DAY_NAMES_SHORT, TIME_SLOTS_MORNING, TIME_SLOTS_AFTERNOON,
+} from "@/lib/types";
 import { Header } from "@/components/Header";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Modal } from "@/components/Modal";
@@ -217,6 +220,187 @@ function NewMonthForm({ clientId, existingMonths, lastWeekAny, subscriptionEnd, 
   );
 }
 
+// ─── Schedule Section ─────────────────────────────────────────
+const DAY_ABBREV = ["L", "M", "M", "G", "V", "S"];
+
+function ScheduleSection({ clientId, isClientView }: { clientId: string; isClientView: boolean }) {
+  const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [schedule, setSchedule] = useState<Record<number, string>>({});
+  const [editSchedule, setEditSchedule] = useState<Record<number, string>>({});
+  const [loadingS, setLoadingS] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    const load = async () => {
+      const { data } = await supabase
+        .from("client_schedule")
+        .select("*")
+        .eq("client_id", clientId)
+        .order("day_of_week");
+      if (data && data.length > 0) {
+        const map: Record<number, string> = {};
+        data.forEach((r: any) => { map[r.day_of_week] = r.time; });
+        setSchedule(map);
+      } else {
+        setSchedule({ 0: "10:00", 2: "10:00", 4: "10:00" });
+      }
+      setLoadingS(false);
+    };
+    load();
+  }, [clientId]);
+
+  const startEdit = () => { setEditSchedule({ ...schedule }); setEditing(true); };
+  const cancelEdit = () => { setEditing(false); };
+
+  const toggleDay = (day: number) =>
+    setEditSchedule(prev => {
+      if (prev[day] !== undefined) { const n = { ...prev }; delete n[day]; return n; }
+      return { ...prev, [day]: "10:00" };
+    });
+
+  const setTime = (day: number, time: string) =>
+    setEditSchedule(prev => ({ ...prev, [day]: time }));
+
+  const handleSave = async () => {
+    setSaving(true);
+    await supabase.from("client_schedule").delete().eq("client_id", clientId);
+    const rows = Object.entries(editSchedule).map(([day, time]) => ({
+      client_id: clientId, day_of_week: Number(day), time,
+    }));
+    if (rows.length > 0) await supabase.from("client_schedule").insert(rows);
+    setSchedule({ ...editSchedule });
+    setEditing(false);
+    setSaving(false);
+  };
+
+  const selectedDays = Object.keys(schedule).map(Number).sort((a, b) => a - b);
+  const editDays = Object.keys(editSchedule).map(Number).sort((a, b) => a - b);
+
+  if (loadingS) return null;
+
+  return (
+    <div className="card overflow-hidden">
+      {/* ── Header ── */}
+      <button
+        onClick={() => { setOpen(o => !o); if (editing) cancelEdit(); }}
+        className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+      >
+        <span className="font-semibold text-sm text-gray-700 dark:text-gray-200">Orari abituali</span>
+
+        <div className="flex items-center gap-2">
+          {/* Pallini giorni — visibili solo da chiuso */}
+          {!open && selectedDays.length > 0 && (
+            <div className="flex items-center gap-1">
+              {selectedDays.map((d, idx) => (
+                <span key={d}>
+                  <span className="text-xs font-bold" style={{ color: "#8a9a00" }}>{DAY_ABBREV[d]}</span>
+                  {idx < selectedDays.length - 1 && <span className="text-gray-300 text-xs mx-0.5">·</span>}
+                </span>
+              ))}
+              <span className="ml-1.5 text-[11px] text-gray-400 bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded-full">
+                {selectedDays.length}x
+              </span>
+            </div>
+          )}
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+            className={`text-gray-400 transition-transform flex-shrink-0 ${open ? "rotate-180" : ""}`}>
+            <path d="M6 9l6 6 6-6"/>
+          </svg>
+        </div>
+      </button>
+
+      {/* ── Contenuto ── */}
+      {open && (
+        <div className="border-t border-gray-100 dark:border-gray-700">
+          {!editing ? (
+            /* Vista lettura */
+            <div className="px-4 py-3">
+              {selectedDays.length > 0 ? (
+                <div className="flex flex-col gap-0">
+                  {selectedDays.map((day, idx) => (
+                    <div
+                      key={day}
+                      className={`flex items-center justify-between py-2 ${idx < selectedDays.length - 1 ? "border-b border-gray-50 dark:border-gray-700/50" : ""}`}
+                    >
+                      <span className="text-sm text-gray-500 dark:text-gray-400">{DAY_NAMES_SHORT[day]}</span>
+                      <span className="text-sm font-semibold text-gray-800 dark:text-gray-100 tabular-nums">{schedule[day]}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-gray-400 py-1">Nessun orario impostato</p>
+              )}
+              {!isClientView && (
+                <div className="mt-2 text-right">
+                  <button
+                    onClick={startEdit}
+                    className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 underline underline-offset-2 transition-colors"
+                  >
+                    modifica orari
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : (
+            /* Vista modifica */
+            <div className="px-4 py-3 space-y-3">
+              {/* Chip giorni */}
+              <div className="flex gap-1.5">
+                {DAY_NAMES_SHORT.map((name, i) => (
+                  <button
+                    key={i}
+                    onClick={() => toggleDay(i)}
+                    className="flex-1 py-1.5 rounded-xl text-xs font-bold transition-all"
+                    style={
+                      editSchedule[i] !== undefined
+                        ? { backgroundColor: "#D4E600", color: "#111" }
+                        : { backgroundColor: "#f3f4f6", color: "#9ca3af" }
+                    }
+                  >
+                    {name}
+                  </button>
+                ))}
+              </div>
+
+              {/* Orari */}
+              {editDays.length > 0 && (
+                <div className="space-y-1.5">
+                  {editDays.map(day => (
+                    <div key={day} className="flex items-center gap-3">
+                      <span className="text-xs font-semibold text-gray-500 w-8">{DAY_NAMES_SHORT[day]}</span>
+                      <select
+                        className="input text-sm w-24 py-1.5"
+                        value={editSchedule[day]}
+                        onChange={e => setTime(day, e.target.value)}
+                      >
+                        <optgroup label="Mattina">
+                          {TIME_SLOTS_MORNING.map(t => <option key={t} value={t}>{t}</option>)}
+                        </optgroup>
+                        <optgroup label="Pomeriggio">
+                          {TIME_SLOTS_AFTERNOON.map(t => <option key={t} value={t}>{t}</option>)}
+                        </optgroup>
+                      </select>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Azioni */}
+              <div className="flex gap-2 pt-1">
+                <button onClick={cancelEdit} className="btn-secondary flex-1 text-sm">Annulla</button>
+                <button onClick={handleSave} className="btn-primary flex-1 text-sm" disabled={saving}>
+                  {saving ? "Salvo..." : "Salva"}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Main Page ────────────────────────────────────────────────
 export default function ClientPage() {
   const params = useParams();
@@ -339,6 +523,9 @@ export default function ClientPage() {
             </div>
           </div>
         </div>
+
+        {/* Orari abituali */}
+        <ScheduleSection clientId={clientId} isClientView={isClientView} />
 
         {/* Months */}
         <div>

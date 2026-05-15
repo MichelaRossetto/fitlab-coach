@@ -100,6 +100,7 @@ function NewClientForm({ trainerId, onSuccess, onCancel }: NewClientFormProps) {
 export default function Dashboard() {
   const router = useRouter();
   const [clients, setClients] = useState<Client[]>([]);
+  const [scheduleCounts, setScheduleCounts] = useState<Record<string, number>>({});
   const [trainerId, setTrainerId] = useState<string>("");
   const [trainerEmail, setTrainerEmail] = useState<string>("");
 
@@ -136,11 +137,16 @@ export default function Dashboard() {
         return;
       }
     }
-    const { data } = await supabase
-      .from("clients")
-      .select("*")
-      .order("surname", { ascending: true });
+    const [{ data }, { data: schedData }] = await Promise.all([
+      supabase.from("clients").select("*").order("surname", { ascending: true }),
+      supabase.from("client_schedule").select("client_id"),
+    ]);
     setClients(data ?? []);
+    const counts: Record<string, number> = {};
+    schedData?.forEach((s: any) => {
+      counts[s.client_id] = (counts[s.client_id] ?? 0) + 1;
+    });
+    setScheduleCounts(counts);
     setLoading(false);
   }, [router]);
 
@@ -291,8 +297,15 @@ export default function Dashboard() {
 
                   {/* Info */}
                   <div className="flex-1 min-w-0">
-                    <div className="font-semibold text-gray-900 text-sm truncate dark:text-gray-100">
-                      {client.name} {client.surname}
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-gray-900 text-sm truncate dark:text-gray-100">
+                        {client.name} {client.surname}
+                      </span>
+                      {scheduleCounts[client.id] && (
+                        <span className="text-[11px] font-medium text-gray-400 flex-shrink-0">
+                          {scheduleCounts[client.id]}x/sett
+                        </span>
+                      )}
                     </div>
                     <div className="mt-1">
                       <StatusBadge subscriptionEnd={client.subscription_end} />
