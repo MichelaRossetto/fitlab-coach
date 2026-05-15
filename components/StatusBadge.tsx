@@ -1,4 +1,4 @@
-import { getSubscriptionStatus, SubscriptionStatus } from "@/lib/types";
+import { getSubscriptionStatus } from "@/lib/types";
 
 interface StatusBadgeProps {
   subscriptionEnd: string | null;
@@ -7,14 +7,12 @@ interface StatusBadgeProps {
 export function StatusBadge({ subscriptionEnd }: StatusBadgeProps) {
   const status = getSubscriptionStatus(subscriptionEnd);
 
-  if (!subscriptionEnd) {
-    return <span className="badge-expired">Nessuna scadenza</span>;
+  if (status === "inactive") {
+    return <span className="badge-expired" style={{ opacity: 0.5 }}>Inattivo</span>;
   }
 
-  const formatted = new Date(subscriptionEnd).toLocaleDateString("it-IT", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "2-digit",
+  const formatted = new Date(subscriptionEnd!).toLocaleDateString("it-IT", {
+    day: "2-digit", month: "2-digit", year: "2-digit",
   });
 
   if (status === "active") {
@@ -28,7 +26,7 @@ export function StatusBadge({ subscriptionEnd }: StatusBadgeProps) {
 
   if (status === "expiring") {
     const daysLeft = Math.ceil(
-      (new Date(subscriptionEnd).getTime() - Date.now()) / (1000 * 60 * 60 * 24)
+      (new Date(subscriptionEnd!).getTime() - Date.now()) / (1000 * 60 * 60 * 24)
     );
     return (
       <span className="badge-expiring">
@@ -38,6 +36,7 @@ export function StatusBadge({ subscriptionEnd }: StatusBadgeProps) {
     );
   }
 
+  // expired (≤30 giorni fa)
   return (
     <span className="badge-expired">
       <span className="w-1.5 h-1.5 rounded-full bg-red-500 inline-block" />

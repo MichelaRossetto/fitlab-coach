@@ -62,17 +62,18 @@ export interface Exercise {
   order_index: number;
 }
 
-export type SubscriptionStatus = "active" | "expiring" | "expired";
+export type SubscriptionStatus = "active" | "expiring" | "expired" | "inactive";
 
 export function getSubscriptionStatus(subscriptionEnd: string | null): SubscriptionStatus {
-  if (!subscriptionEnd) return "expired";
+  if (!subscriptionEnd) return "inactive";
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const end = new Date(subscriptionEnd);
   const diffDays = Math.ceil((end.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-  if (diffDays < 0) return "expired";
-  if (diffDays <= 14) return "expiring";
-  return "active";
+  if (diffDays > 14) return "active";
+  if (diffDays >= 0) return "expiring";
+  if (diffDays >= -30) return "expired";
+  return "inactive"; // scaduto da più di 30 giorni
 }
 
 export function getInitials(name: string, surname: string): string {

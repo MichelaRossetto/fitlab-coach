@@ -157,9 +157,9 @@ export default function Dashboard() {
     `${c.name} ${c.surname}`.toLowerCase().includes(search.toLowerCase())
   );
 
-  // Sort: expired first, then expiring, then active
+  // Sort: expiring → active → expired → inactive
   const sorted = [...filtered].sort((a, b) => {
-    const order = { expired: 0, expiring: 1, active: 2 };
+    const order = { expiring: 0, active: 1, expired: 2, inactive: 3 };
     return order[getSubscriptionStatus(a.subscription_end)] - order[getSubscriptionStatus(b.subscription_end)];
   });
 
@@ -281,7 +281,7 @@ export default function Dashboard() {
                 <Link
                   key={client.id}
                   href={`/clienti/${client.id}`}
-                  className="flex items-center gap-3.5 p-4 hover:bg-gray-50 transition-colors group dark:hover:bg-gray-700"
+                  className={`flex items-center gap-3.5 p-4 hover:bg-gray-50 transition-colors group dark:hover:bg-gray-700 ${getSubscriptionStatus(client.subscription_end) === "inactive" ? "opacity-40" : ""}`}
                 >
                   {/* Avatar */}
                   <div
