@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabase";
 import {
   Client, TrainingMonth, TrainingWeek, getInitials, MONTH_NAMES,
   DAY_NAMES_SHORT, TIME_SLOTS_MORNING, TIME_SLOTS_AFTERNOON,
+  getDefaultDayLabel,
 } from "@/lib/types";
 import { Header } from "@/components/Header";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -144,7 +145,7 @@ function NewMonthForm({ clientId, existingMonths, lastWeekAny, subscriptionEnd, 
           Array.from({ length: daysPerWeek }, (_, j) => ({
             week_id: w.id,
             day_number: j + 1,
-            label: `Giorno ${j + 1}`,
+            label: getDefaultDayLabel(j + 1, daysPerWeek),
             day_date: null,
             notes: null,
           }))
@@ -184,7 +185,7 @@ function NewMonthForm({ clientId, existingMonths, lastWeekAny, subscriptionEnd, 
         <div className="flex items-center justify-between">
           <label className="label mb-0 text-gray-700 dark:text-gray-300">Settimane da creare</label>
           <select className="input w-20 text-center" value={weekCount} onChange={e => setWeekCount(Number(e.target.value))}>
-            {[0, 1, 2, 3, 4, 5, 6, 7, 8].map(n => <option key={n} value={n}>{n}</option>)}
+            {[1, 2, 3, 4, 5, 6, 7, 8].map(n => <option key={n} value={n}>{n}</option>)}
           </select>
         </div>
         {weekCount > 0 && (
@@ -192,7 +193,7 @@ function NewMonthForm({ clientId, existingMonths, lastWeekAny, subscriptionEnd, 
             <div className="flex items-center justify-between">
               <label className="label mb-0 text-gray-700 dark:text-gray-300">Giorni per settimana</label>
               <select className="input w-20 text-center" value={daysPerWeek} onChange={e => setDaysPerWeek(Number(e.target.value))}>
-                {[0, 1, 2, 3, 4, 5, 6, 7].map(n => <option key={n} value={n}>{n}</option>)}
+                {[1, 2, 3, 4, 5, 6, 7].map(n => <option key={n} value={n}>{n}</option>)}
               </select>
             </div>
             <div>

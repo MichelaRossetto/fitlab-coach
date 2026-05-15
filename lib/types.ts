@@ -30,6 +30,8 @@ export interface TrainingWeek {
   notes: string | null;
 }
 
+export type DayStatus = "pending" | "done" | "skip";
+
 export interface TrainingDay {
   id: string;
   created_at: string;
@@ -38,7 +40,35 @@ export interface TrainingDay {
   label: string;
   day_date: string | null;
   notes: string | null;
+  status: DayStatus | null;
 }
+
+export const DAY_STATUS_CONFIG = [
+  {
+    value: "pending" as DayStatus,
+    label: "Da fare",
+    activeBg: "#f3f4f6",
+    activeColor: "#6b7280",
+    inactiveBg: "#fafafa",
+    inactiveColor: "#d1d5db",
+  },
+  {
+    value: "done" as DayStatus,
+    label: "Completato",
+    activeBg: "#dcfce7",
+    activeColor: "#16a34a",
+    inactiveBg: "#fafafa",
+    inactiveColor: "#d1d5db",
+  },
+  {
+    value: "skip" as DayStatus,
+    label: "Saltato",
+    activeBg: "#fef3c7",
+    activeColor: "#d97706",
+    inactiveBg: "#fafafa",
+    inactiveColor: "#d1d5db",
+  },
+] as const;
 
 export type SectionType = "warmup" | "strength" | "accessories" | "workout";
 
@@ -105,6 +135,15 @@ export const FORZA_SUBCATEGORIES = ["LOWER BODY", "UPPER BODY", "FULL BODY"] as 
 export const ACCESSORI_SUBCATEGORIES = ["BODYWEIGHT", "MANUBRI", "KETTLEBELL", "BILANCIERE"] as const;
 export const CORE_SUBCATEGORIES = ["ISOMETRICI", "NON ISOMETRICI"] as const;
 
+export const DAY_TYPES = ["Lower Body", "Upper Body", "Full Body"] as const;
+export type DayType = typeof DAY_TYPES[number];
+
+export function getDefaultDayLabel(dayNumber: number, totalDays: number): string {
+  if (totalDays === 1) return `Day ${dayNumber} · Full Body`;
+  if (totalDays === 2) return `Day ${dayNumber} · ${dayNumber === 1 ? "Lower Body" : "Upper Body"}`;
+  return `Day ${dayNumber} · ${DAY_TYPES[(dayNumber - 1) % 3]}`;
+}
+
 export const MONTH_NAMES = [
   "Gennaio", "Febbraio", "Marzo", "Aprile", "Maggio", "Giugno",
   "Luglio", "Agosto", "Settembre", "Ottobre", "Novembre", "Dicembre",
@@ -118,5 +157,10 @@ export interface ClientSchedule {
 }
 
 export const DAY_NAMES_SHORT    = ["Lun", "Mar", "Mer", "Gio", "Ven"];
-export const TIME_SLOTS_MORNING   = ["08:00", "09:00", "10:00", "11:00", "12:00", "13:00"];
-export const TIME_SLOTS_AFTERNOON = ["14:00", "15:00", "16:00", "17:00", "18:00", "19:00"];
+export const TIME_SLOTS_MORNING   = [
+  "08:00", "08:30", "09:00", "09:30", "10:00", "10:30",
+  "11:00", "11:30", "12:00", "12:30", "12:45", "13:00", "13:30",
+];
+export const TIME_SLOTS_AFTERNOON = [
+  "16:00", "16:30", "17:00", "17:30", "18:00", "18:30", "19:00", "19:30",
+];

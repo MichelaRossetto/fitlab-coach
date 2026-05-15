@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
-import { TrainingWeek, TrainingDay } from "@/lib/types";
+import { TrainingWeek, TrainingDay, DAY_TYPES, DAY_STATUS_CONFIG, DayStatus, getDefaultDayLabel } from "@/lib/types";
 import { Header } from "@/components/Header";
 import { Modal } from "@/components/Modal";
 
@@ -12,7 +12,7 @@ function NewDayForm({ weekId, existingCount, onSuccess, onCancel }: {
   weekId: string; existingCount: number; onSuccess: () => void; onCancel: () => void;
 }) {
   const [dayNum, setDayNum] = useState(existingCount + 1);
-  const [label, setLabel] = useState(`Giorno ${existingCount + 1}`);
+  const [label, setLabel] = useState(getDefaultDayLabel(existingCount + 1, existingCount + 1));
   const [dayDate, setDayDate] = useState("");
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
@@ -40,9 +40,9 @@ function NewDayForm({ weekId, existingCount, onSuccess, onCancel }: {
           <select className="input" value={dayNum} onChange={e => {
             const n = Number(e.target.value);
             setDayNum(n);
-            setLabel(`Giorno ${n}`);
+            setLabel(getDefaultDayLabel(n, n));
           }}>
-            {[1, 2, 3, 4, 5, 6, 7].map(n => <option key={n} value={n}>Giorno {n}</option>)}
+            {[1, 2, 3, 4, 5, 6, 7].map(n => <option key={n} value={n}>Day {n}</option>)}
           </select>
         </div>
         <div>
@@ -50,9 +50,32 @@ function NewDayForm({ weekId, existingCount, onSuccess, onCancel }: {
           <input className="input" type="date" value={dayDate} onChange={e => setDayDate(e.target.value)} />
         </div>
       </div>
+      {/* Type chips */}
+      <div>
+        <label className="label">Tipologia</label>
+        <div className="flex gap-2">
+          {DAY_TYPES.map(type => {
+            const active = label.includes(type);
+            return (
+              <button
+                key={type}
+                type="button"
+                onClick={() => setLabel(`Day ${dayNum} · ${type}`)}
+                className="flex-1 py-2 rounded-xl text-xs font-bold transition-all"
+                style={active
+                  ? { backgroundColor: "#D4E600", color: "#111" }
+                  : { backgroundColor: "#f3f4f6", color: "#9ca3af" }
+                }
+              >
+                {type.replace(" Body", "")}
+              </button>
+            );
+          })}
+        </div>
+      </div>
       <div>
         <label className="label">Etichetta</label>
-        <input className="input" value={label} onChange={e => setLabel(e.target.value)} placeholder="es. Day 1 · Lunedì 20" />
+        <input className="input" value={label} onChange={e => setLabel(e.target.value)} placeholder="es. Day 1 · Lower Body" />
       </div>
       <div>
         <label className="label">Note</label>
@@ -88,6 +111,9 @@ export default function WeekPage() {
   const [savingDates, setSavingDates] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [editingTypeId, setEditingTypeId] = useState<string | null>(null);
+  const [scheduledDays, setScheduledDays] = useState<number[]>([]);
 
   const handleEditDates = async () => {
     setSavingDates(true);
@@ -102,12 +128,13 @@ export default function WeekPage() {
 
   const fetch = useCallback(async () => {
     setLoading(true);
-    const [{ data: w }, { data: d }, { data: m }, { data: c }, { data: userData }] = await Promise.all([
+    const [{ data: w }, { data: d }, { data: m }, { data: c }, { data: userData }, { data: sched }] = await Promise.all([
       supabase.from("training_weeks").select("*").eq("id", weekId).single(),
       supabase.from("training_days").select("*").eq("week_id", weekId).order("day_number"),
       supabase.from("training_months").select("label").eq("id", monthId).single(),
       supabase.from("clients").select("name, surname, email").eq("id", clientId).single(),
       supabase.auth.getUser(),
+      supabase.from("client_schedule").select("day_of_week").eq("client_id", clientId).order("day_of_week"),
     ]);
     setWeek(w);
     setDays(d ?? []);
@@ -116,6 +143,7 @@ export default function WeekPage() {
       setClientName(`${c.name} ${c.surname}`);
       setIsClientView(c.email === userData.user?.email);
     }
+    setScheduledDays(sched?.map((s: any) => s.day_of_week) ?? []);
     setLoading(false);
   }, [weekId, monthId, clientId]);
 
@@ -130,6 +158,41 @@ export default function WeekPage() {
   const handleDeleteDay = async (dayId: string) => {
     await supabase.from("training_days").delete().eq("id", dayId);
     setDays(prev => prev.filter(d => d.id !== dayId));
+    setDeleteConfirmId(null);
+  };
+
+  const handleSetType = async (day: TrainingDay, type: string) => {
+    const newLabel = `Day ${day.day_number} · ${type}`;
+    await supabase.from("training_days").update({ label: newLabel }).eq("id", day.id);
+    setDays(prev => prev.map(d => d.id === day.id ? { ...d, label: newLabel } : d));
+    setEditingTypeId(null);
+  };
+
+  const handleSetStatus = async (day: TrainingDay, status: DayStatus) => {
+    await supabase.from("training_days").update({ status }).eq("id", day.id);
+    setDays(prev => prev.map(d => d.id === day.id ? { ...d, status } : d));
+  };
+
+  // Calcola la data del giorno dalla data di inizio settimana + giorni abituali del cliente
+  const getCalculatedDate = (dayNumber: number): Date | null => {
+    if (!week?.date_start || scheduledDays.length === 0) return null;
+    if (dayNumber > scheduledDays.length) return null;
+    const weekStart = new Date(week.date_start);
+    weekStart.setHours(12, 0, 0, 0); // evita problemi di fuso
+    const offset = scheduledDays[dayNumber - 1]; // 0=Lun, 2=Mer, 4=Ven...
+    const date = new Date(weekStart);
+    date.setDate(date.getDate() + offset);
+    return date;
+  };
+
+  // "done" e "skip" espliciti vincono sempre; "pending" (default DB) lascia decidere le date
+  const getEffectiveStatus = (day: TrainingDay): DayStatus => {
+    if (day.status === "done" || day.status === "skip") return day.status;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (day.day_date && new Date(day.day_date) < today) return "done";
+    if (week?.date_end && new Date(week.date_end) < today) return "done";
+    return "pending";
   };
 
   const formatDate = (d: string | null) => d
@@ -203,43 +266,140 @@ export default function WeekPage() {
             </div>
           ) : (
             <div className="space-y-3">
-              {days.map(day => (
-                <div key={day.id} className="card overflow-hidden">
-                  <Link
-                    href={`/clienti/${clientId}/${monthId}/${weekId}/${day.id}`}
-                    className="flex items-center gap-3.5 p-4 hover:bg-gray-50 transition-colors group dark:hover:bg-gray-700"
-                  >
-                    <div
-                      className="w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm flex-shrink-0"
-                      style={{ backgroundColor: "#111", color: "#D4E600" }}
-                    >
-                      D{day.day_number}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="font-semibold text-gray-900 text-sm dark:text-gray-100">{day.label}</div>
-                      {day.day_date && (
-                        <div className="text-xs text-gray-400 mt-0.5 capitalize">{formatDate(day.day_date)}</div>
-                      )}
-                      {day.notes && <div className="text-xs text-gray-400 mt-0.5 italic">{day.notes}</div>}
-                    </div>
-                    <svg className="text-gray-300 group-hover:text-gray-500 transition-colors flex-shrink-0"
-                      width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d="M9 18l6-6-6-6"/>
-                    </svg>
-                  </Link>
-                  {/* Quick delete row — solo coach */}
-                  {!isClientView && (
-                    <div className="px-4 pb-3 flex justify-end">
-                      <button
-                        onClick={() => handleDeleteDay(day.id)}
-                        className="text-xs text-red-400 hover:text-red-600 transition-colors"
+              {days.map(day => {
+                const currentStatus = getEffectiveStatus(day);
+                const dayTitle = day.label.split(" · ")[0] || day.label;
+                const currentType = DAY_TYPES.find(t => day.label.includes(t)) ?? null;
+                const dayUrl = `/clienti/${clientId}/${monthId}/${weekId}/${day.id}`;
+                // Data: esplicita nel DB oppure calcolata dagli orari abituali
+                const resolvedDate = day.day_date
+                  ? new Date(day.day_date)
+                  : getCalculatedDate(day.day_number);
+                const dateLabel = resolvedDate
+                  ? resolvedDate.toLocaleDateString("it-IT", { weekday: "long", day: "2-digit", month: "2-digit" })
+                  : null;
+                return (
+                  <div key={day.id} className="card overflow-hidden">
+                    {/* Main row — badge e freccia navigano, centro è editabile */}
+                    <div className="flex items-center gap-3.5 px-4 pt-4 pb-3">
+                      <Link
+                        href={dayUrl}
+                        className="w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm flex-shrink-0 hover:opacity-80 transition-opacity"
+                        style={{ backgroundColor: "#111", color: "#D4E600" }}
                       >
-                        Elimina giorno
-                      </button>
+                        D{day.day_number}
+                      </Link>
+
+                      <div className="flex-1 min-w-0">
+                        {editingTypeId === day.id ? (
+                          /* Picker aperto: "Day N" + chip tipo */
+                          <>
+                            <div className="font-semibold text-gray-900 text-sm dark:text-gray-100 mb-1.5">
+                              Day {day.day_number}
+                            </div>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              {DAY_TYPES.map(type => (
+                                <button
+                                  key={type}
+                                  onClick={() => handleSetType(day, type)}
+                                  className="text-xs font-semibold px-2.5 py-1 rounded-lg transition-all"
+                                  style={type === currentType
+                                    ? { backgroundColor: "#D4E600", color: "#111" }
+                                    : { backgroundColor: "#f3f4f6", color: "#6b7280" }
+                                  }
+                                >
+                                  {type}
+                                </button>
+                              ))}
+                              <button
+                                onClick={() => setEditingTypeId(null)}
+                                className="text-xs text-gray-400 hover:text-gray-500 ml-0.5"
+                              >✕</button>
+                            </div>
+                          </>
+                        ) : !isClientView ? (
+                          /* Coach: titolo cliccabile con matita al hover */
+                          <button
+                            onClick={() => setEditingTypeId(day.id)}
+                            className="text-left group/title w-full"
+                          >
+                            <div className="font-semibold text-gray-900 text-sm dark:text-gray-100 flex items-center gap-1.5">
+                              <span>{day.label}</span>
+                              <svg
+                                className="opacity-0 group-hover/title:opacity-40 transition-opacity flex-shrink-0"
+                                width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
+                              >
+                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                              </svg>
+                            </div>
+                          </button>
+                        ) : (
+                          /* Cliente: solo testo */
+                          <div className="font-semibold text-gray-900 text-sm dark:text-gray-100">
+                            {day.label}
+                          </div>
+                        )}
+
+                        {dateLabel && (
+                          <div className="text-xs text-gray-400 mt-0.5 capitalize">{dateLabel}</div>
+                        )}
+                        {day.notes && (
+                          <div className="text-xs text-gray-400 mt-0.5 italic">{day.notes}</div>
+                        )}
+                      </div>
+
+                      <Link
+                        href={dayUrl}
+                        className="text-gray-300 hover:text-gray-500 transition-colors flex-shrink-0"
+                      >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M9 18l6-6-6-6"/>
+                        </svg>
+                      </Link>
                     </div>
-                  )}
-                </div>
-              ))}
+
+                    {/* Bottom row: status (tutti) + elimina (solo coach) */}
+                    <div className="border-t border-gray-100 dark:border-gray-700/50 px-4 py-2.5 flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5">
+                        {DAY_STATUS_CONFIG.map(cfg => {
+                          const isActive = currentStatus === cfg.value;
+                          return (
+                            <button
+                              key={cfg.value}
+                              onClick={() => handleSetStatus(day, cfg.value)}
+                              className="px-2.5 py-1 rounded-full text-xs font-semibold transition-all"
+                              style={isActive
+                                ? { backgroundColor: "#D4E600", color: "#111" }
+                                : { color: "#d1d5db" }
+                              }
+                            >
+                              {cfg.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      {!isClientView && (
+                        deleteConfirmId === day.id ? (
+                          <div className="flex items-center gap-2 flex-shrink-0">
+                            <span className="text-xs text-gray-400">Eliminare?</span>
+                            <button onClick={() => setDeleteConfirmId(null)} className="text-xs text-gray-400 hover:text-gray-600 transition-colors">No</button>
+                            <button onClick={() => handleDeleteDay(day.id)} className="text-xs text-red-500 hover:text-red-700 font-semibold transition-colors">Sì</button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => setDeleteConfirmId(day.id)}
+                            className="text-xs text-gray-300 hover:text-red-400 transition-colors flex-shrink-0"
+                          >
+                            Elimina
+                          </button>
+                        )
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
