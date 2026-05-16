@@ -3,17 +3,273 @@ import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
-import { Client, getInitials, getSubscriptionStatus, MONTH_NAMES } from "@/lib/types";
+import { Client, getInitials, getSubscriptionStatus, TIME_SLOTS_MORNING, TIME_SLOTS_AFTERNOON } from "@/lib/types";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Modal } from "@/components/Modal";
 
-// ─── Stat card ───────────────────────────────────────────────
-function StatCard({ label, value, color }: { label: string; value: number; color: string }) {
+type FilterType = "all" | "expiring" | "expired" | "inactive";
+type ViewType = "list" | "calendar";
+
+interface ScheduleEntry {
+  client_id: string;
+  day_of_week: number;
+  time: string;
+}
+
+// ─── Stat card (cliccabile) ───────────────────────────────────
+function StatCard({
+  label, value, color, active, onClick,
+}: {
+  label: string; value: number; color: string; active: boolean; onClick: () => void;
+}) {
   return (
-    <div className="bg-white rounded-xl border border-gray-100 p-3 text-center dark:bg-gray-800 dark:border-gray-700">
-      <div className={`text-2xl font-bold ${color}`}>{value}</div>
-      <div className="text-[11px] text-gray-500 mt-0.5 dark:text-gray-400">{label}</div>
-    </div>
+    <button
+      onClick={onClick}
+      className={`rounded-xl border p-3 text-center transition-all w-full
+        ${active
+          ? "bg-gray-900 border-gray-900 dark:bg-gray-100 dark:border-gray-100"
+          : "bg-white border-gray-100 hover:border-gray-300 dark:bg-gray-800 dark:border-gray-700 dark:hover:border-gray-500"
+        }`}
+    >
+      <div className={`text-2xl font-bold ${active ? "text-white dark:text-gray-900" : color}`}>{value}</div>
+      <div className={`text-[11px] mt-0.5 ${active ? "text-gray-300 dark:text-gray-600" : "text-gray-500 dark:text-gray-400"}`}>{label}</div>
+    </button>
+  );
+}
+
+// ─── Calendar View ────────────────────────────────────────────
+const DAY_LABELS = ["Lun", "Mar", "Mer", "Gio", "Ven"];
+const MONTH_SHORT = ["Gen","Feb","Mar","Apr","Mag","Giu","Lug","Ago","Set","Ott","Nov","Dic"];
+
+function getMonday(date: Date): Date {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  const day = d.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  d.setDate(d.getDate() + diff);
+  return d;
+}
+
+function slotColor(count: number): { bg: string; text: string } {
+  if (count === 0) return { bg: "#f9fafb", text: "#9ca3af" };
+  if (count <= 2) return { bg: "#dcfce7", text: "#16a34a" };
+  if (count === 3) return { bg: "#fef9c3", text: "#ca8a04" };
+  return { bg: "#fee2e2", text: "#dc2626" };
+}
+
+function CalendarView({ scheduleEntries, clients, activeFilter }: { scheduleEntries: ScheduleEntry[]; clients: Client[]; activeFilter: FilterType }) {
+  // Inattivi sempre esclusi; applica il filtro attivo sugli altri
+  const visibleClients = clients.filter(c => {
+    const status = getSubscriptionStatus(c.subscription_end);
+    if (status === "inactive") return false;
+    if (activeFilter === "all") return true;
+    return status === activeFilter;
+  });
+  const visibleIds = new Set(visibleClients.map(c => c.id));
+  const [weekStart, setWeekStart] = useState<Date>(() => getMonday(new Date()));
+  const [selectedSlot, setSelectedSlot] = useState<{ day: number; time: string } | null>(null);
+
+  const weekDays = Array.from({ length: 5 }, (_, i) => {
+    const d = new Date(weekStart);
+    d.setDate(d.getDate() + i);
+    return d;
+  });
+
+  const isToday = (d: Date) => {
+    const today = new Date();
+    return d.getDate() === today.getDate() && d.getMonth() === today.getMonth() && d.getFullYear() === today.getFullYear();
+  };
+
+  const weekLabel = (() => {
+    const start = weekDays[0];
+    const end = weekDays[4];
+    if (start.getMonth() === end.getMonth())
+      return `${start.getDate()}–${end.getDate()} ${MONTH_SHORT[start.getMonth()]} ${start.getFullYear()}`;
+    return `${start.getDate()} ${MONTH_SHORT[start.getMonth()]} – ${end.getDate()} ${MONTH_SHORT[end.getMonth()]} ${end.getFullYear()}`;
+  })();
+
+  // Slot orari per la visualizzazione calendario (ore intere)
+  const DISPLAY_SLOTS_MORNING   = ["08:00","09:00","10:00","11:00","12:00","13:00"];
+  const DISPLAY_SLOTS_AFTERNOON = ["16:00","17:00","18:00","19:00"];
+  const DISPLAY_SLOTS = [...DISPLAY_SLOTS_MORNING, ...DISPLAY_SLOTS_AFTERNOON];
+
+  // Build map: day → time → clientIds[]
+  // Sessione = 1 ora → il cliente compare in tutti gli slot H dove [T, T+60) ∩ [H, H+60) ≠ ∅
+  const timeToMin = (t: string) => { const [h, m] = t.split(":").map(Number); return h * 60 + m; };
+  const slotMap: Record<number, Record<string, string[]>> = {};
+  for (let d = 0; d < 5; d++) slotMap[d] = {};
+  for (const e of scheduleEntries) {
+    if (e.day_of_week < 0 || e.day_of_week > 4) continue;
+    if (!visibleIds.has(e.client_id)) continue;
+    const T = timeToMin(e.time);
+    for (const slot of DISPLAY_SLOTS) {
+      const H = timeToMin(slot);
+      // overlap: T < H+60 AND T+60 > H
+      if (T < H + 60 && T + 60 > H) {
+        if (!slotMap[e.day_of_week][slot]) slotMap[e.day_of_week][slot] = [];
+        if (!slotMap[e.day_of_week][slot].includes(e.client_id))
+          slotMap[e.day_of_week][slot].push(e.client_id);
+      }
+    }
+  }
+
+  const clientsInSlot: Client[] = selectedSlot
+    ? (slotMap[selectedSlot.day]?.[selectedSlot.time] ?? [])
+        .map(id => visibleClients.find(c => c.id === id))
+        .filter((c): c is Client => Boolean(c))
+    : [];
+
+  const SlotCell = ({ day, time }: { day: number; time: string }) => {
+    const ids = slotMap[day]?.[time] ?? [];
+    const { bg, text } = slotColor(ids.length);
+    return (
+      <button
+        onClick={() => ids.length > 0 && setSelectedSlot({ day, time })}
+        className="border-l border-gray-100 dark:border-gray-700 p-1.5 flex items-center justify-center transition-opacity hover:opacity-75 min-h-[32px]"
+        style={{ backgroundColor: bg }}
+        disabled={ids.length === 0}
+      >
+        {ids.length > 0 && (
+          <span className="text-xs font-bold" style={{ color: text }}>{ids.length}</span>
+        )}
+      </button>
+    );
+  };
+
+  return (
+    <>
+      <div className="card overflow-hidden">
+        {/* Week navigation */}
+        {(() => {
+          const todayMonday = getMonday(new Date());
+          const isFuture = weekStart.getTime() > todayMonday.getTime();
+          const isPast   = weekStart.getTime() < todayMonday.getTime();
+          const backBtn = (
+            <button
+              onClick={() => setWeekStart(getMonday(new Date()))}
+              className="text-[10px] font-medium px-2 py-0.5 rounded-full border border-gray-300 text-gray-500 hover:bg-gray-100 dark:border-gray-600 dark:text-gray-400 dark:hover:bg-gray-700 transition-colors whitespace-nowrap"
+            >
+              {isFuture ? "← settimana corrente" : "settimana corrente →"}
+            </button>
+          );
+          return (
+            <div className="flex items-center justify-between px-3 py-2 border-b border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
+              <div className="flex items-center gap-2 min-w-[120px]">
+                <button
+                  onClick={() => setWeekStart(d => { const n = new Date(d); n.setDate(n.getDate() - 7); return n; })}
+                  className="p-1 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500 transition-colors"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 18l-6-6 6-6"/></svg>
+                </button>
+                {isFuture && backBtn}
+              </div>
+              <span className="text-sm font-semibold text-gray-700 dark:text-gray-200">{weekLabel}</span>
+              <div className="flex items-center gap-2 justify-end min-w-[120px]">
+                {isPast && backBtn}
+                <button
+                  onClick={() => setWeekStart(d => { const n = new Date(d); n.setDate(n.getDate() + 7); return n; })}
+                  className="p-1 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500 transition-colors"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 18l6-6-6-6"/></svg>
+                </button>
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* Day headers with dates */}
+        <div className="grid grid-cols-[56px_repeat(5,1fr)] border-b border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
+          <div className="p-2" />
+          {weekDays.map((date, i) => (
+            <div
+              key={i}
+              className={`p-2 text-center border-l border-gray-100 dark:border-gray-700 ${isToday(date) ? "bg-yellow-50 dark:bg-yellow-900/20" : ""}`}
+            >
+              <div className="text-[10px] text-gray-400 font-medium">{DAY_LABELS[i]}</div>
+              <div className={`text-sm font-bold mt-0.5 ${isToday(date) ? "text-yellow-600 dark:text-yellow-400" : "text-gray-700 dark:text-gray-200"}`}>
+                {date.getDate()}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Mattina */}
+        <div className="border-b border-gray-200 dark:border-gray-600">
+          <div className="px-3 py-1 text-[10px] font-semibold text-gray-400 uppercase tracking-wide bg-gray-50 dark:bg-gray-700/50">Mattina</div>
+          {DISPLAY_SLOTS_MORNING.map(time => (
+            <div key={time} className="grid grid-cols-[56px_repeat(5,1fr)] border-b border-gray-50 dark:border-gray-700/50 last:border-0">
+              <div className="p-2 text-[11px] text-gray-400 flex items-center justify-end pr-3 font-mono">{time}</div>
+              {[0,1,2,3,4].map(day => <SlotCell key={day} day={day} time={time} />)}
+            </div>
+          ))}
+        </div>
+
+        {/* Pomeriggio */}
+        <div>
+          <div className="px-3 py-1 text-[10px] font-semibold text-gray-400 uppercase tracking-wide bg-gray-50 dark:bg-gray-700/50">Pomeriggio</div>
+          {DISPLAY_SLOTS_AFTERNOON.map(time => (
+            <div key={time} className="grid grid-cols-[56px_repeat(5,1fr)] border-b border-gray-50 dark:border-gray-700/50 last:border-0">
+              <div className="p-2 text-[11px] text-gray-400 flex items-center justify-end pr-3 font-mono">{time}</div>
+              {[0,1,2,3,4].map(day => <SlotCell key={day} day={day} time={time} />)}
+            </div>
+          ))}
+        </div>
+
+        {/* Avviso filtro inattivi */}
+        {activeFilter === "inactive" && (
+          <div className="px-4 py-3 text-center text-sm text-gray-400 border-b border-gray-100 dark:border-gray-700">
+            Gli inattivi non hanno slot in calendario
+          </div>
+        )}
+
+        {/* Legenda */}
+        <div className="px-3 py-2 flex items-center gap-3 border-t border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
+          <span className="text-[10px] text-gray-400 font-semibold">Legenda:</span>
+          {[
+            { label: "vuoto", bg: "#f9fafb", text: "#9ca3af" },
+            { label: "1–2", bg: "#dcfce7", text: "#16a34a" },
+            { label: "3",   bg: "#fef9c3", text: "#ca8a04" },
+            { label: "4+",  bg: "#fee2e2", text: "#dc2626" },
+          ].map(l => (
+            <div key={l.label} className="flex items-center gap-1">
+              <div className="w-4 h-4 rounded border border-gray-200" style={{ backgroundColor: l.bg }} />
+              <span className="text-[10px]" style={{ color: l.text }}>{l.label}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Slot detail modal */}
+      <Modal
+        open={!!selectedSlot}
+        onClose={() => setSelectedSlot(null)}
+        title={selectedSlot ? `${DAY_LABELS[selectedSlot.day]} · ${selectedSlot.time}` : ""}
+      >
+        <div className="space-y-1">
+          {clientsInSlot.length === 0 ? (
+            <p className="text-sm text-gray-400 text-center py-4">Nessun cliente</p>
+          ) : clientsInSlot.map(client => (
+            <Link
+              key={client.id}
+              href={`/clienti/${client.id}`}
+              onClick={() => setSelectedSlot(null)}
+              className="flex items-center gap-3 p-3 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+            >
+              <div
+                className="w-9 h-9 rounded-full flex items-center justify-center font-bold text-sm border-2 flex-shrink-0"
+                style={{ borderColor: "#C0D738", backgroundColor: "#f9fce0", color: "#111" }}
+              >
+                {getInitials(client.name, client.surname)}
+              </div>
+              <span className="font-medium text-sm text-gray-900 dark:text-gray-100">{client.name} {client.surname}</span>
+              <svg className="ml-auto text-gray-300" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M9 18l6-6-6-6"/>
+              </svg>
+            </Link>
+          ))}
+        </div>
+      </Modal>
+    </>
   );
 }
 
@@ -100,9 +356,15 @@ function NewClientForm({ trainerId, onSuccess, onCancel }: NewClientFormProps) {
 export default function Dashboard() {
   const router = useRouter();
   const [clients, setClients] = useState<Client[]>([]);
+  const [scheduleEntries, setScheduleEntries] = useState<ScheduleEntry[]>([]);
   const [scheduleDays, setScheduleDays] = useState<Record<string, number[]>>({});
   const [trainerId, setTrainerId] = useState<string>("");
   const [trainerEmail, setTrainerEmail] = useState<string>("");
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [showModal, setShowModal] = useState(false);
+  const [activeFilter, setActiveFilter] = useState<FilterType>("all");
+  const [view, setView] = useState<ViewType>("list");
 
   const toggleTheme = () => {
     const isDark = document.documentElement.classList.toggle("dark");
@@ -114,10 +376,6 @@ export default function Dashboard() {
     router.push("/login");
   };
 
-  const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState("");
-  const [showModal, setShowModal] = useState(false);
-
   const fetchClients = useCallback(async () => {
     setLoading(true);
     const { data: userData } = await supabase.auth.getUser();
@@ -126,7 +384,6 @@ export default function Dashboard() {
       setTrainerId(user.id);
       setTrainerEmail(user.email ?? "");
 
-      // Se l'utente è un cliente (email presente nella tabella clients), redirect al suo piano
       const { data: clientMatch } = await supabase
         .from("clients")
         .select("id")
@@ -137,15 +394,20 @@ export default function Dashboard() {
         return;
       }
     }
-    const [{ data }, { data: schedData }] = await Promise.all([
+    const [{ data }, schedRes] = await Promise.all([
       supabase.from("clients").select("*").order("surname", { ascending: true }),
-      supabase.from("client_schedule").select("client_id, day_of_week").order("day_of_week"),
+      fetch("/api/schedules"),
     ]);
     setClients(data ?? []);
+    const schedData = schedRes.ok ? await schedRes.json() : [];
+
+    const entries: ScheduleEntry[] = (schedData ?? []) as ScheduleEntry[];
+    setScheduleEntries(entries);
+
     const days: Record<string, number[]> = {};
-    schedData?.forEach((s: any) => {
+    entries.forEach(s => {
       if (!days[s.client_id]) days[s.client_id] = [];
-      days[s.client_id].push(s.day_of_week);
+      if (!days[s.client_id].includes(s.day_of_week)) days[s.client_id].push(s.day_of_week);
     });
     setScheduleDays(days);
     setLoading(false);
@@ -153,9 +415,16 @@ export default function Dashboard() {
 
   useEffect(() => { fetchClients(); }, [fetchClients]);
 
-  const filtered = clients.filter(c =>
-    `${c.name} ${c.surname}`.toLowerCase().includes(search.toLowerCase())
-  );
+  const handleFilterClick = (filter: FilterType) => {
+    setActiveFilter(prev => prev === filter ? "all" : filter);
+  };
+
+  const filtered = clients.filter(c => {
+    const nameMatch = `${c.name} ${c.surname}`.toLowerCase().includes(search.toLowerCase());
+    if (!nameMatch) return false;
+    if (activeFilter === "all") return true;
+    return getSubscriptionStatus(c.subscription_end) === activeFilter;
+  });
 
   // Sort: expiring → active → expired → inactive
   const sorted = [...filtered].sort((a, b) => {
@@ -164,9 +433,10 @@ export default function Dashboard() {
   });
 
   const stats = {
-    total: clients.length,
+    total:    clients.length,
     expiring: clients.filter(c => getSubscriptionStatus(c.subscription_end) === "expiring").length,
-    expired: clients.filter(c => getSubscriptionStatus(c.subscription_end) === "expired").length,
+    expired:  clients.filter(c => getSubscriptionStatus(c.subscription_end) === "expired").length,
+    inactive: clients.filter(c => getSubscriptionStatus(c.subscription_end) === "inactive").length,
   };
 
   return (
@@ -219,114 +489,164 @@ export default function Dashboard() {
       </header>
 
       <main className="max-w-2xl mx-auto px-4 py-5 space-y-5">
-        {/* Stats */}
+        {/* Stats — cliccabili come filtri */}
         {!loading && clients.length > 0 && (
-          <div className="grid grid-cols-3 gap-3">
-            <StatCard label="Totali" value={stats.total} color="text-gray-900 dark:text-gray-100" />
-            <StatCard label="In scadenza" value={stats.expiring} color="text-amber-600" />
-            <StatCard label="Scaduti" value={stats.expired} color="text-red-500" />
+          <div className="grid grid-cols-4 gap-2">
+            <StatCard
+              label="Totali" value={stats.total} color="text-gray-900 dark:text-gray-100"
+              active={activeFilter === "all"} onClick={() => setActiveFilter("all")}
+            />
+            <StatCard
+              label="In scadenza" value={stats.expiring} color="text-amber-600"
+              active={activeFilter === "expiring"} onClick={() => handleFilterClick("expiring")}
+            />
+            <StatCard
+              label="Scaduti" value={stats.expired} color="text-red-500"
+              active={activeFilter === "expired"} onClick={() => handleFilterClick("expired")}
+            />
+            <StatCard
+              label="Inattivi" value={stats.inactive} color="text-gray-400"
+              active={activeFilter === "inactive"} onClick={() => handleFilterClick("inactive")}
+            />
           </div>
         )}
 
-        {/* Search */}
-        <div className="relative">
-          <svg className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
-          </svg>
-          <input
-            className="input pl-10"
-            placeholder="Cerca cliente..."
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            autoComplete="off"
-          />
-        </div>
+        {/* View toggle */}
+        {!loading && (
+          <div className="flex gap-2 bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 p-1">
+            <button
+              onClick={() => setView("list")}
+              className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-sm font-medium transition-all
+                ${view === "list" ? "bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900" : "text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"}`}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/>
+                <line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>
+              </svg>
+              Lista
+            </button>
+            <button
+              onClick={() => setView("calendar")}
+              className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-sm font-medium transition-all
+                ${view === "calendar" ? "bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900" : "text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"}`}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+                <line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
+              </svg>
+              Calendario
+            </button>
+          </div>
+        )}
 
-        {/* Client list */}
-        {loading ? (
-          <div className="space-y-3">
-            {[...Array(4)].map((_, i) => (
-              <div key={i} className="card p-4 flex items-center gap-3 animate-pulse">
-                <div className="w-11 h-11 rounded-full bg-gray-100" />
-                <div className="flex-1 space-y-2">
-                  <div className="h-3.5 bg-gray-100 rounded w-40" />
-                  <div className="h-3 bg-gray-100 rounded w-24" />
+        {view === "calendar" ? (
+          <CalendarView scheduleEntries={scheduleEntries} clients={clients} activeFilter={activeFilter} />
+        ) : (
+          <>
+            {/* Search */}
+            <div className="relative">
+              <svg className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+              </svg>
+              <input
+                className="input pl-10"
+                placeholder="Cerca cliente..."
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                autoComplete="off"
+              />
+            </div>
+
+            {/* Client list */}
+            {loading ? (
+              <div className="space-y-3">
+                {[...Array(4)].map((_, i) => (
+                  <div key={i} className="card p-4 flex items-center gap-3 animate-pulse">
+                    <div className="w-11 h-11 rounded-full bg-gray-100" />
+                    <div className="flex-1 space-y-2">
+                      <div className="h-3.5 bg-gray-100 rounded w-40" />
+                      <div className="h-3 bg-gray-100 rounded w-24" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : sorted.length === 0 ? (
+              <div className="card p-10 text-center">
+                {search || activeFilter !== "all" ? (
+                  <>
+                    <div className="text-3xl mb-3">🔍</div>
+                    <p className="text-gray-500">
+                      {search ? `Nessun cliente trovato per "${search}"` : "Nessun cliente in questa categoria"}
+                    </p>
+                    <button className="mt-3 text-sm text-gray-400 hover:text-gray-600 underline" onClick={() => { setSearch(""); setActiveFilter("all"); }}>
+                      Rimuovi filtri
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <div className="text-3xl mb-3">👋</div>
+                    <p className="font-medium text-gray-700 mb-1">Nessun cliente ancora</p>
+                    <p className="text-sm text-gray-400 mb-4">Aggiungi il tuo primo cliente per iniziare</p>
+                    <button className="btn-primary mx-auto" onClick={() => setShowModal(true)}>
+                      Aggiungi cliente
+                    </button>
+                  </>
+                )}
+              </div>
+            ) : (
+              <div>
+                <p className="section-label">
+                  {sorted.length} client{sorted.length === 1 ? "e" : "i"}
+                  {activeFilter !== "all" && <span className="text-gray-300"> · filtrati</span>}
+                </p>
+                <div className="card divide-y divide-gray-50 dark:divide-gray-700">
+                  {sorted.map(client => (
+                    <Link
+                      key={client.id}
+                      href={`/clienti/${client.id}`}
+                      className={`flex items-center gap-3.5 p-4 hover:bg-gray-50 transition-colors group dark:hover:bg-gray-700 ${getSubscriptionStatus(client.subscription_end) === "inactive" ? "opacity-40" : ""}`}
+                    >
+                      {/* Avatar */}
+                      <div
+                        className="w-11 h-11 rounded-full flex items-center justify-center flex-shrink-0 font-bold text-sm border-2"
+                        style={{ borderColor: "#C0D738", backgroundColor: "#f9fce0", color: "#111" }}
+                      >
+                        {getInitials(client.name, client.surname)}
+                      </div>
+
+                      {/* Info */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="font-semibold text-gray-900 text-sm truncate dark:text-gray-100">
+                            {client.name} {client.surname}
+                          </span>
+                          {scheduleDays[client.id]?.length > 0 && (
+                            <span className="text-[11px] font-medium flex-shrink-0 flex items-center gap-0.5" style={{ color: "#8a9a00" }}>
+                              {scheduleDays[client.id].sort().map((d, i) => (
+                                <span key={d}>
+                                  {["L","M","M","G","V"][d]}
+                                  {i < scheduleDays[client.id].length - 1 && <span className="text-gray-400 mx-0.5">·</span>}
+                                </span>
+                              ))}
+                            </span>
+                          )}
+                        </div>
+                        <div className="mt-1">
+                          <StatusBadge subscriptionEnd={client.subscription_end} />
+                        </div>
+                      </div>
+
+                      {/* Arrow */}
+                      <svg className="text-gray-300 group-hover:text-gray-500 transition-colors flex-shrink-0"
+                        width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M9 18l6-6-6-6"/>
+                      </svg>
+                    </Link>
+                  ))}
                 </div>
               </div>
-            ))}
-          </div>
-        ) : sorted.length === 0 ? (
-          <div className="card p-10 text-center">
-            {search ? (
-              <>
-                <div className="text-3xl mb-3">🔍</div>
-                <p className="text-gray-500">Nessun cliente trovato per &ldquo;{search}&rdquo;</p>
-              </>
-            ) : (
-              <>
-                <div className="text-3xl mb-3">👋</div>
-                <p className="font-medium text-gray-700 mb-1">Nessun cliente ancora</p>
-                <p className="text-sm text-gray-400 mb-4">Aggiungi il tuo primo cliente per iniziare</p>
-                <button className="btn-primary mx-auto" onClick={() => setShowModal(true)}>
-                  Aggiungi cliente
-                </button>
-              </>
             )}
-          </div>
-        ) : (
-          <div>
-            <p className="section-label">{sorted.length} client{sorted.length === 1 ? "e" : "i"}</p>
-            <div className="card divide-y divide-gray-50 dark:divide-gray-700">
-              {sorted.map(client => (
-                <Link
-                  key={client.id}
-                  href={`/clienti/${client.id}`}
-                  className={`flex items-center gap-3.5 p-4 hover:bg-gray-50 transition-colors group dark:hover:bg-gray-700 ${getSubscriptionStatus(client.subscription_end) === "inactive" ? "opacity-40" : ""}`}
-                >
-                  {/* Avatar */}
-                  <div
-                    className="w-11 h-11 rounded-full flex items-center justify-center flex-shrink-0
-                               font-bold text-sm border-2"
-                    style={{
-                      borderColor: "#C0D738",
-                      backgroundColor: "#f9fce0",
-                      color: "#111",
-                    }}
-                  >
-                    {getInitials(client.name, client.surname)}
-                  </div>
-
-                  {/* Info */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="font-semibold text-gray-900 text-sm truncate dark:text-gray-100">
-                        {client.name} {client.surname}
-                      </span>
-                      {scheduleDays[client.id]?.length > 0 && (
-                        <span className="text-[11px] font-medium flex-shrink-0 flex items-center gap-0.5" style={{ color: "#8a9a00" }}>
-                          {scheduleDays[client.id].map((d, i) => (
-                            <span key={d}>
-                              {["L","M","M","G","V"][d]}
-                              {i < scheduleDays[client.id].length - 1 && <span className="text-gray-400 mx-0.5">·</span>}
-                            </span>
-                          ))}
-                        </span>
-                      )}
-                    </div>
-                    <div className="mt-1">
-                      <StatusBadge subscriptionEnd={client.subscription_end} />
-                    </div>
-                  </div>
-
-                  {/* Arrow */}
-                  <svg className="text-gray-300 group-hover:text-gray-500 transition-colors flex-shrink-0"
-                    width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M9 18l6-6-6-6"/>
-                  </svg>
-                </Link>
-              ))}
-            </div>
-          </div>
+          </>
         )}
       </main>
 

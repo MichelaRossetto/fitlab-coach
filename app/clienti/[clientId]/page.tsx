@@ -239,13 +239,9 @@ function ScheduleSection({ clientId, isClientView }: { clientId: string; isClien
         .select("*")
         .eq("client_id", clientId)
         .order("day_of_week");
-      if (data && data.length > 0) {
-        const map: Record<number, string> = {};
-        data.forEach((r: any) => { map[r.day_of_week] = r.time; });
-        setSchedule(map);
-      } else {
-        setSchedule({ 0: "10:00", 2: "10:00", 4: "10:00" });
-      }
+      const map: Record<number, string> = {};
+      (data ?? []).forEach((r: any) => { map[r.day_of_week] = r.time; });
+      setSchedule(map);
       setLoadingS(false);
     };
     load();
