@@ -94,12 +94,13 @@ interface ExerciseRowProps {
   libSuggestions?: string[];
   editing: boolean;
   noteTag?: string | null;
+  exerciseNumber?: number;
   onUpdate: (id: string, field: keyof Exercise, value: string) => void;
   onDelete: (id: string) => void;
   onSave: (id: string) => void;
 }
 
-function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, editing, noteTag, onUpdate, onDelete, onSave }: ExerciseRowProps) {
+function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, editing, noteTag, exerciseNumber, onUpdate, onDelete, onSave }: ExerciseRowProps) {
   // Detect cardio warmup: has reps (minutes) but no sets and no load
   const isCardioWarmup = sectionType === "warmup" && !exercise.sets && !exercise.load;
   // Detect mobilità warmup: has sets + reps but no load
@@ -128,6 +129,62 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, ed
         </div>
       );
     }
+    // Workout editing — form adattato al subtype (no serie per AMRAP/EMOM)
+    if (sectionType === "workout") {
+      const wkSubtypes: WorkoutSubtype[] = ["amrap", "emom", "fortime", "cardioliss"];
+      const sub = (noteTag && wkSubtypes.includes(noteTag as WorkoutSubtype) ? noteTag : sectionSubtype) ?? "amrap";
+      return (
+        <div className="p-3 border-b border-gray-100 last:border-0 space-y-2 bg-amber-50 dark:bg-amber-900/20 dark:border-gray-700">
+          <AutocompleteInput
+            value={exercise.name}
+            onChange={v => onUpdate(exercise.id, "name", v)}
+            suggestions={libSuggestions ?? []}
+            strict
+            placeholder="Nome esercizio *"
+            className="input text-sm font-medium w-full"
+          />
+          {sub === "cardioliss" && (
+            <div>
+              <label className="label">Minuti</label>
+              <input className="input text-sm" placeholder="10" value={exercise.reps ?? ""} onChange={e => onUpdate(exercise.id, "reps", e.target.value)} />
+            </div>
+          )}
+          {sub === "fortime" && (
+            <div className="grid grid-cols-3 gap-2">
+              <div>
+                <label className="label">Rounds</label>
+                <input className="input text-sm" placeholder="3" value={exercise.sets ?? ""} onChange={e => onUpdate(exercise.id, "sets", e.target.value)} />
+              </div>
+              <div>
+                <label className="label">Reps</label>
+                <input className="input text-sm" placeholder="15" value={exercise.reps ?? ""} onChange={e => onUpdate(exercise.id, "reps", e.target.value)} />
+              </div>
+              <div>
+                <label className="label">Carico</label>
+                <input className="input text-sm" placeholder="20kg" value={exercise.load ?? ""} onChange={e => onUpdate(exercise.id, "load", e.target.value)} />
+              </div>
+            </div>
+          )}
+          {sub !== "cardioliss" && sub !== "fortime" && (
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="label">Reps</label>
+                <input className="input text-sm" placeholder="10" value={exercise.reps ?? ""} onChange={e => onUpdate(exercise.id, "reps", e.target.value)} />
+              </div>
+              <div>
+                <label className="label">Carico</label>
+                <input className="input text-sm" placeholder="20kg" value={exercise.load ?? ""} onChange={e => onUpdate(exercise.id, "load", e.target.value)} />
+              </div>
+            </div>
+          )}
+          <div className="flex gap-2">
+            <button className="text-xs text-gray-300 hover:text-red-400 transition-colors py-1.5" onClick={() => onDelete(exercise.id)}>Elimina</button>
+            <button className="btn-primary flex-1 text-xs py-1.5" onClick={() => onSave(exercise.id)}>Salva</button>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="p-3 border-b border-gray-100 last:border-0 space-y-2 bg-amber-50 dark:bg-amber-900/20 dark:border-gray-700">
         <AutocompleteInput
@@ -214,34 +271,48 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, ed
 
   const chips: React.ReactNode[] = [];
 
-  // Workout section — chips depend on subtype
+  // Workout section — layout inline stile crossfit
   if (sectionType === "workout") {
     const wkSubtypes: WorkoutSubtype[] = ["amrap", "emom", "fortime", "cardioliss"];
     const sub = (noteTag && wkSubtypes.includes(noteTag as WorkoutSubtype) ? noteTag : sectionSubtype) ?? "amrap";
-    const chip = (key: string, label: string) => (
-      <span key={key} className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full dark:bg-gray-700 dark:text-gray-300">{label}</span>
-    );
-    if (sub === "cardioliss") {
-      if (exercise.reps) chips.push(chip("reps", exercise.reps));
-    } else if (sub === "fortime") {
-      if (exercise.sets) chips.push(chip("rounds", `${exercise.sets} rounds`));
-      if (exercise.reps) chips.push(chip("reps", exercise.reps));
-      if (exercise.load) chips.push(<span key="load" className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full font-medium dark:bg-gray-700 dark:text-gray-300">{exercise.load}</span>);
-    } else {
-      // amrap / emom
-      if (exercise.reps) chips.push(chip("reps", exercise.reps));
-      if (exercise.load) chips.push(<span key="load" className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full font-medium dark:bg-gray-700 dark:text-gray-300">{exercise.load}</span>);
-    }
-    return (
-      <div className="px-4 py-3 border-b border-gray-100 last:border-0 dark:border-gray-700">
-        <div className="flex items-start gap-3">
-          <div className="w-1.5 h-1.5 rounded-full bg-gray-300 mt-2 flex-shrink-0" />
-          <div className="flex-1 min-w-0">
-            <div className="font-medium text-sm text-gray-900 dark:text-gray-100">{exercise.name}</div>
-            {chips.length > 0 && <div className="flex flex-wrap gap-2 mt-1">{chips}</div>}
+
+    // Costruisce la riga: "10 Air Squat · 20kg" oppure "3× Deadlift · 10 reps · 80kg"
+    const renderInline = () => {
+      if (sub === "cardioliss") {
+        return (
+          <div className="text-sm text-gray-900 dark:text-gray-100 flex flex-wrap items-baseline gap-x-1.5">
+            {exercise.reps && <span className="font-bold text-gray-500 dark:text-gray-400">{exercise.reps}</span>}
+            <span className="font-medium">{exercise.name}</span>
           </div>
+        );
+      }
+      if (sub === "fortime") {
+        return (
+          <div className="text-sm text-gray-900 dark:text-gray-100 flex flex-wrap items-baseline gap-x-1.5">
+            {exercise.sets && <span className="font-bold text-gray-500 dark:text-gray-400">{exercise.sets}×</span>}
+            <span className="font-medium">{exercise.name}</span>
+            {exercise.reps && <><span className="text-gray-400">·</span><span className="text-gray-500 dark:text-gray-400">{exercise.reps} reps</span></>}
+            {exercise.load && <><span className="text-gray-400">·</span><span className="text-gray-500 dark:text-gray-400">{formatLoad(exercise.load)}</span></>}
+          </div>
+        );
+      }
+      // amrap / emom
+      return (
+        <div className="text-sm text-gray-900 dark:text-gray-100 flex flex-wrap items-baseline gap-x-1.5">
+          {exercise.reps && <span className="font-bold text-gray-500 dark:text-gray-400">{exercise.reps}</span>}
+          <span className="font-medium">{exercise.name}</span>
+          {exercise.load && <><span className="text-gray-400">·</span><span className="text-gray-500 dark:text-gray-400">{formatLoad(exercise.load)}</span></>}
         </div>
-        <div className="pl-4"><NoteToggle /></div>
+      );
+    };
+
+    return (
+      <div className="px-4 py-2.5 border-b border-gray-100 last:border-0 dark:border-gray-700">
+        <div className="flex items-start gap-2">
+          <div className="w-1.5 h-1.5 rounded-full bg-gray-300 mt-2 flex-shrink-0" />
+          <div className="flex-1 min-w-0">{renderInline()}</div>
+        </div>
+        <div className="pl-3.5"><NoteToggle /></div>
       </div>
     );
   }
@@ -293,8 +364,8 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, ed
               : exercise.sets
               ? <span className="text-gray-500 dark:text-gray-400">{exercise.sets} serie</span>
               : null}
-            {exercise.load && <><span className="text-gray-400 dark:text-gray-500">·</span><span className="text-gray-500 dark:text-gray-400">{exercise.load}</span></>}
-            {exercise.rest_time && <><span className="text-gray-400 dark:text-gray-500">·</span><span className="text-gray-500 dark:text-gray-400">⏱ {exercise.rest_time}</span></>}
+            {exercise.load && <><span className="text-gray-400 dark:text-gray-500">·</span><span className="text-gray-500 dark:text-gray-400">{formatLoad(exercise.load)}</span></>}
+            {exercise.rest_time && <><span className="text-gray-400 dark:text-gray-500">·</span><span className="text-gray-500 dark:text-gray-400">⏱ {exercise.rest_time} rest</span></>}
           </div>
         </div>
       </div>
@@ -304,10 +375,11 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, ed
 }
 
 // ─── Add Exercise Modal ───────────────────────────────────────
-function AddExerciseModal({ section, lib, onSave, onCancel }: {
+function AddExerciseModal({ section, lib, dayLabel, onSave, onCancel }: {
   section: WorkoutSection;
   lib: LibraryMap;
-  onSave: (data: { name: string; sets?: string; reps?: string; load?: string; rest_time?: string }) => void;
+  dayLabel?: string;
+  onSave: (data: { name: string; sets?: string; reps?: string; load?: string; rest_time?: string; notes?: string }) => void;
   onCancel: () => void;
 }) {
   const color = SECTION_COLORS[section.section_type];
@@ -318,7 +390,14 @@ function AddExerciseModal({ section, lib, onSave, onCancel }: {
   const [rest, setRest] = useState("");
   const [warmupType, setWarmupType] = useState<"cardio" | "mobilita">("cardio");
 
-  // Default values by section
+  const dayFilter = getDayMobilitaFilter(dayLabel ?? "");
+  const defaultStrengthSub = dayFilter === "UPPER" ? "UPPER BODY" : dayFilter === "LOWER" ? "LOWER BODY" : "FULL BODY";
+  const [strengthSub, setStrengthSub] = useState<"UPPER BODY" | "LOWER BODY" | "FULL BODY">(defaultStrengthSub as "UPPER BODY" | "LOWER BODY" | "FULL BODY");
+  const [accessoriSub, setAccessoriSub] = useState<"bodyweight" | "manubri" | "kettlebell" | "bilanciere">("manubri");
+  const firstBlockSubtype = section.section_subtype?.split("+")[0] as WorkoutSubtype | undefined;
+  const [workoutSub, setWorkoutSub] = useState<WorkoutSubtype>(firstBlockSubtype ?? "amrap");
+
+  // Default field values by section type
   useEffect(() => {
     if (section.section_type === "warmup") { setSets("2"); setReps("10"); }
     else if (section.section_type === "strength") { setSets("3"); setReps("5"); setRest("120"); }
@@ -326,41 +405,59 @@ function AddExerciseModal({ section, lib, onSave, onCancel }: {
     else if (section.section_type === "core") { setSets("3"); setReps("15"); setRest("30"); }
   }, [section.section_type]);
 
+  // Reset name when switching sub-category
+  useEffect(() => { setName(""); }, [warmupType, strengthSub, accessoriSub, workoutSub]);
+
+  const accLibMap: Record<string, string> = { bodyweight: "BODYWEIGHT", manubri: "MANUBRI", kettlebell: "KETTLEBELL", bilanciere: "BILANCIERE" };
+  const strengthLibMap: Record<string, string> = { "UPPER BODY": "UPPER BODY", "LOWER BODY": "LOWER BODY", "FULL BODY": "FULL BODY" };
+
   const suggestions: string[] = (() => {
     if (section.section_type === "warmup")
       return warmupType === "cardio" ? getLibNames(lib, "WARMUP", "CARDIO") : getLibNames(lib, "WARMUP", "MOBILITÀ");
-    if (section.section_type === "strength")    return getLibNames(lib, "FORZA", null);
-    if (section.section_type === "accessories") return getLibNames(lib, "ACCESSORI", null);
+    if (section.section_type === "strength")    return getLibNames(lib, "FORZA", strengthLibMap[strengthSub]);
+    if (section.section_type === "accessories") return getLibNames(lib, "ACCESSORI", accLibMap[accessoriSub]);
     if (section.section_type === "core")        return getLibNames(lib, "CORE TRAINING", null);
     if (section.section_type === "workout")     return getWorkoutNames(lib);
     return [];
   })();
 
-  const sub = section.section_subtype ?? "amrap";
   const isWorkout = section.section_type === "workout";
+  const accLoadType = accessoriSub === "bodyweight" ? "none" : accessoriSub === "bilanciere" ? "free" : "select";
 
   const handleSave = () => {
     if (!name.trim()) return;
     if (section.section_type === "warmup" && warmupType === "cardio") {
-      onSave({ name: name.trim(), reps: reps ? `${reps} min` : "5 min" });
+      onSave({ name: name.trim(), reps: reps ? `${reps} min` : "5 min", notes: tagNotes("cardio", "") });
     } else if (section.section_type === "warmup") {
-      onSave({ name: name.trim(), sets: sets || "2", reps: reps || "10" });
-    } else if (isWorkout && sub === "cardioliss") {
-      onSave({ name: name.trim(), reps: reps ? `${reps} min` : undefined });
-    } else if (isWorkout && sub === "fortime") {
-      onSave({ name: name.trim(), sets: sets || undefined, reps: reps || undefined, load: load || undefined });
+      onSave({ name: name.trim(), sets: sets || "2", reps: reps || "10", notes: tagNotes("mob", "") });
+    } else if (section.section_type === "strength") {
+      const tagMap: Record<string, string> = { "UPPER BODY": "upper", "LOWER BODY": "lower", "FULL BODY": "full" };
+      onSave({ name: name.trim(), sets: sets || undefined, reps: reps || undefined, load: load || undefined, rest_time: rest ? `${rest} sec` : undefined, notes: tagNotes(tagMap[strengthSub], "") });
+    } else if (section.section_type === "accessories") {
+      const tagMap: Record<string, string> = { bodyweight: "bw", manubri: "man", kettlebell: "kb", bilanciere: "bar" };
+      const loadVal = accLoadType === "none" ? undefined : (load && load !== "-" ? load : undefined);
+      onSave({ name: name.trim(), sets: sets || undefined, reps: reps || undefined, load: loadVal, rest_time: rest ? `${rest} sec` : undefined, notes: tagNotes(tagMap[accessoriSub], "") });
+    } else if (isWorkout && workoutSub === "cardioliss") {
+      onSave({ name: name.trim(), reps: reps ? `${reps} min` : undefined, notes: tagNotes("cardioliss", "") });
+    } else if (isWorkout && workoutSub === "fortime") {
+      onSave({ name: name.trim(), sets: sets || undefined, reps: reps || undefined, load: load || undefined, notes: tagNotes("fortime", "") });
     } else if (isWorkout) {
-      onSave({ name: name.trim(), reps: reps || undefined, load: load || undefined });
+      onSave({ name: name.trim(), reps: reps || undefined, load: load || undefined, notes: tagNotes(workoutSub, "") });
     } else {
-      onSave({
-        name: name.trim(),
-        sets: sets || undefined,
-        reps: reps || undefined,
-        load: load || undefined,
-        rest_time: rest ? `${rest} sec` : undefined,
-      });
+      onSave({ name: name.trim(), sets: sets || undefined, reps: reps || undefined, load: load || undefined, rest_time: rest ? `${rest} sec` : undefined });
     }
   };
+
+  const toggleBtn = <T extends string>(options: readonly T[], active: T, setActive: (v: T) => void, labelFn: (v: T) => string) => (
+    <div className="flex gap-1 bg-gray-100 dark:bg-gray-700/50 rounded-xl p-1">
+      {options.map(t => (
+        <button key={t} onClick={() => setActive(t)}
+          className={`flex-1 text-xs py-1.5 rounded-lg font-medium transition-colors ${active === t ? "bg-white dark:bg-gray-700 shadow-sm" : "text-gray-400 dark:text-gray-500"}`}
+          style={active === t ? { color } : {}}
+        >{labelFn(t)}</button>
+      ))}
+    </div>
+  );
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60" onClick={onCancel}>
@@ -372,25 +469,19 @@ function AddExerciseModal({ section, lib, onSave, onCancel }: {
           <button onClick={onCancel} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">×</button>
         </div>
 
-        {/* Warmup subtype toggle */}
-        {section.section_type === "warmup" && (
-          <div className="flex gap-1 bg-gray-100 dark:bg-gray-700/50 rounded-xl p-1">
-            {(["cardio", "mobilita"] as const).map(t => (
-              <button key={t} onClick={() => setWarmupType(t)}
-                className={`flex-1 text-xs py-1.5 rounded-lg font-medium transition-colors ${warmupType === t ? "bg-white dark:bg-gray-700 shadow-sm" : "text-gray-400"}`}
-                style={warmupType === t ? { color } : {}}
-              >{t === "cardio" ? "Cardio" : "Mobilità"}</button>
-            ))}
-          </div>
-        )}
+        {/* Sub-type selectors */}
+        {section.section_type === "warmup" && toggleBtn(["cardio", "mobilita"] as const, warmupType, setWarmupType, t => t === "cardio" ? "Cardio" : "Mobilità")}
+        {section.section_type === "strength" && toggleBtn(["UPPER BODY", "LOWER BODY", "FULL BODY"] as const, strengthSub, setStrengthSub, t => t === "UPPER BODY" ? "Upper Body" : t === "LOWER BODY" ? "Lower Body" : "Full Body")}
+        {section.section_type === "accessories" && toggleBtn(["bodyweight", "manubri", "kettlebell", "bilanciere"] as const, accessoriSub, setAccessoriSub, t => t === "bodyweight" ? "Bodyweight" : t === "manubri" ? "Manubri" : t === "kettlebell" ? "Kettlebell" : "Bilanciere")}
+        {section.section_type === "workout" && toggleBtn(["amrap", "emom", "fortime", "cardioliss"] as WorkoutSubtype[], workoutSub, setWorkoutSub, t => WORKOUT_SUBTYPE_LABELS[t])}
 
-        {/* Exercise name with autocomplete */}
+        {/* Exercise name */}
         <div>
           <label className="label">Esercizio</label>
           <AutocompleteInput value={name} onChange={setName} suggestions={suggestions} strict placeholder="Cerca dalla libreria..." />
         </div>
 
-        {/* Fields */}
+        {/* Warmup fields */}
         {section.section_type === "warmup" && warmupType === "cardio" && (
           <div><label className="label">Minuti</label>
             <input className="input text-sm text-center w-24" placeholder="5" value={reps} onChange={e => setReps(e.target.value)} />
@@ -402,31 +493,74 @@ function AddExerciseModal({ section, lib, onSave, onCancel }: {
             <div><label className="label">Reps</label><input className="input text-sm text-center" placeholder="10" value={reps} onChange={e => setReps(e.target.value)} /></div>
           </div>
         )}
-        {(section.section_type === "strength" || section.section_type === "accessories" || section.section_type === "core") && (
+
+        {/* Strength fields */}
+        {section.section_type === "strength" && (
           <>
             <div className="grid grid-cols-2 gap-3">
               <div><label className="label">Serie</label><input className="input text-sm text-center" placeholder="3" value={sets} onChange={e => setSets(e.target.value)} /></div>
-              <div><label className="label">Reps</label><input className="input text-sm text-center" placeholder="10" value={reps} onChange={e => setReps(e.target.value)} /></div>
+              <div><label className="label">Reps</label><input className="input text-sm text-center" placeholder="5" value={reps} onChange={e => setReps(e.target.value)} /></div>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div><label className="label">Carico</label><input className="input text-sm text-center" placeholder="-" value={load} onChange={e => setLoad(e.target.value)} /></div>
+              <div><label className="label">Rec. sec</label><input className="input text-sm text-center" placeholder="120" value={rest} onChange={e => setRest(e.target.value)} /></div>
+            </div>
+          </>
+        )}
+
+        {/* Accessories fields */}
+        {section.section_type === "accessories" && (
+          <>
+            <div className="grid grid-cols-2 gap-3">
+              <div><label className="label">Serie</label><input className="input text-sm text-center" placeholder="3" value={sets} onChange={e => setSets(e.target.value)} /></div>
+              <div><label className="label">Reps</label><input className="input text-sm text-center" placeholder="12" value={reps} onChange={e => setReps(e.target.value)} /></div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              {accLoadType !== "none" && (
+                <div>
+                  <label className="label">Carico</label>
+                  {accLoadType === "select"
+                    ? <select className="input text-sm" value={load} onChange={e => setLoad(e.target.value)}>
+                        <option value="-">-</option>
+                        {LOAD_OPTIONS.map(o => <option key={o} value={`${o} KG`}>{o} KG</option>)}
+                      </select>
+                    : <input className="input text-sm text-center" placeholder="-" value={load} onChange={e => setLoad(e.target.value)} />
+                  }
+                </div>
+              )}
               <div><label className="label">Rec. sec</label><input className="input text-sm text-center" placeholder="60" value={rest} onChange={e => setRest(e.target.value)} /></div>
             </div>
           </>
         )}
-        {isWorkout && sub === "cardioliss" && (
+
+        {/* Core fields */}
+        {section.section_type === "core" && (
+          <>
+            <div className="grid grid-cols-2 gap-3">
+              <div><label className="label">Serie</label><input className="input text-sm text-center" placeholder="3" value={sets} onChange={e => setSets(e.target.value)} /></div>
+              <div><label className="label">Reps</label><input className="input text-sm text-center" placeholder="15" value={reps} onChange={e => setReps(e.target.value)} /></div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div><label className="label">Carico</label><input className="input text-sm text-center" placeholder="-" value={load} onChange={e => setLoad(e.target.value)} /></div>
+              <div><label className="label">Rec. sec</label><input className="input text-sm text-center" placeholder="30" value={rest} onChange={e => setRest(e.target.value)} /></div>
+            </div>
+          </>
+        )}
+
+        {/* Workout fields */}
+        {isWorkout && workoutSub === "cardioliss" && (
           <div><label className="label">Minuti</label>
             <input className="input text-sm text-center w-24" placeholder="10" value={reps} onChange={e => setReps(e.target.value)} />
           </div>
         )}
-        {isWorkout && sub === "fortime" && (
+        {isWorkout && workoutSub === "fortime" && (
           <div className="grid grid-cols-3 gap-3">
             <div><label className="label">Rounds</label><input className="input text-sm text-center" placeholder="3" value={sets} onChange={e => setSets(e.target.value)} /></div>
             <div><label className="label">Reps</label><input className="input text-sm text-center" placeholder="15" value={reps} onChange={e => setReps(e.target.value)} /></div>
             <div><label className="label">Carico</label><input className="input text-sm text-center" placeholder="20 KG" value={load} onChange={e => setLoad(e.target.value)} /></div>
           </div>
         )}
-        {isWorkout && sub !== "cardioliss" && sub !== "fortime" && (
+        {isWorkout && workoutSub !== "cardioliss" && workoutSub !== "fortime" && (
           <div className="grid grid-cols-2 gap-3">
             <div><label className="label">Reps</label><input className="input text-sm text-center" placeholder="10" value={reps} onChange={e => setReps(e.target.value)} /></div>
             <div><label className="label">Carico</label><input className="input text-sm text-center" placeholder="20 KG" value={load} onChange={e => setLoad(e.target.value)} /></div>
@@ -471,6 +605,15 @@ function SectionBlock({ section, lib, editingExId, onToggleEdit, onUpdateEx, onD
   })();
   const color = SECTION_COLORS[section.section_type];
   const exercises = section.exercises ?? [];
+
+  // Mappa subtype → cap time per i sotto-titoli workout (es. { amrap: "15", emom: "12" })
+  const capTimeBySubtype: Record<string, string> = {};
+  if (section.section_type === "workout" && section.section_subtype) {
+    section.section_subtype.split("+").forEach((s, i) => {
+      const cap = section.cap_time?.split("+")[i];
+      if (cap) capTimeBySubtype[s] = cap;
+    });
+  }
 
   const subtypeLabel = section.section_type === "workout" && section.section_subtype
     ? (() => {
@@ -524,11 +667,20 @@ function SectionBlock({ section, lib, editingExId, onToggleEdit, onUpdateEx, onD
           return { ...ex, _group: group, _cleanNotes: cleanNotes };
         });
 
+        // Per workout: numero esercizio per sotto-gruppo (AMRAP: 1,2,3... EMOM: 1,2,3...)
+        const groupCounters: Record<string, number> = {};
+        const exercisesWithNumbers = exercisesWithGroups.map(ex => {
+          if (section.section_type !== "workout") return { ...ex, _exNum: undefined as number | undefined };
+          const g = ex._group ?? "__default__";
+          groupCounters[g] = (groupCounters[g] ?? 0) + 1;
+          return { ...ex, _exNum: groupCounters[g] };
+        });
+
         return (
           <>
-            {exercisesWithGroups.map((ex, idx) => {
+            {exercisesWithNumbers.map((ex, idx) => {
               const showHeader = ex._group !== null &&
-                (idx === 0 || ex._group !== exercisesWithGroups[idx - 1]._group) &&
+                (idx === 0 || ex._group !== exercisesWithNumbers[idx - 1]._group) &&
                 section.section_type !== "strength";
               return (
                 <React.Fragment key={ex.id}>
@@ -536,6 +688,7 @@ function SectionBlock({ section, lib, editingExId, onToggleEdit, onUpdateEx, onD
                     <div className="px-4 pt-2 pb-0.5">
                       <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color }}>
                         {GROUP_LABELS[ex._group!] ?? ex._group}
+                        {ex._group && capTimeBySubtype[ex._group] ? ` · ${capTimeBySubtype[ex._group]} min` : ""}
                       </span>
                     </div>
                   )}
@@ -550,6 +703,7 @@ function SectionBlock({ section, lib, editingExId, onToggleEdit, onUpdateEx, onD
                       libSuggestions={libSuggestions}
                       editing={editingExId === ex.id}
                       noteTag={ex._group}
+                      exerciseNumber={ex._exNum}
                       onUpdate={onUpdateEx}
                       onDelete={(id) => onDeleteEx(section.id, id)}
                       onSave={(id) => {
@@ -616,6 +770,15 @@ function getWorkoutNames(lib: LibraryMap): string[] {
     }
   }
   return result.sort((a, b) => a.localeCompare(b));
+}
+
+// Formatta il carico: aggiunge KG se numero puro, @ se percentuale
+function formatLoad(load: string): string {
+  if (!load || load === "-") return load;
+  if (load.includes("%")) return `@${load}`;
+  if (/kg/i.test(load)) return load;
+  if (/^\d+([.,]\d+)?$/.test(load.trim())) return `${load} KG`;
+  return load;
 }
 
 function getRandom<T>(arr: T[], n: number): T[] {
@@ -1446,6 +1609,7 @@ export default function DayPage() {
   const [editingExId, setEditingExId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [showBulkAdd, setShowBulkAdd] = useState(false);
+  const [confirmClearAll, setConfirmClearAll] = useState(false);
   const [lib, setLib] = useState<LibraryMap>({});
   const [libLoaded, setLibLoaded] = useState(false);
   const [addModalSection, setAddModalSection] = useState<WorkoutSection | null>(null);
@@ -1537,7 +1701,7 @@ export default function DayPage() {
     if (section) setAddModalSection(section);
   };
 
-  const handleAddExerciseConfirm = async (data: { name: string; sets?: string; reps?: string; load?: string; rest_time?: string }) => {
+  const handleAddExerciseConfirm = async (data: { name: string; sets?: string; reps?: string; load?: string; rest_time?: string; notes?: string }) => {
     if (!addModalSection) return;
     const existingCount = addModalSection.exercises?.length ?? 0;
     const { data: inserted } = await supabase.from("exercises").insert({
@@ -1547,6 +1711,7 @@ export default function DayPage() {
       reps: data.reps ?? null,
       load: data.load ?? null,
       rest_time: data.rest_time ?? null,
+      notes: data.notes ?? null,
       order_index: existingCount,
     }).select().single();
 
@@ -1589,6 +1754,13 @@ export default function DayPage() {
       : s
     ));
     setEditingExId(null);
+  };
+
+  const handleClearAll = async () => {
+    await Promise.all(sections.map(s => supabase.from("exercises").delete().eq("section_id", s.id)));
+    setSections(prev => prev.map(s => ({ ...s, exercises: [] })));
+    setEditingExId(null);
+    setConfirmClearAll(false);
   };
 
   const handleClearSection = async (sectionId: string) => {
@@ -1837,6 +2009,30 @@ export default function DayPage() {
           />
         ))}
 
+        {/* Cancella tutto il giorno */}
+        {totalExercises > 0 && (
+          <div className="pb-2 text-center">
+            {confirmClearAll ? (
+              <div className="card p-4 text-center space-y-3">
+                <p className="text-sm text-gray-700 dark:text-gray-300 font-medium">Cancellare tutti gli esercizi del giorno?</p>
+                <p className="text-xs text-gray-400">Tutte le sezioni verranno svuotate.</p>
+                <div className="flex gap-2">
+                  <button className="btn-secondary flex-1 text-sm" onClick={() => setConfirmClearAll(false)}>Annulla</button>
+                  <button className="btn-danger flex-1 text-sm" onClick={handleClearAll}>Sì, cancella tutto</button>
+                </div>
+              </div>
+            ) : (
+              <button
+                onClick={() => setConfirmClearAll(true)}
+                className="text-xs text-gray-300 hover:text-red-400 dark:text-gray-600 dark:hover:text-red-400 transition-colors flex items-center gap-1 mx-auto"
+              >
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+                Cancella tutti gli esercizi del giorno
+              </button>
+            )}
+          </div>
+        )}
+
         <div className="h-6" />
       </main>
 
@@ -1857,6 +2053,7 @@ export default function DayPage() {
         <AddExerciseModal
           section={addModalSection}
           lib={lib}
+          dayLabel={day?.label ?? ""}
           onSave={handleAddExerciseConfirm}
           onCancel={() => setAddModalSection(null)}
         />

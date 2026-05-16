@@ -279,20 +279,22 @@ export default function WeekPage() {
                   ? resolvedDate.toLocaleDateString("it-IT", { weekday: "long", day: "2-digit", month: "2-digit" })
                   : null;
                 return (
-                  <div key={day.id} className="card overflow-hidden">
-                    {/* Main row — badge e freccia navigano, centro è editabile */}
+                  <div
+                    key={day.id}
+                    className="card overflow-hidden cursor-pointer"
+                    onClick={() => router.push(dayUrl)}
+                  >
+                    {/* Main row */}
                     <div className="flex items-center gap-3.5 px-4 pt-4 pb-3">
-                      <Link
-                        href={dayUrl}
+                      <div
                         className="w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm flex-shrink-0 hover:opacity-80 transition-opacity"
                         style={{ backgroundColor: "#111", color: "#D4E600" }}
                       >
                         D{day.day_number}
-                      </Link>
+                      </div>
 
                       <div className="flex-1 min-w-0">
                         {editingTypeId === day.id ? (
-                          /* Picker aperto: "Day N" + chip tipo */
                           <>
                             <div className="font-semibold text-gray-900 text-sm dark:text-gray-100 mb-1.5">
                               Day {day.day_number}
@@ -301,7 +303,7 @@ export default function WeekPage() {
                               {DAY_TYPES.map(type => (
                                 <button
                                   key={type}
-                                  onClick={() => handleSetType(day, type)}
+                                  onClick={e => { e.stopPropagation(); handleSetType(day, type); }}
                                   className="text-xs font-semibold px-2.5 py-1 rounded-lg transition-all"
                                   style={type === currentType
                                     ? { backgroundColor: "#D4E600", color: "#111" }
@@ -312,15 +314,14 @@ export default function WeekPage() {
                                 </button>
                               ))}
                               <button
-                                onClick={() => setEditingTypeId(null)}
+                                onClick={e => { e.stopPropagation(); setEditingTypeId(null); }}
                                 className="text-xs text-gray-400 hover:text-gray-500 ml-0.5"
                               >✕</button>
                             </div>
                           </>
                         ) : !isClientView ? (
-                          /* Coach: titolo cliccabile con matita al hover */
                           <button
-                            onClick={() => setEditingTypeId(day.id)}
+                            onClick={e => { e.stopPropagation(); setEditingTypeId(day.id); }}
                             className="text-left group/title w-full"
                           >
                             <div className="font-semibold text-gray-900 text-sm dark:text-gray-100 flex items-center gap-1.5">
@@ -335,7 +336,6 @@ export default function WeekPage() {
                             </div>
                           </button>
                         ) : (
-                          /* Cliente: solo testo */
                           <div className="font-semibold text-gray-900 text-sm dark:text-gray-100">
                             {day.label}
                           </div>
@@ -349,18 +349,16 @@ export default function WeekPage() {
                         )}
                       </div>
 
-                      <Link
-                        href={dayUrl}
-                        className="text-gray-300 hover:text-gray-500 transition-colors flex-shrink-0"
-                      >
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <path d="M9 18l6-6-6-6"/>
-                        </svg>
-                      </Link>
+                      <svg className="text-gray-300 flex-shrink-0" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M9 18l6-6-6-6"/>
+                      </svg>
                     </div>
 
-                    {/* Bottom row: status (tutti) + elimina (solo coach) */}
-                    <div className="border-t border-gray-100 dark:border-gray-700/50 px-4 py-2.5 flex items-center justify-between gap-2">
+                    {/* Bottom row — stopPropagation per non navigare al click sui bottoni */}
+                    <div
+                      className="border-t border-gray-100 dark:border-gray-700/50 px-4 py-2.5 flex items-center justify-between gap-2"
+                      onClick={e => e.stopPropagation()}
+                    >
                       <div className="flex items-center gap-1.5">
                         {DAY_STATUS_CONFIG.map(cfg => {
                           const isActive = currentStatus === cfg.value;
