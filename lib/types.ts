@@ -70,13 +70,15 @@ export const DAY_STATUS_CONFIG = [
   },
 ] as const;
 
-export type SectionType = "warmup" | "strength" | "accessories" | "workout";
+export type SectionType = "warmup" | "strength" | "accessories" | "core" | "workout";
 
 export interface WorkoutSection {
   id: string;
   day_id: string;
   section_type: SectionType;
   order_index: number;
+  section_subtype: string | null;
+  cap_time: string | null;
   exercises?: Exercise[];
 }
 
@@ -114,10 +116,29 @@ export const SECTION_LABELS: Record<SectionType, string> = {
   warmup: "Warm Up",
   strength: "Forza",
   accessories: "Accessori",
+  core: "Core Training",
   workout: "Workout",
 };
 
-export const SECTION_ORDER: SectionType[] = ["warmup", "strength", "accessories", "workout"];
+export const SECTION_ORDER: SectionType[] = ["warmup", "strength", "accessories", "core", "workout"];
+
+export type WarmupSubtype = "cardio" | "mobilita" | "attivazione";
+export type WorkoutSubtype = "amrap" | "emom" | "fortime" | "cardioliss";
+
+export const WARMUP_SUBTYPE_LABELS: Record<WarmupSubtype, string> = {
+  cardio: "Cardio",
+  mobilita: "Mobilità",
+  attivazione: "Attivazione",
+};
+
+export const WORKOUT_SUBTYPE_LABELS: Record<WorkoutSubtype, string> = {
+  amrap: "AMRAP",
+  emom: "EMOM",
+  fortime: "For Time",
+  cardioliss: "Cardio Liss",
+};
+
+export const LOAD_OPTIONS = ["2.5", "5", "7.5", "10", "12", "12.5", "15", "16", "17.5", "20", "22.5", "24", "25", "30", "32"];
 
 export interface ExerciseLibrary {
   id: string;
