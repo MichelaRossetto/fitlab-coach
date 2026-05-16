@@ -278,18 +278,24 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, ed
     );
   }
 
-  if (exercise.sets) chips.push(<span key="sets" className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full dark:bg-gray-700 dark:text-gray-300">{exercise.sets} serie</span>);
-  if (exercise.reps) chips.push(<span key="reps" className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full dark:bg-gray-700 dark:text-gray-300">{exercise.reps} reps</span>);
-  if (exercise.load) chips.push(<span key="load" className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full font-medium dark:bg-gray-700 dark:text-gray-300">{exercise.load}</span>);
-  if (exercise.rest_time) chips.push(<span key="rest" className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full dark:bg-gray-700 dark:text-gray-300">⏱ {exercise.rest_time}</span>);
-
   return (
     <div className="px-4 py-3 border-b border-gray-100 last:border-0 dark:border-gray-700">
       <div className="flex items-start gap-3">
         <div className="w-1.5 h-1.5 rounded-full bg-gray-300 mt-2 flex-shrink-0" />
         <div className="flex-1 min-w-0">
-          <div className="font-medium text-sm text-gray-900 dark:text-gray-100">{exercise.name}</div>
-          {chips.length > 0 && <div className="flex flex-wrap gap-2 mt-1">{chips}</div>}
+          <div className="text-sm text-gray-900 dark:text-gray-100 flex flex-wrap items-baseline gap-x-1">
+            <span className="font-medium">{exercise.name}</span>
+            {(exercise.sets || exercise.reps) && <span className="text-gray-400 dark:text-gray-500">·</span>}
+            {exercise.sets && exercise.reps
+              ? <span className="text-gray-500 dark:text-gray-400">{exercise.sets}×{exercise.reps}</span>
+              : exercise.reps
+              ? <span className="text-gray-500 dark:text-gray-400">{exercise.reps}</span>
+              : exercise.sets
+              ? <span className="text-gray-500 dark:text-gray-400">{exercise.sets} serie</span>
+              : null}
+            {exercise.load && <><span className="text-gray-400 dark:text-gray-500">·</span><span className="text-gray-500 dark:text-gray-400">{exercise.load}</span></>}
+            {exercise.rest_time && <><span className="text-gray-400 dark:text-gray-500">·</span><span className="text-gray-500 dark:text-gray-400">⏱ {exercise.rest_time}</span></>}
+          </div>
         </div>
       </div>
       <div className="pl-4"><NoteToggle /></div>
@@ -467,7 +473,15 @@ function SectionBlock({ section, lib, editingExId, onToggleEdit, onUpdateEx, onD
   const exercises = section.exercises ?? [];
 
   const subtypeLabel = section.section_type === "workout" && section.section_subtype
-    ? section.section_subtype.split("+").map(s => WORKOUT_SUBTYPE_LABELS[s as WorkoutSubtype] ?? s).join(" + ")
+    ? (() => {
+        const subtypes = section.section_subtype.split("+");
+        const caps = section.cap_time?.split("+") ?? [];
+        return subtypes.map((s, i) => {
+          const label = WORKOUT_SUBTYPE_LABELS[s as WorkoutSubtype] ?? s;
+          const cap = caps[i];
+          return cap ? `${label} · ${cap} min` : label;
+        }).join("  +  ");
+      })()
     : null;
 
   return (
@@ -484,7 +498,7 @@ function SectionBlock({ section, lib, editingExId, onToggleEdit, onUpdateEx, onD
           </span>
           {subtypeLabel && (
             <span className="text-xs font-medium px-2 py-0.5 rounded-full" style={{ backgroundColor: color + "20", color }}>
-              {subtypeLabel}{section.cap_time ? ` · ${section.cap_time} min` : ""}
+              {subtypeLabel}
             </span>
           )}
           <span className="text-xs text-gray-400">{exercises.length} es.</span>
@@ -513,7 +527,9 @@ function SectionBlock({ section, lib, editingExId, onToggleEdit, onUpdateEx, onD
         return (
           <>
             {exercisesWithGroups.map((ex, idx) => {
-              const showHeader = ex._group !== null && (idx === 0 || ex._group !== exercisesWithGroups[idx - 1]._group);
+              const showHeader = ex._group !== null &&
+                (idx === 0 || ex._group !== exercisesWithGroups[idx - 1]._group) &&
+                section.section_type !== "strength";
               return (
                 <React.Fragment key={ex.id}>
                   {showHeader && (
@@ -1589,10 +1605,13 @@ export default function DayPage() {
     const workoutSection = sections.find(s => s.section_type === "workout");
     if (workoutSection) {
       const combinedSubtype = bulkState.workout.blocks.map(b => b.subtype).join("+");
-      const firstNonCardio = bulkState.workout.blocks.find(b => b.subtype !== "cardioliss");
+      const capTimeParts = bulkState.workout.blocks.map(b =>
+        b.subtype !== "cardioliss" ? (b.capTime || "") : ""
+      );
+      const capTimeEncoded = capTimeParts.join("+").replace(/^\++$/, "") || null;
       await supabase.from("workout_sections").update({
         section_subtype: combinedSubtype,
-        cap_time: firstNonCardio ? (firstNonCardio.capTime || null) : null,
+        cap_time: capTimeEncoded,
       }).eq("id", workoutSection.id);
     }
 
