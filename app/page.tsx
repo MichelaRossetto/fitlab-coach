@@ -7,7 +7,7 @@ import { Client, ClientType, getInitials, getSubscriptionStatus, TIME_SLOTS_MORN
 import { StatusBadge } from "@/components/StatusBadge";
 import { Modal } from "@/components/Modal";
 
-type FilterType = "all" | "expiring" | "expired" | "inactive";
+type FilterType = "all" | "expiring" | "expired" | "inactive" | "paused";
 type SectionFilter = FilterType | null; // null = sezione nascosta
 type ViewType = "list" | "calendar";
 
@@ -28,9 +28,10 @@ function TypeStatsRow({
 }) {
   const stats = {
     total:    clients.length,
-    expiring: clients.filter(c => getSubscriptionStatus(c.subscription_end) === "expiring").length,
-    expired:  clients.filter(c => getSubscriptionStatus(c.subscription_end) === "expired").length,
-    inactive: clients.filter(c => getSubscriptionStatus(c.subscription_end) === "inactive").length,
+    expiring: clients.filter(c => !c.is_paused && getSubscriptionStatus(c.subscription_end) === "expiring").length,
+    expired:  clients.filter(c => !c.is_paused && getSubscriptionStatus(c.subscription_end) === "expired").length,
+    inactive: clients.filter(c => !c.is_paused && getSubscriptionStatus(c.subscription_end) === "inactive").length,
+    paused:   clients.filter(c => c.is_paused).length,
   };
 
   const isPR = label === "PR";
@@ -60,17 +61,17 @@ function TypeStatsRow({
         <span className="text-xs text-gray-400">{isPR ? "Programmazione" : "Personal Training"}</span>
         {hidden && <span className="text-[10px] text-gray-400 italic">nascosta · clicca totali per mostrare</span>}
       </div>
-      <div className="grid grid-cols-4 gap-2">
+      <div className="grid grid-cols-5 gap-1.5">
         {/* Totali: toggle visibilità */}
         <button onClick={handleTotal} className={pillClass(pillActive("all"))}>
           <span className={`text-lg font-bold leading-none ${pillActive("all") ? "text-white dark:text-gray-900" : hidden ? "text-gray-300 dark:text-gray-600" : "text-gray-900 dark:text-gray-100"}`}>{stats.total}</span>
           <span className={`text-[10px] mt-0.5 ${pillActive("all") ? "text-gray-300 dark:text-gray-600" : "text-gray-400"}`}>totali</span>
         </button>
         {/* Filtri: operano dentro la sezione */}
-        {(["expiring", "expired", "inactive"] as const).map((f, i) => {
-          const value = [stats.expiring, stats.expired, stats.inactive][i];
-          const color = ["text-amber-600", "text-red-500", "text-gray-400"][i];
-          const sublabel = ["in scad.", "scaduti", "inattivi"][i];
+        {(["expiring", "expired", "inactive", "paused"] as const).map((f, i) => {
+          const value = [stats.expiring, stats.expired, stats.inactive, stats.paused][i];
+          const color = ["text-amber-600", "text-red-500", "text-gray-400", "text-indigo-500"][i];
+          const sublabel = ["in scad.", "scaduti", "inattivi", "in pausa"][i];
           const active = pillActive(f);
           return (
             <button key={f} onClick={() => handleFilter(f)} disabled={hidden}
@@ -105,6 +106,7 @@ function CalendarView({ scheduleEntries, clients, activeFilter }: {
   activeFilter: FilterType;
 }) {
   const visibleClients = clients.filter(c => {
+    if (c.is_paused) return false;
     const s = getSubscriptionStatus(c.subscription_end);
     return s === "active" || s === "expiring";
   });
@@ -383,6 +385,8 @@ function ClientSection({
     const nameMatch = `${c.name} ${c.surname}`.toLowerCase().includes(search.toLowerCase());
     if (!nameMatch) return false;
     if (activeFilter === "all") return true;
+    if (activeFilter === "paused") return !!c.is_paused;
+    if (c.is_paused) return false; // i pausati compaiono solo nel filtro "paused"
     return getSubscriptionStatus(c.subscription_end) === activeFilter;
   });
 
@@ -424,7 +428,7 @@ function ClientSection({
                     </span>
                   )}
                 </div>
-                <div className="mt-1"><StatusBadge subscriptionEnd={client.subscription_end} /></div>
+                <div className="mt-1"><StatusBadge subscriptionEnd={client.subscription_end} isPaused={client.is_paused} /></div>
               </div>
               <svg className="text-gray-300 group-hover:text-gray-500 transition-colors flex-shrink-0"
                 width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -497,12 +501,14 @@ export default function Dashboard() {
 
   const hasAnyResult = (type: "PR" | "PT") => {
     const filter = type === "PR" ? prFilter : ptFilter;
-    if (filter === null) return false; // sezione nascosta
+    if (filter === null) return false;
     const list = type === "PR" ? prClients : ptClients;
     return list.some(c => {
       const nameMatch = `${c.name} ${c.surname}`.toLowerCase().includes(search.toLowerCase());
       if (!nameMatch) return false;
       if (filter === "all") return true;
+      if (filter === "paused") return !!c.is_paused;
+      if (c.is_paused) return false;
       return getSubscriptionStatus(c.subscription_end) === filter;
     });
   };

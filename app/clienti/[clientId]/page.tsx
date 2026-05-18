@@ -22,6 +22,7 @@ function EditClientForm({ client, onSuccess, onCancel }: {
     subscription_end: client.subscription_end ?? "",
     notes: client.notes ?? "",
   });
+  const [isPaused, setIsPaused] = useState(!!client.is_paused);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
@@ -36,6 +37,7 @@ function EditClientForm({ client, onSuccess, onCancel }: {
       email: form.email.trim() || null, phone: form.phone.trim() || null,
       subscription_end: form.subscription_end || null,
       notes: form.notes.trim() || null,
+      is_paused: isPaused,
     }).eq("id", client.id);
     setSaving(false);
     if (err) { setError(err.message); return; }
@@ -52,6 +54,30 @@ function EditClientForm({ client, onSuccess, onCancel }: {
       <div><label className="label">Telefono</label><input className="input" type="tel" value={form.phone} onChange={set("phone")} /></div>
       <div><label className="label">Scadenza abbonamento</label><input className="input" type="date" value={form.subscription_end} onChange={set("subscription_end")} /></div>
       <div><label className="label">Note</label><textarea className="input resize-none" rows={2} value={form.notes} onChange={set("notes")} /></div>
+
+      {/* Toggle pausa */}
+      <div>
+        <label className="label">Stato allenamento</label>
+        <button type="button" onClick={() => setIsPaused(p => !p)}
+          className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 transition-all ${
+            isPaused
+              ? "border-indigo-400 bg-indigo-50 dark:bg-indigo-900/20"
+              : "border-gray-200 dark:border-gray-600 bg-transparent"
+          }`}>
+          <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${
+            isPaused ? "border-indigo-500 bg-indigo-500" : "border-gray-300"
+          }`}>
+            {isPaused && <span className="text-white text-[10px] font-bold">✓</span>}
+          </div>
+          <div className="text-left">
+            <p className={`text-sm font-semibold ${isPaused ? "text-indigo-700 dark:text-indigo-300" : "text-gray-600 dark:text-gray-300"}`}>
+              {isPaused ? "In pausa" : "Attivo"}
+            </p>
+            <p className="text-xs text-gray-400">{isPaused ? "Non compare nel calendario" : "Regolare, compare nel calendario"}</p>
+          </div>
+        </button>
+      </div>
+
       {error && <p className="text-sm text-red-500">{error}</p>}
       <div className="flex gap-2 pt-1">
         <button type="button" className="btn-secondary flex-1" onClick={onCancel}>Annulla</button>

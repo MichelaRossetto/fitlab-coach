@@ -2,9 +2,19 @@ import { getSubscriptionStatus } from "@/lib/types";
 
 interface StatusBadgeProps {
   subscriptionEnd: string | null;
+  isPaused?: boolean | null;
 }
 
-export function StatusBadge({ subscriptionEnd }: StatusBadgeProps) {
+export function StatusBadge({ subscriptionEnd, isPaused }: StatusBadgeProps) {
+  if (isPaused) {
+    return (
+      <span className="badge-expired" style={{ backgroundColor: "#e0e7ff", color: "#4338ca", opacity: 1 }}>
+        <span className="w-1.5 h-1.5 rounded-full inline-block" style={{ backgroundColor: "#6366f1" }} />
+        In pausa
+      </span>
+    );
+  }
+
   const status = getSubscriptionStatus(subscriptionEnd);
 
   if (status === "inactive") {
