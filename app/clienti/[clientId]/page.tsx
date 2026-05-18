@@ -261,14 +261,18 @@ function ScheduleSection({ clientId, isClientView }: { clientId: string; isClien
 
   const handleSave = async () => {
     setSaving(true);
-    await supabase.from("client_schedule").delete().eq("client_id", clientId);
+    const { error: delErr } = await supabase.from("client_schedule").delete().eq("client_id", clientId);
+    if (delErr) console.error("Schedule delete error:", delErr);
     const rows = Object.entries(editSchedule).map(([day, time]) => ({
       client_id: clientId, day_of_week: Number(day), time,
     }));
-    if (rows.length > 0) await supabase.from("client_schedule").insert(rows);
+    if (rows.length > 0) {
+      const { error: insErr } = await supabase.from("client_schedule").insert(rows);
+      if (insErr) console.error("Schedule insert error:", insErr);
+    }
     setSchedule({ ...editSchedule });
     setEditing(false);
-    setOpen(false); // chiude → header aggiornato visibile subito
+    setOpen(false);
     setSaving(false);
   };
 

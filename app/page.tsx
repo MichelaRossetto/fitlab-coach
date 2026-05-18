@@ -98,12 +98,6 @@ function getMonday(date: Date): Date {
   return d;
 }
 
-function slotColor(count: number): { bg: string; text: string } {
-  if (count === 0) return { bg: "#f9fafb", text: "#9ca3af" };
-  if (count <= 2) return { bg: "#dcfce7", text: "#16a34a" };
-  if (count === 3) return { bg: "#fef9c3", text: "#ca8a04" };
-  return { bg: "#fee2e2", text: "#dc2626" };
-}
 
 function CalendarView({ scheduleEntries, clients, activeFilter }: {
   scheduleEntries: ScheduleEntry[];
@@ -111,10 +105,8 @@ function CalendarView({ scheduleEntries, clients, activeFilter }: {
   activeFilter: FilterType;
 }) {
   const visibleClients = clients.filter(c => {
-    const status = getSubscriptionStatus(c.subscription_end);
-    if (status === "inactive") return false;
-    if (activeFilter === "all") return true;
-    return status === activeFilter;
+    const s = getSubscriptionStatus(c.subscription_end);
+    return s === "active" || s === "expiring";
   });
   const visibleIds = new Set(visibleClients.map(c => c.id));
   const [weekStart, setWeekStart] = useState<Date>(() => getMonday(new Date()));
@@ -144,40 +136,54 @@ function CalendarView({ scheduleEntries, clients, activeFilter }: {
   const DISPLAY_SLOTS = [...DISPLAY_SLOTS_MORNING, ...DISPLAY_SLOTS_AFTERNOON];
 
   const timeToMin = (t: string) => { const [h, m] = t.split(":").map(Number); return h * 60 + m; };
-  const slotMap: Record<number, Record<string, string[]>> = {};
+  const slotMap: Record<number, Record<string, { pr: string[]; pt: string[] }>> = {};
   for (let d = 0; d < 5; d++) slotMap[d] = {};
   for (const e of scheduleEntries) {
     if (e.day_of_week < 0 || e.day_of_week > 4) continue;
     if (!visibleIds.has(e.client_id)) continue;
+    const clientType = visibleClients.find(c => c.id === e.client_id)?.client_type ?? "PR";
     const T = timeToMin(e.time);
     for (const slot of DISPLAY_SLOTS) {
       const H = timeToMin(slot);
       if (T < H + 60 && T + 60 > H) {
-        if (!slotMap[e.day_of_week][slot]) slotMap[e.day_of_week][slot] = [];
-        if (!slotMap[e.day_of_week][slot].includes(e.client_id))
-          slotMap[e.day_of_week][slot].push(e.client_id);
+        if (!slotMap[e.day_of_week][slot]) slotMap[e.day_of_week][slot] = { pr: [], pt: [] };
+        const key = clientType === "PT" ? "pt" : "pr";
+        if (!slotMap[e.day_of_week][slot][key].includes(e.client_id))
+          slotMap[e.day_of_week][slot][key].push(e.client_id);
       }
     }
   }
 
-  const clientsInSlot: Client[] = selectedSlot
-    ? (slotMap[selectedSlot.day]?.[selectedSlot.time] ?? [])
-        .map(id => visibleClients.find(c => c.id === id))
-        .filter((c): c is Client => Boolean(c))
-    : [];
+  const clientsInSlot: Client[] = selectedSlot ? (() => {
+    const slot = slotMap[selectedSlot.day]?.[selectedSlot.time];
+    if (!slot) return [];
+    return [...slot.pr, ...slot.pt]
+      .map(id => visibleClients.find(c => c.id === id))
+      .filter((c): c is Client => Boolean(c));
+  })() : [];
 
   const SlotCell = ({ day, time }: { day: number; time: string }) => {
-    const ids = slotMap[day]?.[time] ?? [];
-    const { bg, text } = slotColor(ids.length);
+    const slot = slotMap[day]?.[time] ?? { pr: [], pt: [] };
+    const prCount = slot.pr.length;
+    const ptCount = slot.pt.length;
+    const total = prCount + ptCount;
+    const overloaded = total >= 4;
     return (
       <button
-        onClick={() => ids.length > 0 && setSelectedSlot({ day, time })}
-        className="border-l border-gray-100 dark:border-gray-700 p-1.5 flex items-center justify-center transition-opacity hover:opacity-75 min-h-[32px]"
-        style={{ backgroundColor: bg }}
-        disabled={ids.length === 0}
+        onClick={() => total > 0 && setSelectedSlot({ day, time })}
+        className="border-l border-gray-100 dark:border-gray-700 px-1 flex flex-col items-center justify-center gap-0.5 transition-opacity hover:opacity-75 min-h-[32px]"
+        disabled={total === 0}
       >
-        {ids.length > 0 && (
-          <span className="text-xs font-bold" style={{ color: text }}>{ids.length}</span>
+        <div className="flex items-center gap-0.5">
+          {prCount > 0 && (
+            <span className="text-[11px] font-bold px-1 py-0.5 rounded" style={{ backgroundColor: "#C0D738", color: "#111" }}>{prCount}</span>
+          )}
+          {ptCount > 0 && (
+            <span className="text-[11px] font-bold px-1 py-0.5 rounded" style={{ backgroundColor: "#6366f1", color: "#fff" }}>{ptCount}</span>
+          )}
+        </div>
+        {overloaded && (
+          <span className="text-[9px] font-bold leading-none" style={{ color: "#dc2626" }}>FULL</span>
         )}
       </button>
     );
@@ -251,25 +257,19 @@ function CalendarView({ scheduleEntries, clients, activeFilter }: {
           ))}
         </div>
 
-        {activeFilter === "inactive" && (
-          <div className="px-4 py-3 text-center text-sm text-gray-400 border-b border-gray-100 dark:border-gray-700">
-            Gli inattivi non hanno slot in calendario
-          </div>
-        )}
-
         <div className="px-3 py-2 flex items-center gap-3 border-t border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
           <span className="text-[10px] text-gray-400 font-semibold">Legenda:</span>
-          {[
-            { label: "vuoto", bg: "#f9fafb", text: "#9ca3af" },
-            { label: "1–2",   bg: "#dcfce7", text: "#16a34a" },
-            { label: "3",     bg: "#fef9c3", text: "#ca8a04" },
-            { label: "4+",    bg: "#fee2e2", text: "#dc2626" },
-          ].map(l => (
-            <div key={l.label} className="flex items-center gap-1">
-              <div className="w-4 h-4 rounded border border-gray-200" style={{ backgroundColor: l.bg }} />
-              <span className="text-[10px]" style={{ color: l.text }}>{l.label}</span>
-            </div>
-          ))}
+          <div className="flex items-center gap-1">
+            <span className="text-[11px] font-bold px-1.5 py-0.5 rounded" style={{ backgroundColor: "#C0D738", color: "#111" }}>2</span>
+            <span className="text-[10px] text-gray-400">PR</span>
+          </div>
+          <div className="flex items-center gap-1">
+            <span className="text-[11px] font-bold px-1.5 py-0.5 rounded" style={{ backgroundColor: "#6366f1", color: "#fff" }}>1</span>
+            <span className="text-[10px] text-gray-400">PT</span>
+          </div>
+          <div className="flex items-center gap-1">
+            <span className="text-[10px] font-bold" style={{ color: "#dc2626" }}>FULL = 4+</span>
+          </div>
         </div>
       </div>
 
@@ -475,7 +475,7 @@ export default function Dashboard() {
     }
     const [{ data }, schedRes] = await Promise.all([
       supabase.from("clients").select("*").order("surname", { ascending: true }),
-      fetch("/api/schedules"),
+      fetch("/api/schedules", { cache: "no-store" }),
     ]);
     setClients(data ?? []);
     const schedData = schedRes.ok ? await schedRes.json() : [];
