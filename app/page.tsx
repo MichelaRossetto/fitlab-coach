@@ -449,8 +449,8 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [showModal, setShowModal] = useState(false);
-  const [prFilter, setPrFilter] = useState<SectionFilter>("all");
-  const [ptFilter, setPtFilter] = useState<SectionFilter>("all");
+  const [prFilter, setPrFilter] = useState<SectionFilter>(null);
+  const [ptFilter, setPtFilter] = useState<SectionFilter>(null);
   const [view, setView] = useState<ViewType>("list");
 
   const toggleTheme = () => {
@@ -549,11 +549,11 @@ export default function Dashboard() {
         {/* Stats distinte per tipo */}
         {!loading && clients.length > 0 && (
           <div className="space-y-3">
-            {prClients.length > 0 && (
-              <TypeStatsRow label="PR" clients={prClients} sectionFilter={prFilter} onFilter={setPrFilter} />
-            )}
             {ptClients.length > 0 && (
               <TypeStatsRow label="PT" clients={ptClients} sectionFilter={ptFilter} onFilter={setPtFilter} />
+            )}
+            {prClients.length > 0 && (
+              <TypeStatsRow label="PR" clients={prClients} sectionFilter={prFilter} onFilter={setPrFilter} />
             )}
           </div>
         )}
@@ -608,25 +608,29 @@ export default function Dashboard() {
               </div>
             ) : !hasAnyResult("PR") && !hasAnyResult("PT") ? (
               <div className="card p-10 text-center">
-                {search || prFilter !== "all" || ptFilter !== "all" || prFilter === null || ptFilter === null ? (
-                  <>
-                    <div className="text-3xl mb-3">🔍</div>
-                    <p className="text-gray-500">{search ? `Nessun cliente trovato per "${search}"` : "Nessun cliente in questa categoria"}</p>
-                    <button className="mt-3 text-sm text-gray-400 hover:text-gray-600 underline" onClick={() => { setSearch(""); setPrFilter("all"); setPtFilter("all"); }}>Mostra tutto</button>
-                  </>
-                ) : (
+                {clients.length === 0 ? (
                   <>
                     <div className="text-3xl mb-3">👋</div>
                     <p className="font-medium text-gray-700 mb-1">Nessun cliente ancora</p>
                     <p className="text-sm text-gray-400 mb-4">Aggiungi il tuo primo cliente per iniziare</p>
                     <button className="btn-primary mx-auto" onClick={() => setShowModal(true)}>Aggiungi cliente</button>
                   </>
+                ) : search ? (
+                  <>
+                    <div className="text-3xl mb-3">🔍</div>
+                    <p className="text-gray-500">{`Nessun cliente trovato per "${search}"`}</p>
+                    <button className="mt-3 text-sm text-gray-400 hover:text-gray-600 underline" onClick={() => setSearch("")}>Rimuovi ricerca</button>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-gray-400 text-sm">Clicca su <strong>totali</strong> PT o PR per visualizzare la lista</p>
+                  </>
                 )}
               </div>
             ) : (
               <div className="space-y-6">
-                <ClientSection type="PR" clients={prClients} scheduleDays={scheduleDays} search={search} activeFilter={prFilter} />
                 <ClientSection type="PT" clients={ptClients} scheduleDays={scheduleDays} search={search} activeFilter={ptFilter} />
+                <ClientSection type="PR" clients={prClients} scheduleDays={scheduleDays} search={search} activeFilter={prFilter} />
               </div>
             )}
           </>
