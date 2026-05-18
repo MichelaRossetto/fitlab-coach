@@ -8,6 +8,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { Modal } from "@/components/Modal";
 
 type FilterType = "all" | "expiring" | "expired" | "inactive";
+type SectionFilter = FilterType | null; // null = sezione nascosta
 type ViewType = "list" | "calendar";
 
 interface ScheduleEntry {
@@ -18,12 +19,12 @@ interface ScheduleEntry {
 
 // ─── Mini stats row per tipo ──────────────────────────────────
 function TypeStatsRow({
-  label, clients, activeFilter, onFilter,
+  label, clients, sectionFilter, onFilter,
 }: {
   label: ClientType;
   clients: Client[];
-  activeFilter: FilterType;
-  onFilter: (f: FilterType) => void;
+  sectionFilter: SectionFilter;
+  onFilter: (f: SectionFilter) => void;
 }) {
   const stats = {
     total:    clients.length,
@@ -34,34 +35,51 @@ function TypeStatsRow({
 
   const isPR = label === "PR";
   const accent = isPR ? "#C0D738" : "#6366f1";
+  const hidden = sectionFilter === null;
 
-  const pill = (filter: FilterType, value: number, color: string) => (
-    <button
-      key={filter}
-      onClick={() => onFilter(filter)}
-      className={`flex flex-col items-center px-3 py-2 rounded-xl border transition-all flex-1
-        ${activeFilter === filter
-          ? "bg-gray-900 border-gray-900 dark:bg-gray-100 dark:border-gray-100"
-          : "bg-white border-gray-100 hover:border-gray-300 dark:bg-gray-800 dark:border-gray-700"}`}
-    >
-      <span className={`text-lg font-bold leading-none ${activeFilter === filter ? "text-white dark:text-gray-900" : color}`}>{value}</span>
-      <span className={`text-[10px] mt-0.5 ${activeFilter === filter ? "text-gray-300 dark:text-gray-600" : "text-gray-400"}`}>
-        {filter === "all" ? "totali" : filter === "expiring" ? "in scad." : filter === "expired" ? "scaduti" : "inattivi"}
-      </span>
-    </button>
-  );
+  // "totali": toggle visibilità sezione. Gli altri: filtro dentro la sezione.
+  const pillActive = (filter: FilterType) => !hidden && sectionFilter === filter;
+
+  const handleTotal = () => onFilter(hidden || sectionFilter !== "all" ? "all" : null);
+  const handleFilter = (f: FilterType) => {
+    if (hidden) return; // sezione nascosta: non cambiare filtro
+    onFilter(sectionFilter === f ? "all" : f);
+  };
+
+  const pillClass = (active: boolean) =>
+    `flex flex-col items-center px-3 py-2 rounded-xl border transition-all flex-1 ${
+      active
+        ? "bg-gray-900 border-gray-900 dark:bg-gray-100 dark:border-gray-100"
+        : "bg-white border-gray-100 hover:border-gray-300 dark:bg-gray-800 dark:border-gray-700"
+    }`;
 
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-2">
         <span className="text-xs font-bold uppercase tracking-widest px-2 py-0.5 rounded-full text-white" style={{ backgroundColor: accent }}>{label}</span>
         <span className="text-xs text-gray-400">{isPR ? "Programmazione" : "Personal Training"}</span>
+        {hidden && <span className="text-[10px] text-gray-400 italic">nascosta · clicca totali per mostrare</span>}
       </div>
       <div className="grid grid-cols-4 gap-2">
-        {pill("all",      stats.total,    "text-gray-900 dark:text-gray-100")}
-        {pill("expiring", stats.expiring, "text-amber-600")}
-        {pill("expired",  stats.expired,  "text-red-500")}
-        {pill("inactive", stats.inactive, "text-gray-400")}
+        {/* Totali: toggle visibilità */}
+        <button onClick={handleTotal} className={pillClass(pillActive("all"))}>
+          <span className={`text-lg font-bold leading-none ${pillActive("all") ? "text-white dark:text-gray-900" : hidden ? "text-gray-300 dark:text-gray-600" : "text-gray-900 dark:text-gray-100"}`}>{stats.total}</span>
+          <span className={`text-[10px] mt-0.5 ${pillActive("all") ? "text-gray-300 dark:text-gray-600" : "text-gray-400"}`}>totali</span>
+        </button>
+        {/* Filtri: operano dentro la sezione */}
+        {(["expiring", "expired", "inactive"] as const).map((f, i) => {
+          const value = [stats.expiring, stats.expired, stats.inactive][i];
+          const color = ["text-amber-600", "text-red-500", "text-gray-400"][i];
+          const sublabel = ["in scad.", "scaduti", "inattivi"][i];
+          const active = pillActive(f);
+          return (
+            <button key={f} onClick={() => handleFilter(f)} disabled={hidden}
+              className={pillClass(active) + (hidden ? " opacity-30 cursor-default" : "")}>
+              <span className={`text-lg font-bold leading-none ${active ? "text-white dark:text-gray-900" : color}`}>{value}</span>
+              <span className={`text-[10px] mt-0.5 ${active ? "text-gray-300 dark:text-gray-600" : "text-gray-400"}`}>{sublabel}</span>
+            </button>
+          );
+        })}
       </div>
     </div>
   );
@@ -353,8 +371,10 @@ function ClientSection({
   clients: Client[];
   scheduleDays: Record<string, number[]>;
   search: string;
-  activeFilter: FilterType;
+  activeFilter: SectionFilter;
 }) {
+  if (activeFilter === null) return null; // sezione nascosta
+
   const isPR = type === "PR";
   const accent = isPR ? "#C0D738" : "#6366f1";
   const accentBg = isPR ? "#f9fce0" : "#eef2ff";
@@ -429,8 +449,8 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [showModal, setShowModal] = useState(false);
-  const [prFilter, setPrFilter] = useState<FilterType>("all");
-  const [ptFilter, setPtFilter] = useState<FilterType>("all");
+  const [prFilter, setPrFilter] = useState<SectionFilter>("all");
+  const [ptFilter, setPtFilter] = useState<SectionFilter>("all");
   const [view, setView] = useState<ViewType>("list");
 
   const toggleTheme = () => {
@@ -476,8 +496,9 @@ export default function Dashboard() {
   const ptClients = clients.filter(c => c.client_type === "PT");
 
   const hasAnyResult = (type: "PR" | "PT") => {
-    const list = type === "PR" ? prClients : ptClients;
     const filter = type === "PR" ? prFilter : ptFilter;
+    if (filter === null) return false; // sezione nascosta
+    const list = type === "PR" ? prClients : ptClients;
     return list.some(c => {
       const nameMatch = `${c.name} ${c.surname}`.toLowerCase().includes(search.toLowerCase());
       if (!nameMatch) return false;
@@ -529,10 +550,10 @@ export default function Dashboard() {
         {!loading && clients.length > 0 && (
           <div className="space-y-3">
             {prClients.length > 0 && (
-              <TypeStatsRow label="PR" clients={prClients} activeFilter={prFilter} onFilter={f => setPrFilter(prev => prev === f ? "all" : f)} />
+              <TypeStatsRow label="PR" clients={prClients} sectionFilter={prFilter} onFilter={setPrFilter} />
             )}
             {ptClients.length > 0 && (
-              <TypeStatsRow label="PT" clients={ptClients} activeFilter={ptFilter} onFilter={f => setPtFilter(prev => prev === f ? "all" : f)} />
+              <TypeStatsRow label="PT" clients={ptClients} sectionFilter={ptFilter} onFilter={setPtFilter} />
             )}
           </div>
         )}
@@ -587,11 +608,11 @@ export default function Dashboard() {
               </div>
             ) : !hasAnyResult("PR") && !hasAnyResult("PT") ? (
               <div className="card p-10 text-center">
-                {search || prFilter !== "all" || ptFilter !== "all" ? (
+                {search || prFilter !== "all" || ptFilter !== "all" || prFilter === null || ptFilter === null ? (
                   <>
                     <div className="text-3xl mb-3">🔍</div>
                     <p className="text-gray-500">{search ? `Nessun cliente trovato per "${search}"` : "Nessun cliente in questa categoria"}</p>
-                    <button className="mt-3 text-sm text-gray-400 hover:text-gray-600 underline" onClick={() => { setSearch(""); setPrFilter("all"); setPtFilter("all"); }}>Rimuovi filtri</button>
+                    <button className="mt-3 text-sm text-gray-400 hover:text-gray-600 underline" onClick={() => { setSearch(""); setPrFilter("all"); setPtFilter("all"); }}>Mostra tutto</button>
                   </>
                 ) : (
                   <>
