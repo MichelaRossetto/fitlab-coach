@@ -663,14 +663,14 @@ function SectionBlock({ section, lib, editingExId, onToggleEdit, onUpdateEx, onD
           style={{ backgroundColor: color + "15", color }}
         >
           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M12 5v14M5 12h14"/></svg>
-          Aggiungi
+          Aggiungi esercizi per categoria
         </button>
       </div>
 
       {/* Exercises */}
       {exercises.length === 0 ? (
         <div className="px-4 py-5 text-center text-sm text-gray-400">
-          Nessun esercizio — clicca Aggiungi
+          Nessun esercizio — clicca Aggiungi esercizi per categoria
         </div>
       ) : (() => {
         const exercisesWithGroups = exercises.map(ex => {
@@ -899,13 +899,21 @@ function buildInitialState(lib: LibraryMap, dayLabel = ""): BulkState {
       bilanciere: pickPadded("ACCESSORI", "BILANCIERE", 2).map(mkAccessoriRow),
     },
     core: pickPadded("CORE TRAINING", null, 4).map(mkCoreRow),
-    workout: {
-      blocks: [{
-        subtype: "amrap",
-        capTime: "15",
-        rows: pickPadded("WORKOUT", null, 6).map(mkWorkoutRow),
-      }],
-    },
+    workout: (() => {
+      const allWk = getLibNames(lib, "WORKOUT", null);
+      const pickWk = (sub: string, n: number) => {
+        const specific = getLibNames(lib, "WORKOUT", sub);
+        const pool = specific.length ? specific : allWk;
+        const picked = getRandom(pool, n);
+        return [...picked, ...Array(Math.max(0, n - picked.length)).fill("")].map(mkWorkoutRow);
+      };
+      return {
+        blocks: [
+          { subtype: "amrap" as const, capTime: "15", rows: pickWk("AMRAP", 6) },
+          { subtype: "emom" as const,  capTime: "12", rows: pickWk("EMOM", 6)  },
+        ],
+      };
+    })(),
   };
 }
 
@@ -1850,6 +1858,9 @@ export default function DayPage() {
       }).eq("id", workoutSection.id);
     }
 
+    // Cancella tutti gli esercizi esistenti in tutte le sezioni (sovrascrittura)
+    await Promise.all(sections.map(s => supabase.from("exercises").delete().eq("section_id", s.id)));
+
     // Build all exercise rows to insert
     interface InsertRow {
       section_id: string;
@@ -1867,7 +1878,6 @@ export default function DayPage() {
     const push = (sectionType: SectionType, rows: { name: string; sets?: string; reps?: string; load?: string; rest?: string; notes?: string }[]) => {
       const section = sections.find(s => s.section_type === sectionType);
       if (!section) return;
-      const existingCount = section.exercises?.length ?? 0;
       rows.filter(r => r.name.trim()).forEach((r, i) => {
         toInsert.push({
           section_id: section.id,
@@ -1877,7 +1887,7 @@ export default function DayPage() {
           load: r.load?.trim() && r.load.trim() !== "-" ? r.load.trim() : null,
           rest_time: r.rest?.trim() ? `${r.rest.trim()} sec` : null,
           notes: r.notes?.trim() || null,
-          order_index: existingCount + i,
+          order_index: i,
         });
       });
     };
@@ -1886,7 +1896,7 @@ export default function DayPage() {
     const warmupSection = sections.find(s => s.section_type === "warmup");
     if (warmupSection) {
       const warmupRows: InsertRow[] = [];
-      let warmupCount = warmupSection.exercises?.length ?? 0;
+      let warmupCount = 0;
 
       bulkState.warmup.cardio.filter(r => r.name.trim()).forEach((r, i) => {
         warmupRows.push({
@@ -1943,7 +1953,7 @@ export default function DayPage() {
     const accessoriSection = sections.find(s => s.section_type === "accessories");
     if (accessoriSection) {
       const accRows: InsertRow[] = [];
-      let accCount = accessoriSection.exercises?.length ?? 0;
+      let accCount = 0;
 
       const pushAcc = (rows: AccessoriRow[], loadSuffix: string | null, groupTag: string) => {
         rows.filter(r => r.name.trim()).forEach((r, i) => {
@@ -1988,7 +1998,7 @@ export default function DayPage() {
 
     // Workout — iterate blocks, tag each exercise with its subtype
     if (workoutSection) {
-      let wkCount = workoutSection.exercises?.length ?? 0;
+      let wkCount = 0;
       bulkState.workout.blocks.forEach(block => {
         const isCardioliss = block.subtype === "cardioliss";
         const isForTime = block.subtype === "fortime";
@@ -2047,7 +2057,7 @@ export default function DayPage() {
               className="btn-primary text-xs py-1.5 px-3 flex items-center gap-1"
             >
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 5v14M5 12h14"/></svg>
-              Compila
+              Precompila giornata
             </button>
             {saving
               ? <span className="text-xs text-amber-600 font-medium animate-pulse">Salvo...</span>
@@ -2113,7 +2123,7 @@ export default function DayPage() {
         <div className="h-6" />
       </main>
 
-      <Modal open={showBulkAdd} onClose={() => setShowBulkAdd(false)} title="Compila giorno">
+      <Modal open={showBulkAdd} onClose={() => setShowBulkAdd(false)} title="Precompila giornata">
         {showBulkAdd && sections.length > 0 && (
           <BulkAddModal
             sections={sections}
