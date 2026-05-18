@@ -167,7 +167,7 @@ function CalendarView({ scheduleEntries, clients, activeFilter }: {
     const prCount = slot.pr.length;
     const ptCount = slot.pt.length;
     const total = prCount + ptCount;
-    const overloaded = total >= 4;
+    const overloaded = total >= 5;
     return (
       <button
         onClick={() => total > 0 && setSelectedSlot({ day, time })}
@@ -268,7 +268,7 @@ function CalendarView({ scheduleEntries, clients, activeFilter }: {
             <span className="text-[10px] text-gray-400">PT</span>
           </div>
           <div className="flex items-center gap-1">
-            <span className="text-[10px] font-bold" style={{ color: "#dc2626" }}>FULL = 4+</span>
+            <span className="text-[10px] font-bold" style={{ color: "#dc2626" }}>FULL = 5+</span>
           </div>
         </div>
       </div>
