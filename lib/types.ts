@@ -1,3 +1,5 @@
+export type ClientType = "PR" | "PT";
+
 export interface Client {
   id: string;
   created_at: string;
@@ -8,6 +10,7 @@ export interface Client {
   notes: string | null;
   subscription_end: string | null;
   paypal_link: string | null;
+  client_type: ClientType;
 }
 
 export interface TrainingMonth {

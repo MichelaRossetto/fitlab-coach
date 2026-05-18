@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
-import { Client, getInitials, getSubscriptionStatus, TIME_SLOTS_MORNING, TIME_SLOTS_AFTERNOON } from "@/lib/types";
+import { Client, ClientType, getInitials, getSubscriptionStatus, TIME_SLOTS_MORNING, TIME_SLOTS_AFTERNOON } from "@/lib/types";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Modal } from "@/components/Modal";
 
@@ -16,24 +16,55 @@ interface ScheduleEntry {
   time: string;
 }
 
-// ─── Stat card (cliccabile) ───────────────────────────────────
-function StatCard({
-  label, value, color, active, onClick,
+// ─── Mini stats row per tipo ──────────────────────────────────
+function TypeStatsRow({
+  label, clients, activeFilter, onFilter,
 }: {
-  label: string; value: number; color: string; active: boolean; onClick: () => void;
+  label: ClientType;
+  clients: Client[];
+  activeFilter: FilterType;
+  onFilter: (f: FilterType) => void;
 }) {
-  return (
+  const stats = {
+    total:    clients.length,
+    expiring: clients.filter(c => getSubscriptionStatus(c.subscription_end) === "expiring").length,
+    expired:  clients.filter(c => getSubscriptionStatus(c.subscription_end) === "expired").length,
+    inactive: clients.filter(c => getSubscriptionStatus(c.subscription_end) === "inactive").length,
+  };
+
+  const isPR = label === "PR";
+  const accent = isPR ? "#C0D738" : "#6366f1";
+  const accentText = isPR ? "text-[#8a9a00]" : "text-indigo-500";
+
+  const pill = (filter: FilterType, value: number, color: string) => (
     <button
-      onClick={onClick}
-      className={`rounded-xl border p-3 text-center transition-all w-full
-        ${active
+      key={filter}
+      onClick={() => onFilter(filter)}
+      className={`flex flex-col items-center px-3 py-2 rounded-xl border transition-all flex-1
+        ${activeFilter === filter
           ? "bg-gray-900 border-gray-900 dark:bg-gray-100 dark:border-gray-100"
-          : "bg-white border-gray-100 hover:border-gray-300 dark:bg-gray-800 dark:border-gray-700 dark:hover:border-gray-500"
-        }`}
+          : "bg-white border-gray-100 hover:border-gray-300 dark:bg-gray-800 dark:border-gray-700"}`}
     >
-      <div className={`text-2xl font-bold ${active ? "text-white dark:text-gray-900" : color}`}>{value}</div>
-      <div className={`text-[11px] mt-0.5 ${active ? "text-gray-300 dark:text-gray-600" : "text-gray-500 dark:text-gray-400"}`}>{label}</div>
+      <span className={`text-lg font-bold leading-none ${activeFilter === filter ? "text-white dark:text-gray-900" : color}`}>{value}</span>
+      <span className={`text-[10px] mt-0.5 ${activeFilter === filter ? "text-gray-300 dark:text-gray-600" : "text-gray-400"}`}>
+        {filter === "all" ? "totali" : filter === "expiring" ? "in scad." : filter === "expired" ? "scaduti" : "inattivi"}
+      </span>
     </button>
+  );
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-2">
+        <span className="text-xs font-bold uppercase tracking-widest px-2 py-0.5 rounded-full text-white" style={{ backgroundColor: accent }}>{label}</span>
+        <span className="text-xs text-gray-400">{isPR ? "Programmazione" : "Personal Training"}</span>
+      </div>
+      <div className="grid grid-cols-4 gap-2">
+        {pill("all",      stats.total,    "text-gray-900 dark:text-gray-100")}
+        {pill("expiring", stats.expiring, "text-amber-600")}
+        {pill("expired",  stats.expired,  "text-red-500")}
+        {pill("inactive", stats.inactive, "text-gray-400")}
+      </div>
+    </div>
   );
 }
 
@@ -57,8 +88,11 @@ function slotColor(count: number): { bg: string; text: string } {
   return { bg: "#fee2e2", text: "#dc2626" };
 }
 
-function CalendarView({ scheduleEntries, clients, activeFilter }: { scheduleEntries: ScheduleEntry[]; clients: Client[]; activeFilter: FilterType }) {
-  // Inattivi sempre esclusi; applica il filtro attivo sugli altri
+function CalendarView({ scheduleEntries, clients, activeFilter }: {
+  scheduleEntries: ScheduleEntry[];
+  clients: Client[];
+  activeFilter: FilterType;
+}) {
   const visibleClients = clients.filter(c => {
     const status = getSubscriptionStatus(c.subscription_end);
     if (status === "inactive") return false;
@@ -88,13 +122,10 @@ function CalendarView({ scheduleEntries, clients, activeFilter }: { scheduleEntr
     return `${start.getDate()} ${MONTH_SHORT[start.getMonth()]} – ${end.getDate()} ${MONTH_SHORT[end.getMonth()]} ${end.getFullYear()}`;
   })();
 
-  // Slot orari per la visualizzazione calendario (ore intere)
   const DISPLAY_SLOTS_MORNING   = ["08:00","09:00","10:00","11:00","12:00","13:00"];
   const DISPLAY_SLOTS_AFTERNOON = ["16:00","17:00","18:00","19:00"];
   const DISPLAY_SLOTS = [...DISPLAY_SLOTS_MORNING, ...DISPLAY_SLOTS_AFTERNOON];
 
-  // Build map: day → time → clientIds[]
-  // Sessione = 1 ora → il cliente compare in tutti gli slot H dove [T, T+60) ∩ [H, H+60) ≠ ∅
   const timeToMin = (t: string) => { const [h, m] = t.split(":").map(Number); return h * 60 + m; };
   const slotMap: Record<number, Record<string, string[]>> = {};
   for (let d = 0; d < 5; d++) slotMap[d] = {};
@@ -104,7 +135,6 @@ function CalendarView({ scheduleEntries, clients, activeFilter }: { scheduleEntr
     const T = timeToMin(e.time);
     for (const slot of DISPLAY_SLOTS) {
       const H = timeToMin(slot);
-      // overlap: T < H+60 AND T+60 > H
       if (T < H + 60 && T + 60 > H) {
         if (!slotMap[e.day_of_week][slot]) slotMap[e.day_of_week][slot] = [];
         if (!slotMap[e.day_of_week][slot].includes(e.client_id))
@@ -139,7 +169,6 @@ function CalendarView({ scheduleEntries, clients, activeFilter }: { scheduleEntr
   return (
     <>
       <div className="card overflow-hidden">
-        {/* Week navigation */}
         {(() => {
           const todayMonday = getMonday(new Date());
           const isFuture = weekStart.getTime() > todayMonday.getTime();
@@ -155,10 +184,8 @@ function CalendarView({ scheduleEntries, clients, activeFilter }: { scheduleEntr
           return (
             <div className="flex items-center justify-between px-3 py-2 border-b border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
               <div className="flex items-center gap-2 min-w-[120px]">
-                <button
-                  onClick={() => setWeekStart(d => { const n = new Date(d); n.setDate(n.getDate() - 7); return n; })}
-                  className="p-1 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500 transition-colors"
-                >
+                <button onClick={() => setWeekStart(d => { const n = new Date(d); n.setDate(n.getDate() - 7); return n; })}
+                  className="p-1 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500 transition-colors">
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 18l-6-6 6-6"/></svg>
                 </button>
                 {isFuture && backBtn}
@@ -166,10 +193,8 @@ function CalendarView({ scheduleEntries, clients, activeFilter }: { scheduleEntr
               <span className="text-sm font-semibold text-gray-700 dark:text-gray-200">{weekLabel}</span>
               <div className="flex items-center gap-2 justify-end min-w-[120px]">
                 {isPast && backBtn}
-                <button
-                  onClick={() => setWeekStart(d => { const n = new Date(d); n.setDate(n.getDate() + 7); return n; })}
-                  className="p-1 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500 transition-colors"
-                >
+                <button onClick={() => setWeekStart(d => { const n = new Date(d); n.setDate(n.getDate() + 7); return n; })}
+                  className="p-1 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500 transition-colors">
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 18l6-6-6-6"/></svg>
                 </button>
               </div>
@@ -177,14 +202,10 @@ function CalendarView({ scheduleEntries, clients, activeFilter }: { scheduleEntr
           );
         })()}
 
-        {/* Day headers with dates */}
         <div className="grid grid-cols-[56px_repeat(5,1fr)] border-b border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
           <div className="p-2" />
           {weekDays.map((date, i) => (
-            <div
-              key={i}
-              className={`p-2 text-center border-l border-gray-100 dark:border-gray-700 ${isToday(date) ? "bg-yellow-50 dark:bg-yellow-900/20" : ""}`}
-            >
+            <div key={i} className={`p-2 text-center border-l border-gray-100 dark:border-gray-700 ${isToday(date) ? "bg-yellow-50 dark:bg-yellow-900/20" : ""}`}>
               <div className="text-[10px] text-gray-400 font-medium">{DAY_LABELS[i]}</div>
               <div className={`text-sm font-bold mt-0.5 ${isToday(date) ? "text-yellow-600 dark:text-yellow-400" : "text-gray-700 dark:text-gray-200"}`}>
                 {date.getDate()}
@@ -193,7 +214,6 @@ function CalendarView({ scheduleEntries, clients, activeFilter }: { scheduleEntr
           ))}
         </div>
 
-        {/* Mattina */}
         <div className="border-b border-gray-200 dark:border-gray-600">
           <div className="px-3 py-1 text-[10px] font-semibold text-gray-400 uppercase tracking-wide bg-gray-50 dark:bg-gray-700/50">Mattina</div>
           {DISPLAY_SLOTS_MORNING.map(time => (
@@ -204,7 +224,6 @@ function CalendarView({ scheduleEntries, clients, activeFilter }: { scheduleEntr
           ))}
         </div>
 
-        {/* Pomeriggio */}
         <div>
           <div className="px-3 py-1 text-[10px] font-semibold text-gray-400 uppercase tracking-wide bg-gray-50 dark:bg-gray-700/50">Pomeriggio</div>
           {DISPLAY_SLOTS_AFTERNOON.map(time => (
@@ -215,21 +234,19 @@ function CalendarView({ scheduleEntries, clients, activeFilter }: { scheduleEntr
           ))}
         </div>
 
-        {/* Avviso filtro inattivi */}
         {activeFilter === "inactive" && (
           <div className="px-4 py-3 text-center text-sm text-gray-400 border-b border-gray-100 dark:border-gray-700">
             Gli inattivi non hanno slot in calendario
           </div>
         )}
 
-        {/* Legenda */}
         <div className="px-3 py-2 flex items-center gap-3 border-t border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
           <span className="text-[10px] text-gray-400 font-semibold">Legenda:</span>
           {[
             { label: "vuoto", bg: "#f9fafb", text: "#9ca3af" },
-            { label: "1–2", bg: "#dcfce7", text: "#16a34a" },
-            { label: "3",   bg: "#fef9c3", text: "#ca8a04" },
-            { label: "4+",  bg: "#fee2e2", text: "#dc2626" },
+            { label: "1–2",   bg: "#dcfce7", text: "#16a34a" },
+            { label: "3",     bg: "#fef9c3", text: "#ca8a04" },
+            { label: "4+",    bg: "#fee2e2", text: "#dc2626" },
           ].map(l => (
             <div key={l.label} className="flex items-center gap-1">
               <div className="w-4 h-4 rounded border border-gray-200" style={{ backgroundColor: l.bg }} />
@@ -239,32 +256,27 @@ function CalendarView({ scheduleEntries, clients, activeFilter }: { scheduleEntr
         </div>
       </div>
 
-      {/* Slot detail modal */}
-      <Modal
-        open={!!selectedSlot}
-        onClose={() => setSelectedSlot(null)}
-        title={selectedSlot ? `${DAY_LABELS[selectedSlot.day]} · ${selectedSlot.time}` : ""}
-      >
+      <Modal open={!!selectedSlot} onClose={() => setSelectedSlot(null)}
+        title={selectedSlot ? `${DAY_LABELS[selectedSlot.day]} · ${selectedSlot.time}` : ""}>
         <div className="space-y-1">
           {clientsInSlot.length === 0 ? (
             <p className="text-sm text-gray-400 text-center py-4">Nessun cliente</p>
           ) : clientsInSlot.map(client => (
-            <Link
-              key={client.id}
-              href={`/clienti/${client.id}`}
-              onClick={() => setSelectedSlot(null)}
-              className="flex items-center gap-3 p-3 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-            >
-              <div
-                className="w-9 h-9 rounded-full flex items-center justify-center font-bold text-sm border-2 flex-shrink-0"
-                style={{ borderColor: "#C0D738", backgroundColor: "#f9fce0", color: "#111" }}
-              >
+            <Link key={client.id} href={`/clienti/${client.id}`} onClick={() => setSelectedSlot(null)}
+              className="flex items-center gap-3 p-3 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+              <div className="w-9 h-9 rounded-full flex items-center justify-center font-bold text-sm border-2 flex-shrink-0"
+                style={{ borderColor: client.client_type === "PT" ? "#6366f1" : "#C0D738", backgroundColor: client.client_type === "PT" ? "#eef2ff" : "#f9fce0", color: "#111" }}>
                 {getInitials(client.name, client.surname)}
               </div>
-              <span className="font-medium text-sm text-gray-900 dark:text-gray-100">{client.name} {client.surname}</span>
-              <svg className="ml-auto text-gray-300" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M9 18l6-6-6-6"/>
-              </svg>
+              <div className="flex-1 min-w-0">
+                <span className="font-medium text-sm text-gray-900 dark:text-gray-100">{client.name} {client.surname}</span>
+                <div className="mt-0.5">
+                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full text-white ${client.client_type === "PT" ? "bg-indigo-500" : "bg-[#C0D738] text-black"}`}>
+                    {client.client_type ?? "PR"}
+                  </span>
+                </div>
+              </div>
+              <svg className="ml-auto text-gray-300" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 18l6-6-6-6"/></svg>
             </Link>
           ))}
         </div>
@@ -273,37 +285,25 @@ function CalendarView({ scheduleEntries, clients, activeFilter }: { scheduleEntr
   );
 }
 
-// ─── New Client Form ─────────────────────────────────────────
-interface NewClientFormProps {
-  trainerId: string;
-  onSuccess: () => void;
-  onCancel: () => void;
-}
-
-function NewClientForm({ trainerId, onSuccess, onCancel }: NewClientFormProps) {
-  const [form, setForm] = useState({
-    name: "", surname: "", email: "", phone: "",
-    subscription_end: "", notes: "",
-  });
+// ─── New Client Form ──────────────────────────────────────────
+function NewClientForm({ trainerId, onSuccess, onCancel }: { trainerId: string; onSuccess: () => void; onCancel: () => void }) {
+  const [form, setForm] = useState({ name: "", surname: "", email: "", phone: "", subscription_end: "", notes: "" });
+  const [clientType, setClientType] = useState<ClientType>("PR");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.name.trim() || !form.surname.trim()) {
-      setError("Nome e cognome sono obbligatori");
-      return;
-    }
+    if (!form.name.trim() || !form.surname.trim()) { setError("Nome e cognome sono obbligatori"); return; }
     setSaving(true);
     setError("");
     const { error: err } = await supabase.from("clients").insert({
-      name: form.name.trim(),
-      surname: form.surname.trim(),
-      email: form.email.trim() || null,
-      phone: form.phone.trim() || null,
+      name: form.name.trim(), surname: form.surname.trim(),
+      email: form.email.trim() || null, phone: form.phone.trim() || null,
       subscription_end: form.subscription_end || null,
       notes: form.notes.trim() || null,
       trainer_id: trainerId,
+      client_type: clientType,
     });
     setSaving(false);
     if (err) { setError(err.message); return; }
@@ -315,40 +315,107 @@ function NewClientForm({ trainerId, onSuccess, onCancel }: NewClientFormProps) {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
+      {/* Tipo cliente */}
+      <div>
+        <label className="label">Tipo cliente</label>
+        <div className="flex gap-2 bg-gray-100 dark:bg-gray-700/50 rounded-xl p-1">
+          {(["PR", "PT"] as ClientType[]).map(t => (
+            <button key={t} type="button" onClick={() => setClientType(t)}
+              className={`flex-1 py-2 rounded-lg text-sm font-bold transition-colors ${clientType === t ? "bg-white dark:bg-gray-700 shadow-sm" : "text-gray-400"}`}
+              style={clientType === t ? { color: t === "PR" ? "#8a9a00" : "#6366f1" } : {}}>
+              {t} — {t === "PR" ? "Programmazione" : "Personal Training"}
+            </button>
+          ))}
+        </div>
+      </div>
+
       <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="label">Nome *</label>
-          <input className="input" placeholder="es. Diana" value={form.name} onChange={set("name")} />
-        </div>
-        <div>
-          <label className="label">Cognome *</label>
-          <input className="input" placeholder="es. Fogoarosi" value={form.surname} onChange={set("surname")} />
-        </div>
+        <div><label className="label">Nome *</label><input className="input" placeholder="es. Mario" value={form.name} onChange={set("name")} /></div>
+        <div><label className="label">Cognome *</label><input className="input" placeholder="es. Rossi" value={form.surname} onChange={set("surname")} /></div>
       </div>
-      <div>
-        <label className="label">Email</label>
-        <input className="input" type="email" placeholder="email@esempio.com" value={form.email} onChange={set("email")} />
-      </div>
-      <div>
-        <label className="label">Telefono</label>
-        <input className="input" type="tel" placeholder="+39 333 000 0000" value={form.phone} onChange={set("phone")} />
-      </div>
-      <div>
-        <label className="label">Scadenza abbonamento</label>
-        <input className="input" type="date" value={form.subscription_end} onChange={set("subscription_end")} />
-      </div>
-      <div>
-        <label className="label">Note</label>
-        <textarea className="input resize-none" rows={2} placeholder="Obiettivi, infortuni, note..." value={form.notes} onChange={set("notes")} />
-      </div>
+      <div><label className="label">Email</label><input className="input" type="email" placeholder="email@esempio.com" value={form.email} onChange={set("email")} /></div>
+      <div><label className="label">Telefono</label><input className="input" type="tel" placeholder="+39 333 000 0000" value={form.phone} onChange={set("phone")} /></div>
+      <div><label className="label">Scadenza abbonamento</label><input className="input" type="date" value={form.subscription_end} onChange={set("subscription_end")} /></div>
+      <div><label className="label">Note</label><textarea className="input resize-none" rows={2} placeholder="Obiettivi, infortuni, note..." value={form.notes} onChange={set("notes")} /></div>
       {error && <p className="text-sm text-red-500">{error}</p>}
       <div className="flex gap-2 pt-1">
         <button type="button" className="btn-secondary flex-1" onClick={onCancel}>Annulla</button>
-        <button type="submit" className="btn-primary flex-1" disabled={saving}>
-          {saving ? "Salvataggio..." : "Aggiungi cliente"}
-        </button>
+        <button type="submit" className="btn-primary flex-1" disabled={saving}>{saving ? "Salvataggio..." : "Aggiungi cliente"}</button>
       </div>
     </form>
+  );
+}
+
+// ─── Client List Section ──────────────────────────────────────
+function ClientSection({
+  type, clients, scheduleDays, search, activeFilter,
+}: {
+  type: ClientType;
+  clients: Client[];
+  scheduleDays: Record<string, number[]>;
+  search: string;
+  activeFilter: FilterType;
+}) {
+  const isPR = type === "PR";
+  const accent = isPR ? "#C0D738" : "#6366f1";
+  const accentBg = isPR ? "#f9fce0" : "#eef2ff";
+
+  const filtered = clients.filter(c => {
+    const nameMatch = `${c.name} ${c.surname}`.toLowerCase().includes(search.toLowerCase());
+    if (!nameMatch) return false;
+    if (activeFilter === "all") return true;
+    return getSubscriptionStatus(c.subscription_end) === activeFilter;
+  });
+
+  const sorted = [...filtered].sort((a, b) => {
+    const order = { expiring: 0, active: 1, expired: 2, inactive: 3 };
+    return order[getSubscriptionStatus(a.subscription_end)] - order[getSubscriptionStatus(b.subscription_end)];
+  });
+
+  if (sorted.length === 0 && (search || activeFilter !== "all")) return null;
+
+  return (
+    <div className="space-y-2">
+      <p className="section-label flex items-center gap-2">
+        <span className="px-1.5 py-0.5 rounded text-[10px] font-bold text-white" style={{ backgroundColor: accent }}>{type}</span>
+        {sorted.length} client{sorted.length === 1 ? "e" : "i"}
+        {activeFilter !== "all" && <span className="text-gray-300">· filtrati</span>}
+      </p>
+      {sorted.length === 0 ? (
+        <div className="card px-4 py-6 text-center text-sm text-gray-400">
+          Nessun cliente {type} in questa categoria
+        </div>
+      ) : (
+        <div className="card divide-y divide-gray-50 dark:divide-gray-700">
+          {sorted.map(client => (
+            <Link key={client.id} href={`/clienti/${client.id}`}
+              className={`flex items-center gap-3.5 p-4 hover:bg-gray-50 transition-colors group dark:hover:bg-gray-700 ${getSubscriptionStatus(client.subscription_end) === "inactive" ? "opacity-40" : ""}`}>
+              <div className="w-11 h-11 rounded-full flex items-center justify-center flex-shrink-0 font-bold text-sm border-2"
+                style={{ borderColor: accent, backgroundColor: accentBg, color: "#111" }}>
+                {getInitials(client.name, client.surname)}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold text-gray-900 text-sm truncate dark:text-gray-100">{client.name} {client.surname}</span>
+                  {scheduleDays[client.id]?.length > 0 && (
+                    <span className="text-[11px] font-medium flex-shrink-0 flex items-center gap-0.5" style={{ color: isPR ? "#8a9a00" : "#6366f1" }}>
+                      {scheduleDays[client.id].sort().map((d, i, arr) => (
+                        <span key={d}>{["L","M","M","G","V"][d]}{i < arr.length - 1 && <span className="text-gray-400 mx-0.5">·</span>}</span>
+                      ))}
+                    </span>
+                  )}
+                </div>
+                <div className="mt-1"><StatusBadge subscriptionEnd={client.subscription_end} /></div>
+              </div>
+              <svg className="text-gray-300 group-hover:text-gray-500 transition-colors flex-shrink-0"
+                width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M9 18l6-6-6-6"/>
+              </svg>
+            </Link>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -383,16 +450,8 @@ export default function Dashboard() {
     if (user) {
       setTrainerId(user.id);
       setTrainerEmail(user.email ?? "");
-
-      const { data: clientMatch } = await supabase
-        .from("clients")
-        .select("id")
-        .eq("email", user.email)
-        .maybeSingle();
-      if (clientMatch) {
-        router.replace(`/clienti/${clientMatch.id}`);
-        return;
-      }
+      const { data: clientMatch } = await supabase.from("clients").select("id").eq("email", user.email).maybeSingle();
+      if (clientMatch) { router.replace(`/clienti/${clientMatch.id}`); return; }
     }
     const [{ data }, schedRes] = await Promise.all([
       supabase.from("clients").select("*").order("surname", { ascending: true }),
@@ -400,10 +459,8 @@ export default function Dashboard() {
     ]);
     setClients(data ?? []);
     const schedData = schedRes.ok ? await schedRes.json() : [];
-
     const entries: ScheduleEntry[] = (schedData ?? []) as ScheduleEntry[];
     setScheduleEntries(entries);
-
     const days: Record<string, number[]> = {};
     entries.forEach(s => {
       if (!days[s.client_id]) days[s.client_id] = [];
@@ -415,28 +472,19 @@ export default function Dashboard() {
 
   useEffect(() => { fetchClients(); }, [fetchClients]);
 
-  const handleFilterClick = (filter: FilterType) => {
-    setActiveFilter(prev => prev === filter ? "all" : filter);
-  };
+  const handleFilterClick = (filter: FilterType) => setActiveFilter(prev => prev === filter ? "all" : filter);
 
-  const filtered = clients.filter(c => {
-    const nameMatch = `${c.name} ${c.surname}`.toLowerCase().includes(search.toLowerCase());
-    if (!nameMatch) return false;
-    if (activeFilter === "all") return true;
-    return getSubscriptionStatus(c.subscription_end) === activeFilter;
-  });
+  const prClients = clients.filter(c => (c.client_type ?? "PR") === "PR");
+  const ptClients = clients.filter(c => c.client_type === "PT");
 
-  // Sort: expiring → active → expired → inactive
-  const sorted = [...filtered].sort((a, b) => {
-    const order = { expiring: 0, active: 1, expired: 2, inactive: 3 };
-    return order[getSubscriptionStatus(a.subscription_end)] - order[getSubscriptionStatus(b.subscription_end)];
-  });
-
-  const stats = {
-    total:    clients.length,
-    expiring: clients.filter(c => getSubscriptionStatus(c.subscription_end) === "expiring").length,
-    expired:  clients.filter(c => getSubscriptionStatus(c.subscription_end) === "expired").length,
-    inactive: clients.filter(c => getSubscriptionStatus(c.subscription_end) === "inactive").length,
+  const hasAnyResult = (type: "PR" | "PT") => {
+    const list = type === "PR" ? prClients : ptClients;
+    return list.some(c => {
+      const nameMatch = `${c.name} ${c.surname}`.toLowerCase().includes(search.toLowerCase());
+      if (!nameMatch) return false;
+      if (activeFilter === "all") return true;
+      return getSubscriptionStatus(c.subscription_end) === activeFilter;
+    });
   };
 
   return (
@@ -452,13 +500,8 @@ export default function Dashboard() {
             <p className="text-xs text-gray-400 mt-0.5 truncate max-w-[160px]">{trainerEmail || "Coach App"}</p>
           </div>
           <div className="flex items-center gap-2">
-            <button
-              onClick={toggleTheme}
-              className="text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300 transition-colors p-1"
-            >
-              <svg className="dark:hidden" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
-              </svg>
+            <button onClick={toggleTheme} className="text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300 transition-colors p-1">
+              <svg className="dark:hidden" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
               <svg className="hidden dark:block" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
               </svg>
@@ -468,19 +511,12 @@ export default function Dashboard() {
                 <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
               </svg>
             </Link>
-            <button
-              onClick={handleLogout}
-              className="text-gray-400 hover:text-red-400 transition-colors p-1"
-              title="Logout"
-            >
+            <button onClick={handleLogout} className="text-gray-400 hover:text-red-400 transition-colors p-1" title="Logout">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>
               </svg>
             </button>
-            <button
-              onClick={() => setShowModal(true)}
-              className="flex items-center gap-2 btn-primary text-sm"
-            >
+            <button onClick={() => setShowModal(true)} className="flex items-center gap-2 btn-primary text-sm">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 5v14M5 12h14"/></svg>
               Nuovo cliente
             </button>
@@ -489,47 +525,34 @@ export default function Dashboard() {
       </header>
 
       <main className="max-w-2xl mx-auto px-4 py-5 space-y-5">
-        {/* Stats — cliccabili come filtri */}
+
+        {/* Stats distinte per tipo */}
         {!loading && clients.length > 0 && (
-          <div className="grid grid-cols-4 gap-2">
-            <StatCard
-              label="Totali" value={stats.total} color="text-gray-900 dark:text-gray-100"
-              active={activeFilter === "all"} onClick={() => setActiveFilter("all")}
-            />
-            <StatCard
-              label="In scadenza" value={stats.expiring} color="text-amber-600"
-              active={activeFilter === "expiring"} onClick={() => handleFilterClick("expiring")}
-            />
-            <StatCard
-              label="Scaduti" value={stats.expired} color="text-red-500"
-              active={activeFilter === "expired"} onClick={() => handleFilterClick("expired")}
-            />
-            <StatCard
-              label="Inattivi" value={stats.inactive} color="text-gray-400"
-              active={activeFilter === "inactive"} onClick={() => handleFilterClick("inactive")}
-            />
+          <div className="space-y-3">
+            {prClients.length > 0 && (
+              <TypeStatsRow label="PR" clients={prClients} activeFilter={activeFilter} onFilter={handleFilterClick} />
+            )}
+            {ptClients.length > 0 && (
+              <TypeStatsRow label="PT" clients={ptClients} activeFilter={activeFilter} onFilter={handleFilterClick} />
+            )}
           </div>
         )}
 
         {/* View toggle */}
         {!loading && (
           <div className="flex gap-2 bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 p-1">
-            <button
-              onClick={() => setView("list")}
+            <button onClick={() => setView("list")}
               className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-sm font-medium transition-all
-                ${view === "list" ? "bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900" : "text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"}`}
-            >
+                ${view === "list" ? "bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900" : "text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"}`}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/>
                 <line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>
               </svg>
               Lista
             </button>
-            <button
-              onClick={() => setView("calendar")}
+            <button onClick={() => setView("calendar")}
               className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-sm font-medium transition-all
-                ${view === "calendar" ? "bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900" : "text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"}`}
-            >
+                ${view === "calendar" ? "bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900" : "text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"}`}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
                 <line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
@@ -548,16 +571,9 @@ export default function Dashboard() {
               <svg className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
               </svg>
-              <input
-                className="input pl-10"
-                placeholder="Cerca cliente..."
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                autoComplete="off"
-              />
+              <input className="input pl-10" placeholder="Cerca cliente..." value={search} onChange={e => setSearch(e.target.value)} autoComplete="off" />
             </div>
 
-            {/* Client list */}
             {loading ? (
               <div className="space-y-3">
                 {[...Array(4)].map((_, i) => (
@@ -570,93 +586,35 @@ export default function Dashboard() {
                   </div>
                 ))}
               </div>
-            ) : sorted.length === 0 ? (
+            ) : !hasAnyResult("PR") && !hasAnyResult("PT") ? (
               <div className="card p-10 text-center">
                 {search || activeFilter !== "all" ? (
                   <>
                     <div className="text-3xl mb-3">🔍</div>
-                    <p className="text-gray-500">
-                      {search ? `Nessun cliente trovato per "${search}"` : "Nessun cliente in questa categoria"}
-                    </p>
-                    <button className="mt-3 text-sm text-gray-400 hover:text-gray-600 underline" onClick={() => { setSearch(""); setActiveFilter("all"); }}>
-                      Rimuovi filtri
-                    </button>
+                    <p className="text-gray-500">{search ? `Nessun cliente trovato per "${search}"` : "Nessun cliente in questa categoria"}</p>
+                    <button className="mt-3 text-sm text-gray-400 hover:text-gray-600 underline" onClick={() => { setSearch(""); setActiveFilter("all"); }}>Rimuovi filtri</button>
                   </>
                 ) : (
                   <>
                     <div className="text-3xl mb-3">👋</div>
                     <p className="font-medium text-gray-700 mb-1">Nessun cliente ancora</p>
                     <p className="text-sm text-gray-400 mb-4">Aggiungi il tuo primo cliente per iniziare</p>
-                    <button className="btn-primary mx-auto" onClick={() => setShowModal(true)}>
-                      Aggiungi cliente
-                    </button>
+                    <button className="btn-primary mx-auto" onClick={() => setShowModal(true)}>Aggiungi cliente</button>
                   </>
                 )}
               </div>
             ) : (
-              <div>
-                <p className="section-label">
-                  {sorted.length} client{sorted.length === 1 ? "e" : "i"}
-                  {activeFilter !== "all" && <span className="text-gray-300"> · filtrati</span>}
-                </p>
-                <div className="card divide-y divide-gray-50 dark:divide-gray-700">
-                  {sorted.map(client => (
-                    <Link
-                      key={client.id}
-                      href={`/clienti/${client.id}`}
-                      className={`flex items-center gap-3.5 p-4 hover:bg-gray-50 transition-colors group dark:hover:bg-gray-700 ${getSubscriptionStatus(client.subscription_end) === "inactive" ? "opacity-40" : ""}`}
-                    >
-                      {/* Avatar */}
-                      <div
-                        className="w-11 h-11 rounded-full flex items-center justify-center flex-shrink-0 font-bold text-sm border-2"
-                        style={{ borderColor: "#C0D738", backgroundColor: "#f9fce0", color: "#111" }}
-                      >
-                        {getInitials(client.name, client.surname)}
-                      </div>
-
-                      {/* Info */}
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="font-semibold text-gray-900 text-sm truncate dark:text-gray-100">
-                            {client.name} {client.surname}
-                          </span>
-                          {scheduleDays[client.id]?.length > 0 && (
-                            <span className="text-[11px] font-medium flex-shrink-0 flex items-center gap-0.5" style={{ color: "#8a9a00" }}>
-                              {scheduleDays[client.id].sort().map((d, i) => (
-                                <span key={d}>
-                                  {["L","M","M","G","V"][d]}
-                                  {i < scheduleDays[client.id].length - 1 && <span className="text-gray-400 mx-0.5">·</span>}
-                                </span>
-                              ))}
-                            </span>
-                          )}
-                        </div>
-                        <div className="mt-1">
-                          <StatusBadge subscriptionEnd={client.subscription_end} />
-                        </div>
-                      </div>
-
-                      {/* Arrow */}
-                      <svg className="text-gray-300 group-hover:text-gray-500 transition-colors flex-shrink-0"
-                        width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <path d="M9 18l6-6-6-6"/>
-                      </svg>
-                    </Link>
-                  ))}
-                </div>
+              <div className="space-y-6">
+                <ClientSection type="PR" clients={prClients} scheduleDays={scheduleDays} search={search} activeFilter={activeFilter} />
+                <ClientSection type="PT" clients={ptClients} scheduleDays={scheduleDays} search={search} activeFilter={activeFilter} />
               </div>
             )}
           </>
         )}
       </main>
 
-      {/* New client modal */}
       <Modal open={showModal} onClose={() => setShowModal(false)} title="Nuovo cliente">
-        <NewClientForm
-          trainerId={trainerId}
-          onSuccess={() => { setShowModal(false); fetchClients(); }}
-          onCancel={() => setShowModal(false)}
-        />
+        <NewClientForm trainerId={trainerId} onSuccess={() => { setShowModal(false); fetchClients(); }} onCancel={() => setShowModal(false)} />
       </Modal>
     </div>
   );
