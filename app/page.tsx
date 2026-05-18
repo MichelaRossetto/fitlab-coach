@@ -34,7 +34,6 @@ function TypeStatsRow({
 
   const isPR = label === "PR";
   const accent = isPR ? "#C0D738" : "#6366f1";
-  const accentText = isPR ? "text-[#8a9a00]" : "text-indigo-500";
 
   const pill = (filter: FilterType, value: number, color: string) => (
     <button
@@ -430,7 +429,8 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [showModal, setShowModal] = useState(false);
-  const [activeFilter, setActiveFilter] = useState<FilterType>("all");
+  const [prFilter, setPrFilter] = useState<FilterType>("all");
+  const [ptFilter, setPtFilter] = useState<FilterType>("all");
   const [view, setView] = useState<ViewType>("list");
 
   const toggleTheme = () => {
@@ -472,18 +472,17 @@ export default function Dashboard() {
 
   useEffect(() => { fetchClients(); }, [fetchClients]);
 
-  const handleFilterClick = (filter: FilterType) => setActiveFilter(prev => prev === filter ? "all" : filter);
-
   const prClients = clients.filter(c => (c.client_type ?? "PR") === "PR");
   const ptClients = clients.filter(c => c.client_type === "PT");
 
   const hasAnyResult = (type: "PR" | "PT") => {
     const list = type === "PR" ? prClients : ptClients;
+    const filter = type === "PR" ? prFilter : ptFilter;
     return list.some(c => {
       const nameMatch = `${c.name} ${c.surname}`.toLowerCase().includes(search.toLowerCase());
       if (!nameMatch) return false;
-      if (activeFilter === "all") return true;
-      return getSubscriptionStatus(c.subscription_end) === activeFilter;
+      if (filter === "all") return true;
+      return getSubscriptionStatus(c.subscription_end) === filter;
     });
   };
 
@@ -530,10 +529,10 @@ export default function Dashboard() {
         {!loading && clients.length > 0 && (
           <div className="space-y-3">
             {prClients.length > 0 && (
-              <TypeStatsRow label="PR" clients={prClients} activeFilter={activeFilter} onFilter={handleFilterClick} />
+              <TypeStatsRow label="PR" clients={prClients} activeFilter={prFilter} onFilter={f => setPrFilter(prev => prev === f ? "all" : f)} />
             )}
             {ptClients.length > 0 && (
-              <TypeStatsRow label="PT" clients={ptClients} activeFilter={activeFilter} onFilter={handleFilterClick} />
+              <TypeStatsRow label="PT" clients={ptClients} activeFilter={ptFilter} onFilter={f => setPtFilter(prev => prev === f ? "all" : f)} />
             )}
           </div>
         )}
@@ -563,7 +562,7 @@ export default function Dashboard() {
         )}
 
         {view === "calendar" ? (
-          <CalendarView scheduleEntries={scheduleEntries} clients={clients} activeFilter={activeFilter} />
+          <CalendarView scheduleEntries={scheduleEntries} clients={clients} activeFilter="all" />
         ) : (
           <>
             {/* Search */}
@@ -588,11 +587,11 @@ export default function Dashboard() {
               </div>
             ) : !hasAnyResult("PR") && !hasAnyResult("PT") ? (
               <div className="card p-10 text-center">
-                {search || activeFilter !== "all" ? (
+                {search || prFilter !== "all" || ptFilter !== "all" ? (
                   <>
                     <div className="text-3xl mb-3">🔍</div>
                     <p className="text-gray-500">{search ? `Nessun cliente trovato per "${search}"` : "Nessun cliente in questa categoria"}</p>
-                    <button className="mt-3 text-sm text-gray-400 hover:text-gray-600 underline" onClick={() => { setSearch(""); setActiveFilter("all"); }}>Rimuovi filtri</button>
+                    <button className="mt-3 text-sm text-gray-400 hover:text-gray-600 underline" onClick={() => { setSearch(""); setPrFilter("all"); setPtFilter("all"); }}>Rimuovi filtri</button>
                   </>
                 ) : (
                   <>
@@ -605,8 +604,8 @@ export default function Dashboard() {
               </div>
             ) : (
               <div className="space-y-6">
-                <ClientSection type="PR" clients={prClients} scheduleDays={scheduleDays} search={search} activeFilter={activeFilter} />
-                <ClientSection type="PT" clients={ptClients} scheduleDays={scheduleDays} search={search} activeFilter={activeFilter} />
+                <ClientSection type="PR" clients={prClients} scheduleDays={scheduleDays} search={search} activeFilter={prFilter} />
+                <ClientSection type="PT" clients={ptClients} scheduleDays={scheduleDays} search={search} activeFilter={ptFilter} />
               </div>
             )}
           </>
