@@ -73,6 +73,7 @@ function parseExerciseGroup(notes: string | null): { group: string | null; clean
 const GROUP_LABELS: Record<string, string> = {
   cardio: "Cardio",
   mob: "Mobilità",
+  att: "Attivazione",
   lower: "Lower Body",
   upper: "Upper Body",
   full: "Full Body",
@@ -388,9 +389,12 @@ function AddExerciseModal({ section, lib, dayLabel, onSave, onCancel }: {
   const [reps, setReps] = useState("");
   const [load, setLoad] = useState("");
   const [rest, setRest] = useState("");
-  const [warmupType, setWarmupType] = useState<"cardio" | "mobilita">("cardio");
+  const [warmupType, setWarmupType] = useState<"cardio" | "mobilita" | "attivazione">("cardio");
 
   const dayFilter = getDayMobilitaFilter(dayLabel ?? "");
+  const isFullDay = dayFilter === "FULL";
+  const defaultZone: "UPPER" | "LOWER" = dayFilter === "LOWER" ? "LOWER" : "UPPER";
+  const [warmupZone, setWarmupZone] = useState<"UPPER" | "LOWER">(defaultZone);
   const defaultStrengthSub = dayFilter === "UPPER" ? "UPPER BODY" : dayFilter === "LOWER" ? "LOWER BODY" : "FULL BODY";
   const [strengthSub, setStrengthSub] = useState<"UPPER BODY" | "LOWER BODY" | "FULL BODY">(defaultStrengthSub as "UPPER BODY" | "LOWER BODY" | "FULL BODY");
   const [accessoriSub, setAccessoriSub] = useState<"bodyweight" | "manubri" | "kettlebell" | "bilanciere">("manubri");
@@ -406,14 +410,18 @@ function AddExerciseModal({ section, lib, dayLabel, onSave, onCancel }: {
   }, [section.section_type]);
 
   // Reset name when switching sub-category
-  useEffect(() => { setName(""); }, [warmupType, strengthSub, accessoriSub, workoutSub]);
+  useEffect(() => { setName(""); }, [warmupType, warmupZone, strengthSub, accessoriSub, workoutSub]);
 
   const accLibMap: Record<string, string> = { bodyweight: "BODYWEIGHT", manubri: "MANUBRI", kettlebell: "KETTLEBELL", bilanciere: "BILANCIERE" };
   const strengthLibMap: Record<string, string> = { "UPPER BODY": "UPPER BODY", "LOWER BODY": "LOWER BODY", "FULL BODY": "FULL BODY" };
 
   const suggestions: string[] = (() => {
-    if (section.section_type === "warmup")
-      return warmupType === "cardio" ? getLibNames(lib, "WARMUP", "CARDIO") : getLibNames(lib, "WARMUP", "MOBILITÀ");
+    if (section.section_type === "warmup") {
+      if (warmupType === "cardio") return getLibNames(lib, "WARMUP", "CARDIO");
+      const subcat = warmupType === "mobilita" ? "MOBILITÀ" : "ATTIVAZIONE";
+      if (isFullDay) return [...getLibNames(lib, "WARMUP", subcat, "UPPER"), ...getLibNames(lib, "WARMUP", subcat, "LOWER")];
+      return getLibNames(lib, "WARMUP", subcat, warmupZone);
+    }
     if (section.section_type === "strength")    return getLibNames(lib, "FORZA", strengthLibMap[strengthSub]);
     if (section.section_type === "accessories") return getLibNames(lib, "ACCESSORI", accLibMap[accessoriSub]);
     if (section.section_type === "core")        return getLibNames(lib, "CORE TRAINING", null);
@@ -428,6 +436,8 @@ function AddExerciseModal({ section, lib, dayLabel, onSave, onCancel }: {
     if (!name.trim()) return;
     if (section.section_type === "warmup" && warmupType === "cardio") {
       onSave({ name: name.trim(), reps: reps ? `${reps} min` : "5 min", notes: tagNotes("cardio", "") });
+    } else if (section.section_type === "warmup" && warmupType === "attivazione") {
+      onSave({ name: name.trim(), sets: sets || "2", reps: reps || "10", notes: tagNotes("att", "") });
     } else if (section.section_type === "warmup") {
       onSave({ name: name.trim(), sets: sets || "2", reps: reps || "10", notes: tagNotes("mob", "") });
     } else if (section.section_type === "strength") {
@@ -470,7 +480,8 @@ function AddExerciseModal({ section, lib, dayLabel, onSave, onCancel }: {
         </div>
 
         {/* Sub-type selectors */}
-        {section.section_type === "warmup" && toggleBtn(["cardio", "mobilita"] as const, warmupType, setWarmupType, t => t === "cardio" ? "Cardio" : "Mobilità")}
+        {section.section_type === "warmup" && toggleBtn(["cardio", "mobilita", "attivazione"] as const, warmupType, setWarmupType, t => t === "cardio" ? "Cardio" : t === "mobilita" ? "Mobilità" : "Attivazione")}
+        {section.section_type === "warmup" && warmupType !== "cardio" && !isFullDay && toggleBtn(["UPPER", "LOWER"] as const, warmupZone, setWarmupZone, t => t === "UPPER" ? "Upper" : "Lower")}
         {section.section_type === "strength" && toggleBtn(["UPPER BODY", "LOWER BODY", "FULL BODY"] as const, strengthSub, setStrengthSub, t => t === "UPPER BODY" ? "Upper Body" : t === "LOWER BODY" ? "Lower Body" : "Full Body")}
         {section.section_type === "accessories" && toggleBtn(["bodyweight", "manubri", "kettlebell", "bilanciere"] as const, accessoriSub, setAccessoriSub, t => t === "bodyweight" ? "Bodyweight" : t === "manubri" ? "Manubri" : t === "kettlebell" ? "Kettlebell" : "Bilanciere")}
         {section.section_type === "workout" && toggleBtn(["amrap", "emom", "fortime", "cardioliss"] as WorkoutSubtype[], workoutSub, setWorkoutSub, t => WORKOUT_SUBTYPE_LABELS[t])}
@@ -478,7 +489,7 @@ function AddExerciseModal({ section, lib, dayLabel, onSave, onCancel }: {
         {/* Exercise name */}
         <div>
           <label className="label">Esercizio</label>
-          <AutocompleteInput value={name} onChange={setName} suggestions={suggestions} strict placeholder="Cerca dalla libreria..." />
+          <AutocompleteInput value={name} onChange={setName} suggestions={suggestions} globalSuggestions={getAllLibNames(lib)} strict placeholder="Cerca dalla libreria..." />
         </div>
 
         {/* Warmup fields */}
@@ -596,7 +607,7 @@ function SectionBlock({ section, lib, editingExId, onToggleEdit, onUpdateEx, onD
   const [confirmClear, setConfirmClear] = useState(false);
   const libSuggestions: string[] = (() => {
     switch (section.section_type) {
-      case "warmup":    return [...getLibNames(lib, "WARMUP", "CARDIO"), ...getLibNames(lib, "WARMUP", "MOBILITÀ")];
+      case "warmup":    return [...getLibNames(lib, "WARMUP", "CARDIO"), ...getLibNames(lib, "WARMUP", "MOBILITÀ"), ...getLibNames(lib, "WARMUP", "ATTIVAZIONE")];
       case "strength":  return getLibNames(lib, "FORZA", null);
       case "accessories": return getLibNames(lib, "ACCESSORI", null);
       case "core":      return getLibNames(lib, "CORE TRAINING", null);
@@ -758,6 +769,17 @@ function getLibNames(lib: LibraryMap, category: string, subcategory?: string | n
   return (lib[libKey(category, subcategory, subSub)] ?? []).map(e => e.name);
 }
 
+function getAllLibNames(lib: LibraryMap): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const entries of Object.values(lib)) {
+    for (const e of entries) {
+      if (!seen.has(e.name)) { seen.add(e.name); result.push(e.name); }
+    }
+  }
+  return result.sort((a, b) => a.localeCompare(b));
+}
+
 // Aggregates ALL exercises from every WORKOUT sub-key (handles any subcategory structure in DB)
 function getWorkoutNames(lib: LibraryMap): string[] {
   const seen = new Set<string>();
@@ -806,6 +828,7 @@ interface BulkState {
   warmup: {
     cardio: CardioRow[];
     mobilita: MobilitaRow[];
+    attivazione: MobilitaRow[];
   };
   forza: {
     rows: ForzaRow[];
@@ -861,6 +884,7 @@ function buildInitialState(lib: LibraryMap, dayLabel = ""): BulkState {
     warmup: {
       cardio: pickPadded("WARMUP", "CARDIO", 2).map(mkCardioRow),
       mobilita: pickPadded("WARMUP", "MOBILITÀ", 4, dayFilter).map(mkMobilitaRow),
+      attivazione: getRandom(getLibNames(lib, "WARMUP", "ATTIVAZIONE", dayFilter), 2).map(mkMobilitaRow),
     },
     forza: {
       rows: pickPadded("FORZA", forza.libSub, 3).map(mkForzaRow),
@@ -907,6 +931,7 @@ interface AutocompleteInputProps {
   value: string;
   onChange: (v: string) => void;
   suggestions: string[];
+  globalSuggestions?: string[]; // full library — used when coach is typing
   placeholder?: string;
   className?: string;
   strict?: boolean; // only allow library selections; free text is blocked
@@ -940,7 +965,7 @@ function BulkNoteField({ value, onChange }: { value: string; onChange: (v: strin
   );
 }
 
-function AutocompleteInput({ value, onChange, suggestions, placeholder, className, strict }: AutocompleteInputProps) {
+function AutocompleteInput({ value, onChange, suggestions, globalSuggestions, placeholder, className, strict }: AutocompleteInputProps) {
   const [inputText, setInputText] = useState(value);
   const [open, setOpen] = useState(false);
   const [error, setError] = useState(false);
@@ -948,8 +973,10 @@ function AutocompleteInput({ value, onChange, suggestions, placeholder, classNam
   // Sync display when parent resets value externally
   useEffect(() => { setInputText(value); setError(false); }, [value]);
 
-  const filtered = suggestions.filter(s => !inputText.trim() || s.toLowerCase().includes(inputText.toLowerCase()));
-  const noMatches = strict && inputText.trim().length > 0 && filtered.length === 0;
+  const isTyping = inputText.trim().length > 0;
+  const pool = (isTyping && globalSuggestions) ? globalSuggestions : suggestions;
+  const filtered = pool.filter(s => !isTyping || s.toLowerCase().includes(inputText.toLowerCase()));
+  const noMatches = strict && isTyping && filtered.length === 0;
 
   const handleSelect = (name: string) => {
     setInputText(name);
@@ -968,7 +995,8 @@ function AutocompleteInput({ value, onChange, suggestions, placeholder, classNam
     setTimeout(() => {
       setOpen(false);
       if (strict && inputText.trim()) {
-        const isValid = suggestions.some(s => s.toLowerCase() === inputText.toLowerCase());
+        const checkList = (isTyping && globalSuggestions) ? globalSuggestions : suggestions;
+        const isValid = checkList.some(s => s.toLowerCase() === inputText.toLowerCase());
         if (!isValid) {
           setError(true);
           setTimeout(() => { setInputText(value); setError(false); }, 2500);
@@ -992,7 +1020,7 @@ function AutocompleteInput({ value, onChange, suggestions, placeholder, classNam
       )}
       {open && (filtered.length > 0 || noMatches) && (
         <div className="absolute z-50 left-0 right-0 top-full mt-1 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 shadow-lg max-h-44 overflow-y-auto">
-          {filtered.length > 0 ? filtered.slice(0, 20).map(name => (
+          {filtered.length > 0 ? filtered.slice(0, 100).map(name => (
             <button
               key={name}
               type="button"
@@ -1061,6 +1089,7 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, onSave, onCancel }: 
     let n = 0;
     s.warmup.cardio.forEach(r => { if (r.name.trim()) n++; });
     s.warmup.mobilita.forEach(r => { if (r.name.trim()) n++; });
+    s.warmup.attivazione.forEach(r => { if (r.name.trim()) n++; });
     s.forza.rows.forEach(r => { if (r.name.trim()) n++; });
     s.accessori.bodyweight.forEach(r => { if (r.name.trim()) n++; });
     s.accessori.manubri.forEach(r => { if (r.name.trim()) n++; });
@@ -1118,12 +1147,12 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, onSave, onCancel }: 
     }));
 
   // Add/remove row helpers
-  const addW = (sub: "cardio" | "mobilita") =>
+  const addW = (sub: "cardio" | "mobilita" | "attivazione") =>
     setState(prev => ({
       ...prev,
       warmup: { ...prev.warmup, [sub]: [...prev.warmup[sub], sub === "cardio" ? mkCardioRow() : mkMobilitaRow()] },
     }));
-  const removeW = (sub: "cardio" | "mobilita", idx: number) =>
+  const removeW = (sub: "cardio" | "mobilita" | "attivazione", idx: number) =>
     setState(prev => ({
       ...prev,
       warmup: { ...prev.warmup, [sub]: (prev.warmup[sub] as (CardioRow | MobilitaRow)[]).filter((_, i) => i !== idx) },
@@ -1242,6 +1271,7 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, onSave, onCancel }: 
               value={row.name}
               onChange={v => updW("cardio", i, { name: v })}
               suggestions={getLibNames(lib, "WARMUP", "CARDIO")}
+              globalSuggestions={getAllLibNames(lib)}
               strict
               placeholder="Esercizio cardio"
             />
@@ -1269,6 +1299,7 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, onSave, onCancel }: 
               value={row.name}
               onChange={v => updW("mobilita", i, { name: v })}
               suggestions={getLibNames(lib, "WARMUP", "MOBILITÀ", mobFilter)}
+              globalSuggestions={getAllLibNames(lib)}
               strict
               placeholder="Esercizio mobilità"
             />
@@ -1283,6 +1314,32 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, onSave, onCancel }: 
         </div>
       ))}
       {addBtn(() => addW("mobilita"), "aggiungi mobilità")}
+
+      <SubgroupLabel label={`Attivazione${mobSubLabel}`} color={color} />
+      {state.warmup.attivazione.map((row, i) => (
+        <div key={i} className="p-2.5 bg-gray-50 dark:bg-gray-700/40 rounded-xl space-y-1">
+          <div className="flex gap-2 items-center">
+            <AutocompleteInput
+              value={row.name}
+              onChange={v => updW("attivazione", i, { name: v })}
+              suggestions={mobFilter === "FULL"
+                ? [...getLibNames(lib, "WARMUP", "ATTIVAZIONE", "UPPER"), ...getLibNames(lib, "WARMUP", "ATTIVAZIONE", "LOWER")]
+                : getLibNames(lib, "WARMUP", "ATTIVAZIONE", mobFilter)}
+              globalSuggestions={getAllLibNames(lib)}
+              strict
+              placeholder="Esercizio attivazione"
+            />
+            <div className="flex gap-1 flex-shrink-0">
+              <input className="input text-xs w-12 text-center" value={row.sets} onChange={e => updW("attivazione", i, { sets: e.target.value })} placeholder="2" />
+              <span className="text-xs text-gray-400 self-center">x</span>
+              <input className="input text-xs w-12 text-center" value={row.reps} onChange={e => updW("attivazione", i, { reps: e.target.value })} placeholder="10" />
+            </div>
+            {removeBtn(() => removeW("attivazione", i))}
+          </div>
+          <BulkNoteField value={row.notes} onChange={v => updW("attivazione", i, { notes: v })} />
+        </div>
+      ))}
+      {addBtn(() => addW("attivazione"), "aggiungi attivazione")}
     </div>
   );
 
@@ -1296,6 +1353,7 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, onSave, onCancel }: 
               value={row.name}
               onChange={v => updF(i, { name: v })}
               suggestions={getLibNames(lib, "FORZA", state.forza.libSub)}
+              globalSuggestions={getAllLibNames(lib)}
               strict
               placeholder={`Esercizio ${state.forza.label.toLowerCase()}`}
             />
@@ -1336,6 +1394,7 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, onSave, onCancel }: 
               value={row.name}
               onChange={v => updA(sub, i, { name: v })}
               suggestions={getLibNames(lib, "ACCESSORI", libSub)}
+              globalSuggestions={getAllLibNames(lib)}
               strict
               placeholder={`Esercizio ${label.toLowerCase()}`}
             />
@@ -1389,6 +1448,7 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, onSave, onCancel }: 
               value={row.name}
               onChange={v => updC(i, { name: v })}
               suggestions={getLibNames(lib, "CORE TRAINING", null)}
+              globalSuggestions={getAllLibNames(lib)}
               strict
               placeholder="Esercizio core"
             />
@@ -1495,6 +1555,7 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, onSave, onCancel }: 
                             value={row.name}
                             onChange={v => updWk(blockIdx, rowIdx, { name: v })}
                             suggestions={getWorkoutNames(lib)}
+                            globalSuggestions={getAllLibNames(lib)}
                             strict
                             placeholder="Esercizio cardio"
                           />
@@ -1514,6 +1575,7 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, onSave, onCancel }: 
                             value={row.name}
                             onChange={v => updWk(blockIdx, rowIdx, { name: v })}
                             suggestions={getWorkoutNames(lib)}
+                            globalSuggestions={getAllLibNames(lib)}
                             strict
                             placeholder="Esercizio"
                           />
@@ -1530,6 +1592,7 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, onSave, onCancel }: 
                             value={row.name}
                             onChange={v => updWk(blockIdx, rowIdx, { name: v })}
                             suggestions={getWorkoutNames(lib)}
+                            globalSuggestions={getAllLibNames(lib)}
                             strict
                             placeholder="Esercizio"
                           />
@@ -1852,6 +1915,20 @@ export default function DayPage() {
         });
       });
       warmupCount += bulkState.warmup.mobilita.filter(r => r.name.trim()).length;
+
+      bulkState.warmup.attivazione.filter(r => r.name.trim()).forEach((r, i) => {
+        warmupRows.push({
+          section_id: warmupSection.id,
+          name: r.name.trim(),
+          sets: r.sets?.trim() || null,
+          reps: r.reps?.trim() || null,
+          load: null,
+          rest_time: null,
+          notes: tagNotes("att", r.notes ?? ""),
+          order_index: warmupCount + i,
+        });
+      });
+      warmupCount += bulkState.warmup.attivazione.filter(r => r.name.trim()).length;
 
       toInsert.push(...warmupRows);
     }

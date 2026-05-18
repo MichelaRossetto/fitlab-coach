@@ -83,7 +83,7 @@ function AddExerciseForm({ onSuccess, onCancel }: { onSuccess: () => void; onCan
         <div>
           <label className="label">Zona</label>
           <div className="flex gap-2">
-            {WARMUP_SUB_SUBCATEGORIES.map(z => (
+            {(["UPPER", "LOWER"] as const).map(z => (
               <button key={z} type="button"
                 onClick={() => setSubSubcategory(z)}
                 className={`flex-1 py-2 rounded-xl text-sm font-medium border transition-colors ${subSubcategory === z ? "border-transparent text-black" : "border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400"}`}
@@ -175,13 +175,11 @@ export default function EserciziPage() {
     if (cat === "WARMUP") {
       acc[cat] = WARMUP_SUBCATEGORIES.reduce((subAcc, sub) => {
         const subExercises = catExercises.filter(e => e.subcategory === sub);
-        if (subExercises.length === 0) return subAcc;
         if (sub === "CARDIO") {
-          subAcc[sub] = { "_": subExercises };
+          if (subExercises.length > 0) subAcc[sub] = { "_": subExercises };
         } else {
-          subAcc[sub] = WARMUP_SUB_SUBCATEGORIES.reduce((zoneAcc, zone) => {
-            const zoneExercises = subExercises.filter(e => e.sub_subcategory === zone);
-            if (zoneExercises.length > 0) zoneAcc[zone] = zoneExercises;
+          subAcc[sub] = (["UPPER", "LOWER"] as const).reduce((zoneAcc, zone) => {
+            zoneAcc[zone] = subExercises.filter(e => e.sub_subcategory === zone);
             return zoneAcc;
           }, {} as Record<string, ExerciseLibrary[]>);
         }
