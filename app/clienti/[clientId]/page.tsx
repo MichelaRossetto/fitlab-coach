@@ -4,9 +4,9 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import {
-  Client, TrainingMonth, TrainingWeek, getInitials, MONTH_NAMES,
+  Client, TrainingMonth, TrainingWeek, ClientMax, getInitials, MONTH_NAMES,
   DAY_NAMES_SHORT, TIME_SLOTS_MORNING, TIME_SLOTS_AFTERNOON,
-  getDefaultDayLabel,
+  getDefaultDayLabel, PERFORMANCE_EXERCISES,
 } from "@/lib/types";
 import { Header } from "@/components/Header";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -429,6 +429,159 @@ function ScheduleSection({ clientId, isClientView }: { clientId: string; isClien
   );
 }
 
+// ─── Performance Section ─────────────────────────────────────
+function PerformanceSection({ clientId, isClientView }: { clientId: string; isClientView: boolean }) {
+  const [maxes, setMaxes] = useState<Record<string, string>>({});
+  const [editMaxes, setEditMaxes] = useState<Record<string, string>>({});
+  const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    const load = async () => {
+      const { data } = await supabase
+        .from("client_maxes")
+        .select("*")
+        .eq("client_id", clientId);
+      const map: Record<string, string> = {};
+      (data ?? []).forEach((r: ClientMax) => {
+        if (r.weight_kg != null) map[r.exercise_name] = String(r.weight_kg);
+      });
+      setMaxes(map);
+      setLoading(false);
+    };
+    load();
+  }, [clientId]);
+
+  const handleSave = async () => {
+    setSaving(true);
+    const rows = Object.entries(editMaxes)
+      .filter(([, v]) => v !== "" && !isNaN(Number(v)))
+      .map(([exercise_name, weight_kg]) => ({
+        client_id: clientId,
+        exercise_name,
+        weight_kg: Number(weight_kg),
+        recorded_at: new Date().toISOString().split("T")[0],
+      }));
+    const cleared = Object.entries(editMaxes).filter(([, v]) => v === "").map(([k]) => k);
+    if (cleared.length > 0) {
+      const { error: delErr } = await supabase.from("client_maxes").delete()
+        .eq("client_id", clientId).in("exercise_name", cleared);
+      if (delErr) console.error("Maxes delete error:", delErr);
+    }
+    if (rows.length > 0) {
+      const { error: upsErr } = await supabase.from("client_maxes")
+        .upsert(rows, { onConflict: "client_id,exercise_name" });
+      if (upsErr) console.error("Maxes upsert error:", upsErr);
+    }
+    const newMaxes = { ...editMaxes };
+    cleared.forEach(k => delete newMaxes[k]);
+    setMaxes(newMaxes);
+    setEditing(false);
+    setSaving(false);
+  };
+
+  const setCount = Object.keys(maxes).length;
+  const allExercises = Object.values(PERFORMANCE_EXERCISES).flat();
+
+  if (loading) return null;
+
+  return (
+    <div className="card overflow-hidden">
+      {/* Header */}
+      <button
+        onClick={() => { setOpen(o => !o); if (editing) setEditing(false); }}
+        className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+      >
+        <span className="font-semibold text-sm text-gray-700 dark:text-gray-200">Performance · Massimali</span>
+        <div className="flex items-center gap-2">
+          {setCount > 0 && (
+            <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400">
+              {setCount}/{allExercises.length}
+            </span>
+          )}
+          <svg className={`text-gray-400 transition-transform ${open ? "rotate-180" : ""}`}
+            width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M6 9l6 6 6-6"/>
+          </svg>
+        </div>
+      </button>
+
+      {open && (
+        <div className="border-t border-gray-100 dark:border-gray-700 px-4 py-4 space-y-5">
+          {!editing ? (
+            <>
+              {/* Vista lettura */}
+              {Object.entries(PERFORMANCE_EXERCISES).map(([group, exercises]) => (
+                <div key={group}>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-2">{group}</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {exercises.map(ex => (
+                      <div key={ex} className={`flex items-center justify-between px-3 py-2 rounded-xl border ${
+                        maxes[ex]
+                          ? "border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800"
+                          : "border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50"
+                      }`}>
+                        <span className={`text-xs font-medium truncate pr-2 ${maxes[ex] ? "text-gray-700 dark:text-gray-200" : "text-gray-400"}`}>{ex}</span>
+                        {maxes[ex]
+                          ? <span className="text-xs font-bold text-gray-900 dark:text-gray-100 flex-shrink-0">{maxes[ex]} kg</span>
+                          : <span className="text-xs text-gray-300 flex-shrink-0">—</span>
+                        }
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+              {!isClientView && (
+                <button onClick={() => { setEditMaxes({ ...maxes }); setEditing(true); }}
+                  className="btn-secondary w-full text-sm">
+                  Modifica massimali
+                </button>
+              )}
+            </>
+          ) : (
+            <>
+              {/* Vista modifica */}
+              {Object.entries(PERFORMANCE_EXERCISES).map(([group, exercises]) => (
+                <div key={group}>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-2">{group}</p>
+                  <div className="space-y-2">
+                    {exercises.map(ex => (
+                      <div key={ex} className="flex items-center gap-3">
+                        <span className="text-sm text-gray-600 dark:text-gray-300 flex-1 min-w-0 truncate">{ex}</span>
+                        <div className="flex items-center gap-1.5 flex-shrink-0">
+                          <input
+                            type="number"
+                            step="0.5"
+                            min="0"
+                            max="500"
+                            placeholder="—"
+                            value={editMaxes[ex] ?? ""}
+                            onChange={e => setEditMaxes(p => ({ ...p, [ex]: e.target.value }))}
+                            className="input w-20 text-center py-1.5 text-sm"
+                          />
+                          <span className="text-xs text-gray-400 w-5">kg</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+              <div className="flex gap-2 pt-1">
+                <button onClick={() => setEditing(false)} className="btn-secondary flex-1 text-sm">Annulla</button>
+                <button onClick={handleSave} className="btn-primary flex-1 text-sm" disabled={saving}>
+                  {saving ? "Salvo..." : "Salva"}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Main Page ────────────────────────────────────────────────
 export default function ClientPage() {
   const params = useParams();
@@ -554,6 +707,9 @@ export default function ClientPage() {
 
         {/* Orari abituali */}
         <ScheduleSection clientId={clientId} isClientView={isClientView} />
+
+        {/* Performance / Massimali */}
+        <PerformanceSection clientId={clientId} isClientView={isClientView} />
 
         {/* Months */}
         <div>

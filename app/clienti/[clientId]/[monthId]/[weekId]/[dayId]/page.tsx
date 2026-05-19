@@ -7,6 +7,8 @@ import {
   TrainingDay, WorkoutSection, Exercise, ExerciseLibrary,
   SectionType, SECTION_LABELS, SECTION_ORDER,
   WorkoutSubtype, WORKOUT_SUBTYPE_LABELS, LOAD_OPTIONS,
+  ALL_PERFORMANCE_EXERCISES,
+  EXERCISE_PARENT_MAP,
 } from "@/lib/types";
 import { Header } from "@/components/Header";
 import { Modal } from "@/components/Modal";
@@ -96,12 +98,13 @@ interface ExerciseRowProps {
   editing: boolean;
   noteTag?: string | null;
   exerciseNumber?: number;
+  maxes?: Record<string, number>;
   onUpdate: (id: string, field: keyof Exercise, value: string) => void;
   onDelete: (id: string) => void;
   onSave: (id: string) => void;
 }
 
-function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, editing, noteTag, exerciseNumber, onUpdate, onDelete, onSave }: ExerciseRowProps) {
+function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, editing, noteTag, exerciseNumber, maxes, onUpdate, onDelete, onSave }: ExerciseRowProps) {
   // Detect cardio warmup: has reps (minutes) but no sets and no load
   const isCardioWarmup = sectionType === "warmup" && !exercise.sets && !exercise.load;
   // Detect mobilità warmup: has sets + reps but no load
@@ -207,7 +210,7 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, ed
           </div>
           <div>
             <label className="label">Carico</label>
-            <input className="input text-sm" placeholder="20kg" value={exercise.load ?? ""} onChange={e => onUpdate(exercise.id, "load", e.target.value)} />
+            <LoadInput exerciseName={exercise.name} value={exercise.load ?? ""} onChange={v => onUpdate(exercise.id, "load", v)} />
           </div>
         </div>
         <div className="grid grid-cols-2 gap-2">
@@ -368,6 +371,7 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, ed
             {exercise.load && <><span className="text-gray-400 dark:text-gray-500">·</span><span className="text-gray-500 dark:text-gray-400">{formatLoad(exercise.load)}</span></>}
             {exercise.rest_time && <><span className="text-gray-400 dark:text-gray-500">·</span><span className="text-gray-500 dark:text-gray-400">⏱ {exercise.rest_time} rest</span></>}
           </div>
+          {maxes && <OneRMHint exerciseName={exercise.name} load={exercise.load ?? ""} maxes={maxes} />}
         </div>
       </div>
       <div className="pl-4"><NoteToggle /></div>
@@ -595,6 +599,7 @@ interface SectionBlockProps {
   section: WorkoutSection;
   lib: LibraryMap;
   editingExId: string | null;
+  maxes: Record<string, number>;
   onToggleEdit: (id: string) => void;
   onUpdateEx: (id: string, field: keyof Exercise, val: string) => void;
   onDeleteEx: (sectionId: string, exId: string) => void;
@@ -603,7 +608,7 @@ interface SectionBlockProps {
   onClearSection: (sectionId: string) => void;
 }
 
-function SectionBlock({ section, lib, editingExId, onToggleEdit, onUpdateEx, onDeleteEx, onSaveEx, onAddEx, onClearSection }: SectionBlockProps) {
+function SectionBlock({ section, lib, editingExId, maxes, onToggleEdit, onUpdateEx, onDeleteEx, onSaveEx, onAddEx, onClearSection }: SectionBlockProps) {
   const [confirmClear, setConfirmClear] = useState(false);
   const libSuggestions: string[] = (() => {
     switch (section.section_type) {
@@ -715,6 +720,7 @@ function SectionBlock({ section, lib, editingExId, onToggleEdit, onUpdateEx, onD
                       editing={editingExId === ex.id}
                       noteTag={ex._group}
                       exerciseNumber={ex._exNum}
+                      maxes={maxes}
                       onUpdate={onUpdateEx}
                       onDelete={(id) => onDeleteEx(section.id, id)}
                       onSave={(id) => {
@@ -794,8 +800,15 @@ function getWorkoutNames(lib: LibraryMap): string[] {
   return result.sort((a, b) => a.localeCompare(b));
 }
 
-// Formatta il carico: aggiunge KG se numero puro, @ se percentuale
+// Formatta il carico: aggiunge KG se numero puro, @ se percentuale; gestisce progressivi con |
 function formatLoad(load: string): string {
+  if (!load || load === "-") return load;
+  if (load.includes("|")) {
+    return load.split("|").map(l => formatLoadSingle(l)).join(" → ");
+  }
+  return formatLoadSingle(load);
+}
+function formatLoadSingle(load: string): string {
   if (!load || load === "-") return load;
   if (load.includes("%")) return `@${load}`;
   if (/kg/i.test(load)) return load;
@@ -813,7 +826,7 @@ function getRandom<T>(arr: T[], n: number): T[] {
 // Row types per sub-section
 interface CardioRow    { name: string; minutes: string; notes: string }
 interface MobilitaRow  { name: string; sets: string; reps: string; notes: string }
-interface ForzaRow     { name: string; sets: string; reps: string; load: string; rest: string; notes: string }
+interface ForzaRow     { name: string; sets: string; reps: string; load: string; rest: string; notes: string; progressive: boolean; loads: string[] }
 interface AccessoriRow { name: string; sets: string; reps: string; load: string; rest: string; notes: string }
 interface CoreRow      { name: string; sets: string; reps: string; load: string; rest: string; notes: string }
 interface WorkoutRow   { name: string; reps: string; load: string; rounds: string; minutes: string; notes: string }
@@ -850,7 +863,7 @@ interface BulkState {
 
 const mkCardioRow    = (name = ""): CardioRow    => ({ name, minutes: "5", notes: "" });
 const mkMobilitaRow  = (name = ""): MobilitaRow  => ({ name, sets: "2", reps: "10", notes: "" });
-const mkForzaRow     = (name = ""): ForzaRow     => ({ name, sets: "3", reps: "5", load: "", rest: "120", notes: "" });
+const mkForzaRow     = (name = ""): ForzaRow     => ({ name, sets: "3", reps: "5", load: "", rest: "120", notes: "", progressive: false, loads: [] });
 const mkAccessoriRow = (name = ""): AccessoriRow => ({ name, sets: "3", reps: "12", load: "10", rest: "60", notes: "" });
 const mkCoreRow      = (name = ""): CoreRow      => ({ name, sets: "3", reps: "15", load: "-", rest: "30", notes: "" });
 const mkWorkoutRow   = (name = ""): WorkoutRow   => ({ name, reps: "10", load: "", rounds: "3", minutes: "10", notes: "" });
@@ -996,6 +1009,7 @@ function AutocompleteInput({ value, onChange, suggestions, globalSuggestions, pl
   const handleChange = (text: string) => {
     setInputText(text);
     setError(false);
+    setOpen(true);
     if (!strict) onChange(text);
   };
 
@@ -1064,6 +1078,94 @@ function LoadSelect({ value, onChange }: { value: string; onChange: (v: string) 
   );
 }
 
+type LoadMode = "pct" | "rpe" | "kg";
+const PCT_OPTIONS = ["55%", "60%", "65%", "70%", "75%", "80%", "85%", "90%", "95%", "100%", "105%"];
+const RPE_OPTIONS = ["1","2","3","4","5","6","7","8","9","10"].map(n => `RPE ${n}`);
+
+function detectLoadMode(load: string): LoadMode | null {
+  if (!load || load === "-") return null; // no explicit value set
+  if (load.includes("%")) return "pct";
+  if (/^rpe\s/i.test(load)) return "rpe";
+  return "kg";
+}
+
+function LoadInput({
+  exerciseName = "",
+  value,
+  onChange,
+}: {
+  exerciseName?: string;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const canPct = resolveMaxKey(exerciseName) !== null;
+
+  // Sync load mode when exercise name changes
+  useEffect(() => {
+    if (canPct && (!value || value === "-")) {
+      onChange("80%"); // performance exercise with no load → default to 80%
+    } else if (!canPct && value.includes("%")) {
+      onChange("-"); // switched away from performance exercise → reset to KG
+    }
+  }, [exerciseName]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // If value already set, derive mode from it; otherwise default based on exercise type
+  const mode: LoadMode = detectLoadMode(value) ?? (canPct ? "pct" : "kg");
+  // Display value: if empty, show a sensible placeholder in the select
+  const displayValue = value && value !== "-"
+    ? value
+    : mode === "pct" ? "80%" : mode === "rpe" ? "RPE 7" : "-";
+
+  const switchMode = (m: LoadMode) => {
+    if (m === "pct") onChange("80%");
+    else if (m === "rpe") onChange("RPE 7");
+    else onChange("-");
+  };
+
+  return (
+    <div className="space-y-0.5">
+      <div className="flex gap-0.5 justify-center">
+        {(["pct", "kg", "rpe"] as LoadMode[]).map(m => {
+          const label = m === "pct" ? "%" : m === "kg" ? "KG" : "RPE";
+          const active = mode === m;
+          const disabled = m === "pct" && !canPct;
+          return (
+            <button
+              key={m}
+              type="button"
+              disabled={disabled}
+              onClick={() => switchMode(m)}
+              className={`text-[9px] font-bold px-1.5 py-0.5 rounded transition-colors leading-none ${
+                active
+                  ? "bg-lime-400/20 text-lime-700 dark:text-lime-400"
+                  : disabled
+                  ? "text-gray-200 dark:text-gray-700 cursor-not-allowed"
+                  : "text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 cursor-pointer"
+              }`}
+            >
+              {label}
+            </button>
+          );
+        })}
+      </div>
+      {mode === "pct" ? (
+        <select className="input text-xs text-center" value={displayValue} onChange={e => onChange(e.target.value)}>
+          {PCT_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
+        </select>
+      ) : mode === "rpe" ? (
+        <select className="input text-xs text-center" value={displayValue} onChange={e => onChange(e.target.value)}>
+          {RPE_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
+        </select>
+      ) : (
+        <select className="input text-xs text-center" value={displayValue} onChange={e => onChange(e.target.value)}>
+          <option value="-">-</option>
+          {LOAD_OPTIONS.map(o => <option key={o} value={o}>{o} kg</option>)}
+        </select>
+      )}
+    </div>
+  );
+}
+
 function SubgroupLabel({ label, color }: { label: string; color: string }) {
   return (
     <div className="flex items-center gap-2 mt-3 mb-1">
@@ -1074,11 +1176,81 @@ function SubgroupLabel({ label, color }: { label: string; color: string }) {
   );
 }
 
-function BulkAddModal({ sections, dayLabel, lib, libLoaded, onSave, onCancel }: {
+function calcKgFromPct(pctStr: string, maxKg: number): string {
+  const pct = parseFloat(pctStr.replace("%", "").trim());
+  if (isNaN(pct) || pct <= 0) return "—";
+  const kg = (pct / 100) * maxKg;
+  return (Math.round(kg * 2) / 2).toFixed(1);
+}
+
+// Returns the performance exercise name whose max applies to the given exercise.
+// For direct exercises (e.g. "Back Squat") returns itself; for child exercises (e.g. "Box Squat")
+// returns the parent name (e.g. "Back Squat"); returns null if no max applies.
+function resolveMaxKey(exerciseName: string): string | null {
+  const name = exerciseName.trim().toLowerCase();
+  const direct = ALL_PERFORMANCE_EXERCISES.find(e => e.toLowerCase() === name);
+  if (direct) return direct;
+  const childKey = Object.keys(EXERCISE_PARENT_MAP).find(k => k.toLowerCase() === name);
+  if (childKey) return EXERCISE_PARENT_MAP[childKey];
+  return null;
+}
+
+function OneRMHint({ exerciseName, load, maxes }: {
+  exerciseName: string;
+  load: string;
+  maxes: Record<string, number>;
+}) {
+  if (!load.includes("%")) return null;
+  const key = resolveMaxKey(exerciseName);
+  if (!key) return null;
+  const max = maxes[key];
+
+  // Progressive loads: "70%|75%|80%"
+  if (load.includes("|")) {
+    const parts = load.split("|").filter(l => l.includes("%"));
+    if (!max) {
+      return (
+        <div className="flex items-center gap-1 px-0.5 mt-0.5">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4m0 4h.01"/></svg>
+          <span className="text-[11px] text-gray-400 italic">Massimale non inserito per {key}</span>
+        </div>
+      );
+    }
+    const kgs = parts.map(l => calcKgFromPct(l, max));
+    return (
+      <div className="flex items-center gap-1.5 px-0.5 mt-0.5">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#C0D738" strokeWidth="2.5"><path d="M6 4v16M18 4v16M3 8h4m10 0h4M3 16h4m10 0h4M7 12h10"/></svg>
+        <span className="text-[11px] text-gray-400">{key} max <strong className="text-gray-500 dark:text-gray-300">{max} kg</strong> →</span>
+        <span className="text-[11px] font-bold" style={{ color: "#C0D738" }}>≈ {kgs.join(" → ")} kg</span>
+      </div>
+    );
+  }
+
+  // Single load
+  if (max) {
+    const kg = calcKgFromPct(load, max);
+    return (
+      <div className="flex items-center gap-1.5 px-0.5 mt-0.5">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#C0D738" strokeWidth="2.5"><path d="M6 4v16M18 4v16M3 8h4m10 0h4M3 16h4m10 0h4M7 12h10"/></svg>
+        <span className="text-[11px] text-gray-400">{key} max <strong className="text-gray-500 dark:text-gray-300">{max} kg</strong> →</span>
+        <span className="text-[11px] font-bold" style={{ color: "#C0D738" }}>≈ {kg} kg</span>
+      </div>
+    );
+  }
+  return (
+    <div className="flex items-center gap-1 px-0.5 mt-0.5">
+      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4m0 4h.01"/></svg>
+      <span className="text-[11px] text-gray-400 italic">Massimale non inserito per {key}</span>
+    </div>
+  );
+}
+
+function BulkAddModal({ sections, dayLabel, lib, libLoaded, maxes, onSave, onCancel }: {
   sections: WorkoutSection[];
   dayLabel: string;
   lib: LibraryMap;
   libLoaded: boolean;
+  maxes: Record<string, number>;
   onSave: (state: BulkState) => Promise<void>;
   onCancel: () => void;
 }) {
@@ -1125,7 +1297,21 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, onSave, onCancel }: 
       ...prev,
       forza: {
         ...prev.forza,
-        rows: prev.forza.rows.map((r, i) => i === idx ? { ...r, ...patch } : r),
+        rows: prev.forza.rows.map((r, i) => {
+          if (i !== idx) return r;
+          const next = { ...r, ...patch };
+          // Resize loads array when sets changes in progressive mode
+          if (next.progressive && "sets" in patch) {
+            const n = Math.max(1, parseInt(next.sets) || 1);
+            const base = next.loads[next.loads.length - 1] || next.load || "80%";
+            if (n > next.loads.length) {
+              next.loads = [...next.loads, ...Array(n - next.loads.length).fill(base)];
+            } else {
+              next.loads = next.loads.slice(0, n);
+            }
+          }
+          return next;
+        }),
       },
     }));
 
@@ -1164,6 +1350,32 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, onSave, onCancel }: 
     setState(prev => ({
       ...prev,
       warmup: { ...prev.warmup, [sub]: (prev.warmup[sub] as (CardioRow | MobilitaRow)[]).filter((_, i) => i !== idx) },
+    }));
+
+  const toggleProgressive = (idx: number, on: boolean) =>
+    setState(prev => ({
+      ...prev,
+      forza: {
+        ...prev.forza,
+        rows: prev.forza.rows.map((r, i) => {
+          if (i !== idx) return r;
+          if (!on) return { ...r, progressive: false, loads: [] };
+          const n = Math.max(1, parseInt(r.sets) || 3);
+          const base = r.load && r.load !== "-" ? r.load : "80%";
+          return { ...r, progressive: true, loads: Array.from({ length: n }, () => base) };
+        }),
+      },
+    }));
+
+  const updFLoad = (rowIdx: number, setIdx: number, val: string) =>
+    setState(prev => ({
+      ...prev,
+      forza: {
+        ...prev.forza,
+        rows: prev.forza.rows.map((r, i) =>
+          i === rowIdx ? { ...r, loads: r.loads.map((l, j) => j === setIdx ? val : l) } : r
+        ),
+      },
     }));
 
   const addF = () =>
@@ -1367,7 +1579,7 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, onSave, onCancel }: 
             />
             {removeBtn(() => removeF(i))}
           </div>
-          <div className="grid grid-cols-4 gap-1.5">
+          <div className={`grid gap-1.5 ${row.progressive ? "grid-cols-3" : "grid-cols-4"}`}>
             <div>
               <label className="label">Serie</label>
               <input className="input text-xs text-center" value={row.sets} onChange={e => updF(i, { sets: e.target.value })} placeholder="3" />
@@ -1376,15 +1588,48 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, onSave, onCancel }: 
               <label className="label">Reps</label>
               <input className="input text-xs text-center" value={row.reps} onChange={e => updF(i, { reps: e.target.value })} placeholder="5" />
             </div>
-            <div>
-              <label className="label">Carico</label>
-              <input className="input text-xs text-center" value={row.load} onChange={e => updF(i, { load: e.target.value })} placeholder="80%" />
-            </div>
+            {!row.progressive && (
+              <div>
+                <label className="label">Carico</label>
+                <LoadInput exerciseName={row.name} value={row.load} onChange={v => updF(i, { load: v })} />
+              </div>
+            )}
             <div>
               <label className="label">Rec. sec</label>
               <input className="input text-xs text-center" value={row.rest} onChange={e => updF(i, { rest: e.target.value })} placeholder="120" />
             </div>
           </div>
+          {/* Progressive toggle */}
+          <label className="flex items-center gap-1 cursor-pointer w-fit">
+            <input
+              type="checkbox"
+              checked={row.progressive}
+              onChange={e => toggleProgressive(i, e.target.checked)}
+              className="w-3 h-3 accent-lime-500"
+            />
+            <span className="text-[10px] text-gray-400 select-none">Progressivo</span>
+          </label>
+          {/* Per-set loads when progressive */}
+          {row.progressive && row.loads.length > 0 && (
+            <div>
+              <p className="text-[9px] text-gray-400 uppercase tracking-wider mb-1">Carico per set</p>
+              <div className="grid gap-1.5" style={{ gridTemplateColumns: `repeat(${Math.min(row.loads.length, 4)}, 1fr)` }}>
+                {row.loads.map((load, si) => {
+                  const key = resolveMaxKey(row.name);
+                  const max = key ? maxes[key] : undefined;
+                  const hint = max && load.includes("%") ? calcKgFromPct(load, max) : null;
+                  return (
+                    <div key={si}>
+                      <label className="label">S{si + 1}</label>
+                      <LoadInput exerciseName={row.name} value={load} onChange={v => updFLoad(i, si, v)} />
+                      {hint && <p className="text-[9px] text-lime-600 dark:text-lime-400 text-center mt-0.5">≈ {hint} kg</p>}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+          {!row.progressive && <OneRMHint exerciseName={row.name} load={row.load} maxes={maxes} />}
           <BulkNoteField value={row.notes} onChange={v => updF(i, { notes: v })} />
         </div>
       ))}
@@ -1420,10 +1665,7 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, onSave, onCancel }: 
             {loadType !== "none" && (
               <div>
                 <label className="label">Carico</label>
-                {loadType === "select"
-                  ? <LoadSelect value={row.load} onChange={v => updA(sub, i, { load: v })} />
-                  : <input className="input text-xs text-center" value={row.load} onChange={e => updA(sub, i, { load: e.target.value })} placeholder="Carico" />
-                }
+                <LoadInput exerciseName={row.name} value={row.load} onChange={v => updA(sub, i, { load: v })} />
               </div>
             )}
             <div>
@@ -1473,7 +1715,7 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, onSave, onCancel }: 
             </div>
             <div>
               <label className="label">Carico</label>
-              <input className="input text-xs text-center" value={row.load} onChange={e => updC(i, { load: e.target.value })} placeholder="-" />
+              <LoadInput exerciseName={row.name} value={row.load} onChange={v => updC(i, { load: v })} />
             </div>
             <div>
               <label className="label">Rec. sec</label>
@@ -1683,9 +1925,21 @@ export default function DayPage() {
   const [confirmClearAll, setConfirmClearAll] = useState(false);
   const [lib, setLib] = useState<LibraryMap>({});
   const [libLoaded, setLibLoaded] = useState(false);
+  const [maxes, setMaxes] = useState<Record<string, number>>({});
   const [addModalSection, setAddModalSection] = useState<WorkoutSection | null>(null);
 
-  // Load exercise library once
+  // Load exercise library + client maxes once
+  useEffect(() => {
+    supabase.from("client_maxes").select("exercise_name, weight_kg").eq("client_id", clientId)
+      .then(({ data }) => {
+        const map: Record<string, number> = {};
+        (data ?? []).forEach((r: { exercise_name: string; weight_kg: number | null }) => {
+          if (r.weight_kg != null) map[r.exercise_name] = r.weight_kg;
+        });
+        setMaxes(map);
+      });
+  }, [clientId]);
+
   useEffect(() => {
     const load = async () => {
       const { data } = await supabase.from("exercise_library").select("*");
@@ -1945,7 +2199,9 @@ export default function DayPage() {
 
     // Forza — solo il gruppo del tipo giornata
     push("strength", bulkState.forza.rows.map(r => ({
-      name: r.name, sets: r.sets, reps: r.reps, load: r.load, rest: r.rest,
+      name: r.name, sets: r.sets, reps: r.reps,
+      load: r.progressive && r.loads.length ? r.loads.join("|") : r.load,
+      rest: r.rest,
       notes: tagNotes(bulkState.forza.tag, r.notes ?? ""),
     })));
 
@@ -2087,6 +2343,7 @@ export default function DayPage() {
             section={section}
             lib={lib}
             editingExId={editingExId}
+            maxes={maxes}
             onToggleEdit={handleToggleEdit}
             onUpdateEx={handleUpdateExercise}
             onDeleteEx={handleDeleteExercise}
@@ -2130,6 +2387,7 @@ export default function DayPage() {
             dayLabel={day?.label ?? ""}
             lib={lib}
             libLoaded={libLoaded}
+            maxes={maxes}
             onSave={handleBulkSave}
             onCancel={() => setShowBulkAdd(false)}
           />

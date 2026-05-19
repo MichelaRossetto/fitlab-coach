@@ -142,7 +142,7 @@ export const WORKOUT_SUBTYPE_LABELS: Record<WorkoutSubtype, string> = {
   cardioliss: "Cardio Liss",
 };
 
-export const LOAD_OPTIONS = ["2.5", "5", "7.5", "10", "12", "12.5", "15", "16", "17.5", "20", "22.5", "24", "25", "30", "32"];
+export const LOAD_OPTIONS = ["2.5", "5", "7.5", "8", "10", "12", "12.5", "15", "16", "17.5", "20", "22.5", "24", "25", "30", "32"];
 
 export interface ExerciseLibrary {
   id: string;
@@ -180,6 +180,31 @@ export interface ClientSchedule {
   day_of_week: number; // 0=Lun … 5=Sab
   time: string;        // "08:00" etc.
 }
+
+export interface ClientMax {
+  id: string;
+  client_id: string;
+  exercise_name: string;
+  weight_kg: number | null;
+  recorded_at: string;
+}
+
+export const PERFORMANCE_EXERCISES: Record<string, string[]> = {
+  "Lower Body": ["Back Squat", "Deadlift", "Sumo Deadlift", "Front Squat", "Overhead Squat"],
+  "Upper Body": ["Bench Press", "Press", "Push Press"],
+  "Full Body":  ["Clean & Jerk", "Power Clean", "Hang Power Snatch", "Hang Power Clean", "Push Jerk", "Thruster"],
+};
+
+export const ALL_PERFORMANCE_EXERCISES = Object.values(PERFORMANCE_EXERCISES).flat();
+
+// Child exercises that inherit their max from a parent performance exercise.
+// They enable % in LoadInput and show the calculated weight, but are NOT tracked separately.
+export const EXERCISE_PARENT_MAP: Record<string, string> = {
+  "Box Squat":               "Back Squat",
+  "Deadlift da Rialzo":      "Deadlift",
+  "Romanian Deadlift":       "Deadlift",
+  "Floor Press con Bilanciere": "Bench Press",
+};
 
 export const DAY_NAMES_SHORT    = ["Lun", "Mar", "Mer", "Gio", "Ven"];
 export const TIME_SLOTS_MORNING   = [
