@@ -453,7 +453,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [showModal, setShowModal] = useState(false);
-  const [prFilter, setPrFilter] = useState<SectionFilter>(null);
+  const [prFilter, setPrFilter] = useState<SectionFilter>("all");
   const [ptFilter, setPtFilter] = useState<SectionFilter>(null);
   const [view, setView] = useState<ViewType>("list");
 
