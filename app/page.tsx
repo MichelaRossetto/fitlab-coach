@@ -68,10 +68,10 @@ function TypeStatsRow({
           <span className={`text-[10px] mt-0.5 ${pillActive("all") ? "text-gray-300 dark:text-gray-600" : "text-gray-400"}`}>totali</span>
         </button>
         {/* Filtri: operano dentro la sezione */}
-        {(["expiring", "expired", "inactive", "paused"] as const).map((f, i) => {
-          const value = [stats.expiring, stats.expired, stats.inactive, stats.paused][i];
-          const color = ["text-amber-600", "text-red-500", "text-gray-400", "text-indigo-500"][i];
-          const sublabel = ["in scad.", "scaduti", "inattivi", "in pausa"][i];
+        {(["expiring", "expired", "paused", "inactive"] as const).map((f, i) => {
+          const value = [stats.expiring, stats.expired, stats.paused, stats.inactive][i];
+          const color = ["text-amber-600", "text-red-500", "text-indigo-500", "text-gray-400"][i];
+          const sublabel = ["in scad.", "scaduti", "in pausa", "inattivi"][i];
           const active = pillActive(f);
           return (
             <button key={f} onClick={() => handleFilter(f)} disabled={hidden}
@@ -391,8 +391,20 @@ function ClientSection({
   });
 
   const sorted = [...filtered].sort((a, b) => {
-    const order = { expiring: 0, active: 1, expired: 2, inactive: 3 };
-    return order[getSubscriptionStatus(a.subscription_end)] - order[getSubscriptionStatus(b.subscription_end)];
+    const statusOrder = (c: Client) => {
+      if (c.is_paused) return 3;
+      const s = getSubscriptionStatus(c.subscription_end);
+      if (s === "expiring") return 0;
+      if (s === "active")   return 1;
+      if (s === "expired" || s === "inactive") return 4;
+      return 5;
+    };
+    const so = statusOrder(a) - statusOrder(b);
+    if (so !== 0) return so;
+    // stesso gruppo → scadenza più vicina prima
+    const da = a.subscription_end ? new Date(a.subscription_end).getTime() : Infinity;
+    const db = b.subscription_end ? new Date(b.subscription_end).getTime() : Infinity;
+    return da - db;
   });
 
   if (sorted.length === 0 && (search || activeFilter !== "all")) return null;
