@@ -112,7 +112,8 @@ export default function WeekPage() {
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
-  const [editingTypeId, setEditingTypeId] = useState<string | null>(null);
+  const [editingLabelId, setEditingLabelId] = useState<string | null>(null);
+  const [editingLabelText, setEditingLabelText] = useState("");
   const [scheduledDays, setScheduledDays] = useState<number[]>([]);
 
   const handleEditDates = async () => {
@@ -165,7 +166,7 @@ export default function WeekPage() {
     const newLabel = `Day ${day.day_number} · ${type}`;
     await supabase.from("training_days").update({ label: newLabel }).eq("id", day.id);
     setDays(prev => prev.map(d => d.id === day.id ? { ...d, label: newLabel } : d));
-    setEditingTypeId(null);
+    setEditingLabelId(null);
   };
 
   const handleSetStatus = async (day: TrainingDay, status: DayStatus) => {
@@ -294,18 +295,16 @@ export default function WeekPage() {
                       </div>
 
                       <div className="flex-1 min-w-0">
-                        {editingTypeId === day.id ? (
-                          <>
-                            <div className="font-semibold text-gray-900 text-sm dark:text-gray-100 mb-1.5">
-                              Day {day.day_number}
-                            </div>
+                        {editingLabelId === day.id ? (
+                          <div onClick={e => e.stopPropagation()}>
+                            <div className="text-xs text-gray-400 mb-1.5">Day {day.day_number}</div>
                             <div className="flex items-center gap-1.5 flex-wrap">
                               {DAY_TYPES.map(type => (
                                 <button
                                   key={type}
                                   onClick={e => { e.stopPropagation(); handleSetType(day, type); }}
                                   className="text-xs font-semibold px-2.5 py-1 rounded-lg transition-all"
-                                  style={type === currentType
+                                  style={day.label.includes(type)
                                     ? { backgroundColor: "#D4E600", color: "#111" }
                                     : { backgroundColor: "#f3f4f6", color: "#6b7280" }
                                   }
@@ -314,30 +313,30 @@ export default function WeekPage() {
                                 </button>
                               ))}
                               <button
-                                onClick={e => { e.stopPropagation(); setEditingTypeId(null); }}
+                                onClick={e => { e.stopPropagation(); setEditingLabelId(null); }}
                                 className="text-xs text-gray-400 hover:text-gray-500 ml-0.5"
                               >✕</button>
                             </div>
-                          </>
-                        ) : !isClientView ? (
-                          <button
-                            onClick={e => { e.stopPropagation(); setEditingTypeId(day.id); }}
-                            className="text-left group/title w-full"
-                          >
-                            <div className="font-semibold text-gray-900 text-sm dark:text-gray-100 flex items-center gap-1.5">
-                              <span>{day.label}</span>
-                              <svg
-                                className="opacity-0 group-hover/title:opacity-40 transition-opacity flex-shrink-0"
-                                width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
-                              >
-                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-                                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-                              </svg>
-                            </div>
-                          </button>
+                          </div>
                         ) : (
-                          <div className="font-semibold text-gray-900 text-sm dark:text-gray-100">
-                            {day.label}
+                          <div className="font-semibold text-gray-900 text-sm dark:text-gray-100 flex items-center gap-1.5">
+                            <span>{day.label}</span>
+                            {!isClientView && (
+                              <button
+                                onClick={e => {
+                                  e.stopPropagation();
+                                  setEditingLabelId(day.id);
+                                  setEditingLabelText(day.label);
+                                }}
+                                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 flex-shrink-0 transition-colors"
+                                title="Modifica nome"
+                              >
+                                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                                </svg>
+                              </button>
+                            )}
                           </div>
                         )}
 

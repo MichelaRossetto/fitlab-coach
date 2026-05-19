@@ -1,5 +1,5 @@
 "use client";
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
@@ -102,13 +102,55 @@ interface ExerciseRowProps {
   onUpdate: (id: string, field: keyof Exercise, value: string) => void;
   onDelete: (id: string) => void;
   onSave: (id: string) => void;
+  onToggleEdit: (id: string) => void;
 }
 
-function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, editing, noteTag, exerciseNumber, maxes, onUpdate, onDelete, onSave }: ExerciseRowProps) {
+function parseLoadAndTool(load: string): { rawLoad: string; tool: "" | "DB" | "KB" } {
+  if (load.endsWith(" DB")) return { rawLoad: load.slice(0, -3), tool: "DB" };
+  if (load.endsWith(" KB")) return { rawLoad: load.slice(0, -3), tool: "KB" };
+  return { rawLoad: load, tool: "" };
+}
+
+function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, editing, noteTag, exerciseNumber, maxes, onUpdate, onDelete, onSave, onToggleEdit }: ExerciseRowProps) {
   // Detect cardio warmup: has reps (minutes) but no sets and no load
   const isCardioWarmup = sectionType === "warmup" && !exercise.sets && !exercise.load;
   // Detect mobilità warmup: has sets + reps but no load
   const isMobilitaWarmup = sectionType === "warmup" && exercise.sets && !exercise.load;
+
+  const rawExLoad = exercise.load ?? "";
+  const isInitProg = rawExLoad.includes("|");
+  const { rawLoad: initRawLoad, tool: initTool } = parseLoadAndTool(isInitProg ? "" : rawExLoad);
+  const [editLoad, setEditLoad] = useState(isInitProg ? "" : initRawLoad);
+  const [editTool, setEditTool] = useState<"" | "DB" | "KB">(initTool || detectTool(exercise.name));
+  const [editProgressive, setEditProgressive] = useState(isInitProg);
+  const [editProgLoads, setEditProgLoads] = useState<string[]>(isInitProg ? rawExLoad.split("|") : []);
+  const [noteOpen, setNoteOpen] = useState(false);
+  const [noteText, setNoteText] = useState(exercise.notes ?? "");
+
+  const commitLoad = (rawLoad: string, tool: "" | "DB" | "KB") => {
+    const effectiveMode = detectLoadMode(rawLoad) ?? "kg";
+    const toolImpliedByName = detectTool(exercise.name) === tool;
+    const combined = (tool && effectiveMode === "kg" && !toolImpliedByName && rawLoad && rawLoad !== "-")
+      ? `${rawLoad} ${tool}`
+      : rawLoad;
+    onUpdate(exercise.id, "load", combined);
+  };
+
+  const toggleEditProgressive = (on: boolean) => {
+    if (!on) { setEditProgressive(false); setEditProgLoads([]); commitLoad(editLoad, editTool); return; }
+    const n = Math.max(1, parseInt(exercise.sets ?? "3") || 3);
+    const base = editLoad && editLoad !== "-" ? editLoad : "80%";
+    const loads = Array.from({ length: n }, () => base);
+    setEditProgressive(true);
+    setEditProgLoads(loads);
+    onUpdate(exercise.id, "load", loads.join("|"));
+  };
+
+  const updateProgLoad = (si: number, val: string) => {
+    const next = editProgLoads.map((l, j) => j === si ? val : l);
+    setEditProgLoads(next);
+    onUpdate(exercise.id, "load", next.join("|"));
+  };
 
   if (editing) {
     if (isCardioWarmup && !exercise.sets) {
@@ -128,6 +170,7 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, ed
           </div>
           <div className="flex gap-2">
             <button className="text-xs text-gray-300 hover:text-red-400 transition-colors py-1.5" onClick={() => onDelete(exercise.id)}>Elimina</button>
+            <button className="text-xs text-gray-400 hover:text-gray-600 transition-colors py-1.5 px-2" onClick={() => onToggleEdit(exercise.id)}>Annulla</button>
             <button className="btn-primary flex-1 text-xs py-1.5" onClick={() => onSave(exercise.id)}>Salva</button>
           </div>
         </div>
@@ -183,11 +226,17 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, ed
           )}
           <div className="flex gap-2">
             <button className="text-xs text-gray-300 hover:text-red-400 transition-colors py-1.5" onClick={() => onDelete(exercise.id)}>Elimina</button>
+            <button className="text-xs text-gray-400 hover:text-gray-600 transition-colors py-1.5 px-2" onClick={() => onToggleEdit(exercise.id)}>Annulla</button>
             <button className="btn-primary flex-1 text-xs py-1.5" onClick={() => onSave(exercise.id)}>Salva</button>
           </div>
         </div>
       );
     }
+
+    const isBodyweight = noteTag === "bw";
+    const isKgOnly = sectionType !== "strength";
+    const showLoad = sectionType !== "warmup" && !isBodyweight;
+    const showRec  = sectionType !== "warmup";
 
     return (
       <div className="p-3 border-b border-gray-100 last:border-0 space-y-2 bg-amber-50 dark:bg-amber-900/20 dark:border-gray-700">
@@ -199,32 +248,73 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, ed
           placeholder="Nome esercizio *"
           className="input text-sm font-medium w-full"
         />
-        <div className="grid grid-cols-3 gap-2">
+
+        {/* Serie / Reps / Rec */}
+        <div className={`grid gap-2 ${showRec ? "grid-cols-3" : "grid-cols-2"}`}>
           <div>
             <label className="label">Serie</label>
-            <input className="input text-sm" placeholder="4" value={exercise.sets ?? ""} onChange={e => onUpdate(exercise.id, "sets", e.target.value)} />
+            <input className="input text-sm" placeholder="3" value={exercise.sets ?? ""} onChange={e => onUpdate(exercise.id, "sets", e.target.value)} />
           </div>
           <div>
             <label className="label">Reps</label>
-            <input className="input text-sm" placeholder="10-12" value={exercise.reps ?? ""} onChange={e => onUpdate(exercise.id, "reps", e.target.value)} />
+            <input className="input text-sm" placeholder="10" value={exercise.reps ?? ""} onChange={e => onUpdate(exercise.id, "reps", e.target.value)} />
           </div>
-          <div>
-            <label className="label">Carico</label>
-            <LoadInput exerciseName={exercise.name} value={exercise.load ?? ""} onChange={v => onUpdate(exercise.id, "load", v)} />
-          </div>
+          {showRec && (
+            <div>
+              <label className="label">Rec. sec</label>
+              <input className="input text-sm" placeholder="60" value={exercise.rest_time?.replace(" sec", "") ?? ""} onChange={e => onUpdate(exercise.id, "rest_time", e.target.value ? `${e.target.value} sec` : "")} />
+            </div>
+          )}
         </div>
-        <div className="grid grid-cols-2 gap-2">
-          <div>
-            <label className="label">Recupero</label>
-            <input className="input text-sm" placeholder='90"' value={exercise.rest_time ?? ""} onChange={e => onUpdate(exercise.id, "rest_time", e.target.value)} />
-          </div>
-          <div>
-            <label className="label">Note</label>
-            <input className="input text-sm" placeholder="es. RPE 7" value={exercise.notes ?? ""} onChange={e => onUpdate(exercise.id, "notes", e.target.value)} />
-          </div>
-        </div>
+
+        {/* Carico full-width */}
+        {showLoad && !editProgressive && (
+          <LoadInput
+            label="Carico"
+            exerciseName={exercise.name}
+            value={editLoad}
+            onChange={v => { setEditLoad(v); commitLoad(v, editTool); }}
+            tool={editTool}
+            onToolChange={t => { setEditTool(t); commitLoad(editLoad, t); }}
+            kgOnly={isKgOnly}
+          />
+        )}
+
+        {/* Progressivo — solo Forza */}
+        {sectionType === "strength" && (
+          <>
+            <label className="flex items-center gap-1 cursor-pointer w-fit">
+              <input type="checkbox" checked={editProgressive} onChange={e => toggleEditProgressive(e.target.checked)} className="w-3 h-3 accent-lime-500" />
+              <span className="text-[10px] text-gray-400 select-none">Progressivo</span>
+            </label>
+            {editProgressive && editProgLoads.length > 0 && (
+              <div>
+                <p className="text-[9px] text-gray-400 uppercase tracking-wider mb-1">Carico per set</p>
+                <div className="grid gap-1.5" style={{ gridTemplateColumns: `repeat(${Math.min(editProgLoads.length, 4)}, 1fr)` }}>
+                  {editProgLoads.map((pl, si) => {
+                    const key = resolveMaxKey(exercise.name);
+                    const max = key && maxes ? maxes[key] : undefined;
+                    const hint = max && pl.includes("%") ? calcKgFromPct(pl, max) : null;
+                    return (
+                      <div key={si}>
+                        <label className="label">S{si + 1}</label>
+                        <LoadInput exerciseName={exercise.name} value={pl} onChange={v => updateProgLoad(si, v)} />
+                        {hint && <p className="text-[9px] text-lime-600 dark:text-lime-400 text-center mt-0.5">≈ {hint} kg</p>}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+            {!editProgressive && maxes && <OneRMHint exerciseName={exercise.name} load={editLoad} maxes={maxes} />}
+          </>
+        )}
+
+        <BulkNoteField value={exercise.notes ?? ""} onChange={v => onUpdate(exercise.id, "notes", v)} />
+
         <div className="flex gap-2">
           <button className="text-xs text-gray-300 hover:text-red-400 transition-colors py-1.5" onClick={() => onDelete(exercise.id)}>Elimina</button>
+          <button className="text-xs text-gray-400 hover:text-gray-600 transition-colors py-1.5 px-2" onClick={() => onToggleEdit(exercise.id)}>Annulla</button>
           <button className="btn-primary flex-1 text-xs py-1.5" onClick={() => onSave(exercise.id)}>Salva</button>
         </div>
       </div>
@@ -232,9 +322,6 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, ed
   }
 
   // Read-only view — inline note editor
-  const [noteOpen, setNoteOpen] = useState(false);
-  const [noteText, setNoteText] = useState(exercise.notes ?? "");
-
   const handleSaveNote = () => {
     const full = noteTag ? tagNotes(noteTag, noteText) : (noteText.trim() || null);
     onUpdate(exercise.id, "notes", full ?? "");
@@ -275,6 +362,18 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, ed
 
   const chips: React.ReactNode[] = [];
 
+  const DeleteBtn = () => (
+    <button
+      onClick={e => { e.stopPropagation(); onDelete(exercise.id); }}
+      className="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded-full text-gray-300 hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+      title="Elimina"
+    >
+      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+        <path d="M18 6 6 18M6 6l12 12" />
+      </svg>
+    </button>
+  );
+
   // Workout section — layout inline stile crossfit
   if (sectionType === "workout") {
     const wkSubtypes: WorkoutSubtype[] = ["amrap", "emom", "fortime", "cardioliss"];
@@ -310,11 +409,12 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, ed
       );
     };
 
-    return (
+  return (
       <div className="px-4 py-2.5 border-b border-gray-100 last:border-0 dark:border-gray-700">
-        <div className="flex items-start gap-2">
-          <div className="w-1.5 h-1.5 rounded-full bg-gray-300 mt-2 flex-shrink-0" />
+        <div className="flex items-center gap-2">
+          <div className="w-1.5 h-1.5 rounded-full bg-gray-300 flex-shrink-0" />
           <div className="flex-1 min-w-0">{renderInline()}</div>
+          <DeleteBtn />
         </div>
         <div className="pl-3.5"><NoteToggle /></div>
       </div>
@@ -324,12 +424,13 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, ed
   if (isCardioWarmup) {
     return (
       <div className="px-4 py-3 border-b border-gray-100 last:border-0 dark:border-gray-700">
-        <div className="flex items-start gap-3">
-          <div className="w-1.5 h-1.5 rounded-full bg-gray-300 mt-2 flex-shrink-0" />
+        <div className="flex items-center gap-3">
+          <div className="w-1.5 h-1.5 rounded-full bg-gray-300 flex-shrink-0" />
           <div className="flex-1 min-w-0">
             <span className="font-medium text-sm text-gray-900 dark:text-gray-100">{exercise.name}</span>
             {exercise.reps && <span className="text-sm text-gray-500 dark:text-gray-400"> · {exercise.reps}</span>}
           </div>
+          <DeleteBtn />
         </div>
         <div className="pl-4"><NoteToggle /></div>
       </div>
@@ -339,19 +440,32 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, ed
   if (isMobilitaWarmup) {
     return (
       <div className="px-4 py-3 border-b border-gray-100 last:border-0 dark:border-gray-700">
-        <div className="flex items-start gap-3">
-          <div className="w-1.5 h-1.5 rounded-full bg-gray-300 mt-2 flex-shrink-0" />
+        <div className="flex items-center gap-3">
+          <div className="w-1.5 h-1.5 rounded-full bg-gray-300 flex-shrink-0" />
           <div className="flex-1 min-w-0">
             <span className="font-medium text-sm text-gray-900 dark:text-gray-100">{exercise.name}</span>
             {exercise.sets && exercise.reps && (
               <span className="text-sm text-gray-500 dark:text-gray-400"> · {exercise.sets}x {exercise.reps} reps</span>
             )}
           </div>
+          <DeleteBtn />
         </div>
         <div className="pl-4"><NoteToggle /></div>
       </div>
     );
   }
+
+  const DeleteBtnInline = () => (
+    <button
+      onClick={e => { e.stopPropagation(); onDelete(exercise.id); }}
+      className="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded-full text-gray-300 hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors ml-auto"
+      title="Elimina"
+    >
+      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+        <path d="M18 6 6 18M6 6l12 12" />
+      </svg>
+    </button>
+  );
 
   return (
     <div className="px-4 py-3 border-b border-gray-100 last:border-0 dark:border-gray-700">
@@ -370,6 +484,7 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, ed
               : null}
             {exercise.load && <><span className="text-gray-400 dark:text-gray-500">·</span><span className="text-gray-500 dark:text-gray-400">{formatLoad(exercise.load)}</span></>}
             {exercise.rest_time && <><span className="text-gray-400 dark:text-gray-500">·</span><span className="text-gray-500 dark:text-gray-400">⏱ {exercise.rest_time} rest</span></>}
+            <DeleteBtnInline />
           </div>
           {maxes && <OneRMHint exerciseName={exercise.name} load={exercise.load ?? ""} maxes={maxes} />}
         </div>
@@ -380,10 +495,11 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, ed
 }
 
 // ─── Add Exercise Modal ───────────────────────────────────────
-function AddExerciseModal({ section, lib, dayLabel, onSave, onCancel }: {
+function AddExerciseModal({ section, lib, dayLabel, maxes, onSave, onCancel }: {
   section: WorkoutSection;
   lib: LibraryMap;
   dayLabel?: string;
+  maxes: Record<string, number>;
   onSave: (data: { name: string; sets?: string; reps?: string; load?: string; rest_time?: string; notes?: string }) => void;
   onCancel: () => void;
 }) {
@@ -392,7 +508,11 @@ function AddExerciseModal({ section, lib, dayLabel, onSave, onCancel }: {
   const [sets, setSets] = useState("");
   const [reps, setReps] = useState("");
   const [load, setLoad] = useState("");
+  const [loadTool, setLoadTool] = useState<"" | "DB" | "KB">("");
   const [rest, setRest] = useState("");
+  const [progressive, setProgressive] = useState(false);
+  const [progressiveLoads, setProgressiveLoads] = useState<string[]>([]);
+  const [userNotes, setUserNotes] = useState("");
   const [warmupType, setWarmupType] = useState<"cardio" | "mobilita" | "attivazione">("cardio");
 
   const dayFilter = getDayMobilitaFilter(dayLabel ?? "");
@@ -413,8 +533,43 @@ function AddExerciseModal({ section, lib, dayLabel, onSave, onCancel }: {
     else if (section.section_type === "core") { setSets("3"); setReps("15"); setRest("30"); }
   }, [section.section_type]);
 
-  // Reset name when switching sub-category
-  useEffect(() => { setName(""); }, [warmupType, warmupZone, strengthSub, accessoriSub, workoutSub]);
+  // Reset name and load when switching sub-category
+  useEffect(() => { setName(""); setLoad(""); setLoadTool(""); setProgressive(false); setProgressiveLoads([]); setUserNotes(""); }, [warmupType, warmupZone, strengthSub, accessoriSub, workoutSub]);
+
+  // Auto-set tool from sub-category (accessories) or exercise name
+  useEffect(() => {
+    if (section.section_type === "accessories") {
+      if (accessoriSub === "manubri") { setLoadTool("DB"); return; }
+      if (accessoriSub === "kettlebell") { setLoadTool("KB"); return; }
+      setLoadTool("");
+      return;
+    }
+    if (!resolveMaxKey(name)) {
+      setLoadTool(detectTool(name));
+    } else {
+      setLoadTool("");
+    }
+  }, [name, accessoriSub]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Resize progressiveLoads when sets changes in progressive mode
+  useEffect(() => {
+    if (!progressive) return;
+    const n = Math.max(1, parseInt(sets) || 1);
+    setProgressiveLoads(prev => {
+      if (n === prev.length) return prev;
+      const base = prev[prev.length - 1] || load || "80%";
+      if (n > prev.length) return [...prev, ...Array(n - prev.length).fill(base)];
+      return prev.slice(0, n);
+    });
+  }, [sets, progressive]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const toggleProgressive = (on: boolean) => {
+    if (!on) { setProgressive(false); setProgressiveLoads([]); return; }
+    const n = Math.max(1, parseInt(sets) || 3);
+    const base = load && load !== "-" ? load : "80%";
+    setProgressive(true);
+    setProgressiveLoads(Array.from({ length: n }, () => base));
+  };
 
   const accLibMap: Record<string, string> = { bodyweight: "BODYWEIGHT", manubri: "MANUBRI", kettlebell: "KETTLEBELL", bilanciere: "BILANCIERE" };
   const strengthLibMap: Record<string, string> = { "UPPER BODY": "UPPER BODY", "LOWER BODY": "LOWER BODY", "FULL BODY": "FULL BODY" };
@@ -436,29 +591,41 @@ function AddExerciseModal({ section, lib, dayLabel, onSave, onCancel }: {
   const isWorkout = section.section_type === "workout";
   const accLoadType = accessoriSub === "bodyweight" ? "none" : accessoriSub === "bilanciere" ? "free" : "select";
 
+  const buildLoad = (rawLoad: string, toolOverride?: "" | "DB" | "KB") => {
+    const effectiveTool = toolOverride ?? loadTool;
+    const baseLoad = progressive && progressiveLoads.length ? progressiveLoads.join("|") : rawLoad;
+    const effectiveMode = detectLoadMode(baseLoad) ?? "kg";
+    if (!baseLoad || baseLoad === "-") return undefined;
+    const toolImpliedByName = detectTool(name.trim()) === effectiveTool;
+    if (effectiveTool && effectiveMode === "kg" && !toolImpliedByName) return `${baseLoad} ${effectiveTool}`;
+    return baseLoad;
+  };
+
   const handleSave = () => {
     if (!name.trim()) return;
     if (section.section_type === "warmup" && warmupType === "cardio") {
-      onSave({ name: name.trim(), reps: reps ? `${reps} min` : "5 min", notes: tagNotes("cardio", "") });
+      onSave({ name: name.trim(), reps: reps ? `${reps} min` : "5 min", notes: tagNotes("cardio", userNotes) });
     } else if (section.section_type === "warmup" && warmupType === "attivazione") {
-      onSave({ name: name.trim(), sets: sets || "2", reps: reps || "10", notes: tagNotes("att", "") });
+      onSave({ name: name.trim(), sets: sets || "2", reps: reps || "10", notes: tagNotes("att", userNotes) });
     } else if (section.section_type === "warmup") {
-      onSave({ name: name.trim(), sets: sets || "2", reps: reps || "10", notes: tagNotes("mob", "") });
+      onSave({ name: name.trim(), sets: sets || "2", reps: reps || "10", notes: tagNotes("mob", userNotes) });
     } else if (section.section_type === "strength") {
       const tagMap: Record<string, string> = { "UPPER BODY": "upper", "LOWER BODY": "lower", "FULL BODY": "full" };
-      onSave({ name: name.trim(), sets: sets || undefined, reps: reps || undefined, load: load || undefined, rest_time: rest ? `${rest} sec` : undefined, notes: tagNotes(tagMap[strengthSub], "") });
+      onSave({ name: name.trim(), sets: sets || undefined, reps: reps || undefined, load: buildLoad(load), rest_time: rest ? `${rest} sec` : undefined, notes: tagNotes(tagMap[strengthSub], userNotes) });
     } else if (section.section_type === "accessories") {
       const tagMap: Record<string, string> = { bodyweight: "bw", manubri: "man", kettlebell: "kb", bilanciere: "bar" };
-      const loadVal = accLoadType === "none" ? undefined : (load && load !== "-" ? load : undefined);
-      onSave({ name: name.trim(), sets: sets || undefined, reps: reps || undefined, load: loadVal, rest_time: rest ? `${rest} sec` : undefined, notes: tagNotes(tagMap[accessoriSub], "") });
+      const loadVal = accLoadType === "none" ? undefined : buildLoad(load);
+      onSave({ name: name.trim(), sets: sets || undefined, reps: reps || undefined, load: loadVal, rest_time: rest ? `${rest} sec` : undefined, notes: tagNotes(tagMap[accessoriSub], userNotes) });
+    } else if (section.section_type === "core") {
+      onSave({ name: name.trim(), sets: sets || undefined, reps: reps || undefined, load: buildLoad(load), rest_time: rest ? `${rest} sec` : undefined, notes: userNotes.trim() || undefined });
     } else if (isWorkout && workoutSub === "cardioliss") {
-      onSave({ name: name.trim(), reps: reps ? `${reps} min` : undefined, notes: tagNotes("cardioliss", "") });
+      onSave({ name: name.trim(), reps: reps ? `${reps} min` : undefined, notes: tagNotes("cardioliss", userNotes) });
     } else if (isWorkout && workoutSub === "fortime") {
-      onSave({ name: name.trim(), sets: sets || undefined, reps: reps || undefined, load: load || undefined, notes: tagNotes("fortime", "") });
+      onSave({ name: name.trim(), sets: sets || undefined, reps: reps || undefined, load: buildLoad(load), notes: tagNotes("fortime", userNotes) });
     } else if (isWorkout) {
-      onSave({ name: name.trim(), reps: reps || undefined, load: load || undefined, notes: tagNotes(workoutSub, "") });
+      onSave({ name: name.trim(), reps: reps || undefined, load: buildLoad(load), notes: tagNotes(workoutSub, userNotes) });
     } else {
-      onSave({ name: name.trim(), sets: sets || undefined, reps: reps || undefined, load: load || undefined, rest_time: rest ? `${rest} sec` : undefined });
+      onSave({ name: name.trim(), sets: sets || undefined, reps: reps || undefined, load: load || undefined, rest_time: rest ? `${rest} sec` : undefined, notes: userNotes.trim() || undefined });
     }
   };
 
@@ -474,8 +641,8 @@ function AddExerciseModal({ section, lib, dayLabel, onSave, onCancel }: {
   );
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60" onClick={onCancel}>
-      <div className="bg-white dark:bg-gray-800 rounded-t-2xl w-full max-w-lg p-5 space-y-4 max-h-[80vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60" onClick={onCancel}>
+      <div className="bg-white dark:bg-gray-800 rounded-2xl w-full max-w-lg p-5 space-y-4 max-h-[80vh] overflow-y-auto shadow-2xl" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between">
           <h3 className="font-bold text-sm uppercase tracking-wide" style={{ color }}>
             + {SECTION_LABELS[section.section_type]}
@@ -512,53 +679,94 @@ function AddExerciseModal({ section, lib, dayLabel, onSave, onCancel }: {
         {/* Strength fields */}
         {section.section_type === "strength" && (
           <>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-3 gap-3">
               <div><label className="label">Serie</label><input className="input text-sm text-center" placeholder="3" value={sets} onChange={e => setSets(e.target.value)} /></div>
               <div><label className="label">Reps</label><input className="input text-sm text-center" placeholder="5" value={reps} onChange={e => setReps(e.target.value)} /></div>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div><label className="label">Carico</label><input className="input text-sm text-center" placeholder="-" value={load} onChange={e => setLoad(e.target.value)} /></div>
               <div><label className="label">Rec. sec</label><input className="input text-sm text-center" placeholder="120" value={rest} onChange={e => setRest(e.target.value)} /></div>
             </div>
+            {!progressive && (
+              <LoadInput
+                exerciseName={name}
+                value={load}
+                onChange={setLoad}
+                label="Carico"
+                tool={loadTool}
+                onToolChange={setLoadTool}
+              />
+            )}
+            <label className="flex items-center gap-1 cursor-pointer w-fit">
+              <input
+                type="checkbox"
+                checked={progressive}
+                onChange={e => toggleProgressive(e.target.checked)}
+                className="w-3 h-3 accent-lime-500"
+              />
+              <span className="text-[10px] text-gray-400 select-none">Progressivo</span>
+            </label>
+            {progressive && progressiveLoads.length > 0 && (
+              <div>
+                <p className="text-[9px] text-gray-400 uppercase tracking-wider mb-1">Carico per set</p>
+                <div className="grid gap-1.5" style={{ gridTemplateColumns: `repeat(${Math.min(progressiveLoads.length, 4)}, 1fr)` }}>
+                  {progressiveLoads.map((pl, si) => {
+                    const key = resolveMaxKey(name);
+                    const max = key ? maxes[key] : undefined;
+                    const hint = max && pl.includes("%") ? calcKgFromPct(pl, max) : null;
+                    return (
+                      <div key={si}>
+                        <label className="label">S{si + 1}</label>
+                        <LoadInput
+                          exerciseName={name}
+                          value={pl}
+                          onChange={v => setProgressiveLoads(prev => prev.map((x, j) => j === si ? v : x))}
+                        />
+                        {hint && <p className="text-[9px] text-lime-600 dark:text-lime-400 text-center mt-0.5">≈ {hint} kg</p>}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+            {!progressive && <OneRMHint exerciseName={name} load={load} maxes={maxes} />}
           </>
         )}
 
         {/* Accessories fields */}
         {section.section_type === "accessories" && (
           <>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-3 gap-3">
               <div><label className="label">Serie</label><input className="input text-sm text-center" placeholder="3" value={sets} onChange={e => setSets(e.target.value)} /></div>
               <div><label className="label">Reps</label><input className="input text-sm text-center" placeholder="12" value={reps} onChange={e => setReps(e.target.value)} /></div>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              {accLoadType !== "none" && (
-                <div>
-                  <label className="label">Carico</label>
-                  {accLoadType === "select"
-                    ? <select className="input text-sm" value={load} onChange={e => setLoad(e.target.value)}>
-                        <option value="-">-</option>
-                        {LOAD_OPTIONS.map(o => <option key={o} value={`${o} KG`}>{o} KG</option>)}
-                      </select>
-                    : <input className="input text-sm text-center" placeholder="-" value={load} onChange={e => setLoad(e.target.value)} />
-                  }
-                </div>
-              )}
               <div><label className="label">Rec. sec</label><input className="input text-sm text-center" placeholder="60" value={rest} onChange={e => setRest(e.target.value)} /></div>
             </div>
+            {accLoadType !== "none" && (
+              <LoadInput
+                exerciseName={name}
+                value={load}
+                onChange={setLoad}
+                label="Carico"
+                tool={loadTool}
+                onToolChange={setLoadTool}
+              />
+            )}
           </>
         )}
 
         {/* Core fields */}
         {section.section_type === "core" && (
           <>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-3 gap-3">
               <div><label className="label">Serie</label><input className="input text-sm text-center" placeholder="3" value={sets} onChange={e => setSets(e.target.value)} /></div>
               <div><label className="label">Reps</label><input className="input text-sm text-center" placeholder="15" value={reps} onChange={e => setReps(e.target.value)} /></div>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div><label className="label">Carico</label><input className="input text-sm text-center" placeholder="-" value={load} onChange={e => setLoad(e.target.value)} /></div>
               <div><label className="label">Rec. sec</label><input className="input text-sm text-center" placeholder="30" value={rest} onChange={e => setRest(e.target.value)} /></div>
             </div>
+            <LoadInput
+              exerciseName={name}
+              value={load}
+              onChange={setLoad}
+              label="Carico"
+              tool={loadTool}
+              onToolChange={setLoadTool}
+            />
           </>
         )}
 
@@ -569,18 +777,22 @@ function AddExerciseModal({ section, lib, dayLabel, onSave, onCancel }: {
           </div>
         )}
         {isWorkout && workoutSub === "fortime" && (
-          <div className="grid grid-cols-3 gap-3">
-            <div><label className="label">Rounds</label><input className="input text-sm text-center" placeholder="3" value={sets} onChange={e => setSets(e.target.value)} /></div>
-            <div><label className="label">Reps</label><input className="input text-sm text-center" placeholder="15" value={reps} onChange={e => setReps(e.target.value)} /></div>
-            <div><label className="label">Carico</label><input className="input text-sm text-center" placeholder="20 KG" value={load} onChange={e => setLoad(e.target.value)} /></div>
-          </div>
+          <>
+            <div className="grid grid-cols-2 gap-3">
+              <div><label className="label">Rounds</label><input className="input text-sm text-center" placeholder="3" value={sets} onChange={e => setSets(e.target.value)} /></div>
+              <div><label className="label">Reps</label><input className="input text-sm text-center" placeholder="15" value={reps} onChange={e => setReps(e.target.value)} /></div>
+            </div>
+            <LoadInput kgOnly exerciseName={name} value={load} onChange={setLoad} label="Carico" tool={loadTool} onToolChange={setLoadTool} />
+          </>
         )}
         {isWorkout && workoutSub !== "cardioliss" && workoutSub !== "fortime" && (
-          <div className="grid grid-cols-2 gap-3">
+          <>
             <div><label className="label">Reps</label><input className="input text-sm text-center" placeholder="10" value={reps} onChange={e => setReps(e.target.value)} /></div>
-            <div><label className="label">Carico</label><input className="input text-sm text-center" placeholder="20 KG" value={load} onChange={e => setLoad(e.target.value)} /></div>
-          </div>
+            <LoadInput kgOnly exerciseName={name} value={load} onChange={setLoad} label="Carico" tool={loadTool} onToolChange={setLoadTool} />
+          </>
         )}
+
+        <BulkNoteField value={userNotes} onChange={setUserNotes} />
 
         <div className="flex gap-3 pt-1">
           <button onClick={onCancel} className="flex-1 text-sm py-2.5 rounded-xl bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 font-medium">Annulla</button>
@@ -727,6 +939,7 @@ function SectionBlock({ section, lib, editingExId, maxes, onToggleEdit, onUpdate
                         const found = exercises.find(e => e.id === id);
                         if (found) onSaveEx(section.id, found);
                       }}
+                      onToggleEdit={onToggleEdit}
                     />
                   </div>
                 </React.Fragment>
@@ -800,13 +1013,16 @@ function getWorkoutNames(lib: LibraryMap): string[] {
   return result.sort((a, b) => a.localeCompare(b));
 }
 
-// Formatta il carico: aggiunge KG se numero puro, @ se percentuale; gestisce progressivi con |
+// Formatta il carico: aggiunge KG se numero puro, @ se percentuale; gestisce progressivi con | e tool DB/KB
 function formatLoad(load: string): string {
   if (!load || load === "-") return load;
-  if (load.includes("|")) {
-    return load.split("|").map(l => formatLoadSingle(l)).join(" → ");
+  const toolMatch = load.match(/\s+(DB|KB)$/i);
+  const loadPart = toolMatch ? load.slice(0, -toolMatch[0].length) : load;
+  const toolSuffix = toolMatch ? ` (${toolMatch[1].toUpperCase()})` : "";
+  if (loadPart.includes("|")) {
+    return loadPart.split("|").map(l => formatLoadSingle(l)).join(" → ") + toolSuffix;
   }
-  return formatLoadSingle(load);
+  return formatLoadSingle(loadPart) + toolSuffix;
 }
 function formatLoadSingle(load: string): string {
   if (!load || load === "-") return load;
@@ -826,10 +1042,10 @@ function getRandom<T>(arr: T[], n: number): T[] {
 // Row types per sub-section
 interface CardioRow    { name: string; minutes: string; notes: string }
 interface MobilitaRow  { name: string; sets: string; reps: string; notes: string }
-interface ForzaRow     { name: string; sets: string; reps: string; load: string; rest: string; notes: string; progressive: boolean; loads: string[] }
-interface AccessoriRow { name: string; sets: string; reps: string; load: string; rest: string; notes: string }
-interface CoreRow      { name: string; sets: string; reps: string; load: string; rest: string; notes: string }
-interface WorkoutRow   { name: string; reps: string; load: string; rounds: string; minutes: string; notes: string }
+interface ForzaRow     { name: string; sets: string; reps: string; load: string; rest: string; notes: string; progressive: boolean; loads: string[]; tool: "" | "DB" | "KB" }
+interface AccessoriRow { name: string; sets: string; reps: string; load: string; rest: string; notes: string; tool: "" | "DB" | "KB" }
+interface CoreRow      { name: string; sets: string; reps: string; load: string; rest: string; notes: string; tool: "" | "DB" | "KB" }
+interface WorkoutRow   { name: string; reps: string; load: string; rounds: string; minutes: string; notes: string; tool: "" | "DB" | "KB" }
 
 interface WorkoutBlock {
   subtype: WorkoutSubtype;
@@ -863,10 +1079,26 @@ interface BulkState {
 
 const mkCardioRow    = (name = ""): CardioRow    => ({ name, minutes: "5", notes: "" });
 const mkMobilitaRow  = (name = ""): MobilitaRow  => ({ name, sets: "2", reps: "10", notes: "" });
-const mkForzaRow     = (name = ""): ForzaRow     => ({ name, sets: "3", reps: "5", load: "", rest: "120", notes: "", progressive: false, loads: [] });
-const mkAccessoriRow = (name = ""): AccessoriRow => ({ name, sets: "3", reps: "12", load: "10", rest: "60", notes: "" });
-const mkCoreRow      = (name = ""): CoreRow      => ({ name, sets: "3", reps: "15", load: "-", rest: "30", notes: "" });
-const mkWorkoutRow   = (name = ""): WorkoutRow   => ({ name, reps: "10", load: "", rounds: "3", minutes: "10", notes: "" });
+const defaultLoadForTool = (tool: "" | "DB" | "KB"): string =>
+  tool === "DB" ? "10" : tool === "KB" ? "12" : "-";
+
+const mkForzaRow     = (name = ""): ForzaRow     => {
+  const tool = resolveMaxKey(name) ? ("" as const) : detectTool(name);
+  const load = resolveMaxKey(name) ? "80%" : defaultLoadForTool(tool);
+  return { name, sets: "3", reps: "5", load, rest: "120", notes: "", progressive: false, loads: [], tool };
+};
+const mkAccessoriRow = (name = "", tool: "" | "DB" | "KB" = ""): AccessoriRow => {
+  const effectiveTool = tool || detectTool(name);
+  return { name, sets: "3", reps: "12", load: defaultLoadForTool(effectiveTool), rest: "60", notes: "", tool: effectiveTool };
+};
+const mkCoreRow      = (name = ""): CoreRow      => {
+  const tool = detectTool(name);
+  return { name, sets: "3", reps: "15", load: defaultLoadForTool(tool), rest: "30", notes: "", tool };
+};
+const mkWorkoutRow   = (name = ""): WorkoutRow   => {
+  const tool = detectTool(name);
+  return { name, reps: "10", load: defaultLoadForTool(tool), rounds: "3", minutes: "10", notes: "", tool };
+};
 
 // Derives "UPPER" | "LOWER" | "FULL" from day label (e.g. "Day 1 · Lower Body")
 function getDayMobilitaFilter(dayLabel: string): "UPPER" | "LOWER" | "FULL" | null {
@@ -906,10 +1138,10 @@ function buildInitialState(lib: LibraryMap, dayLabel = ""): BulkState {
       label: forza.label,
     },
     accessori: {
-      bodyweight: pickPadded("ACCESSORI", "BODYWEIGHT", 1).map(mkAccessoriRow),
-      manubri: pickPadded("ACCESSORI", "MANUBRI", 3).map(mkAccessoriRow),
-      kettlebell: pickPadded("ACCESSORI", "KETTLEBELL", 3).map(mkAccessoriRow),
-      bilanciere: pickPadded("ACCESSORI", "BILANCIERE", 2).map(mkAccessoriRow),
+      bodyweight: pickPadded("ACCESSORI", "BODYWEIGHT", 1).map(n => mkAccessoriRow(n, "")),
+      manubri: pickPadded("ACCESSORI", "MANUBRI", 3).map(n => mkAccessoriRow(n, "DB")),
+      kettlebell: pickPadded("ACCESSORI", "KETTLEBELL", 3).map(n => mkAccessoriRow(n, "KB")),
+      bilanciere: pickPadded("ACCESSORI", "BILANCIERE", 2).map(n => mkAccessoriRow(n, "")),
     },
     core: pickPadded("CORE TRAINING", null, 4).map(mkCoreRow),
     workout: (() => {
@@ -1093,60 +1325,93 @@ function LoadInput({
   exerciseName = "",
   value,
   onChange,
+  label,
+  tool,
+  onToolChange,
+  kgOnly = false,
 }: {
   exerciseName?: string;
   value: string;
   onChange: (v: string) => void;
+  label?: string;
+  tool?: "" | "DB" | "KB";
+  onToolChange?: (t: "" | "DB" | "KB") => void;
+  kgOnly?: boolean;
 }) {
-  const canPct = resolveMaxKey(exerciseName) !== null;
+  const canPct = !kgOnly && resolveMaxKey(exerciseName) !== null;
 
   // Sync load mode when exercise name changes
   useEffect(() => {
     if (canPct && (!value || value === "-")) {
-      onChange("80%"); // performance exercise with no load → default to 80%
+      onChange("80%");
     } else if (!canPct && value.includes("%")) {
-      onChange("-"); // switched away from performance exercise → reset to KG
+      onChange("-");
     }
-  }, [exerciseName]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [exerciseName, kgOnly]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // If value already set, derive mode from it; otherwise default based on exercise type
   const mode: LoadMode = detectLoadMode(value) ?? (canPct ? "pct" : "kg");
-  // Display value: if empty, show a sensible placeholder in the select
   const displayValue = value && value !== "-"
     ? value
     : mode === "pct" ? "80%" : mode === "rpe" ? "RPE 7" : "-";
 
   const switchMode = (m: LoadMode) => {
-    if (m === "pct") onChange("80%");
-    else if (m === "rpe") onChange("RPE 7");
+    if (m === "pct") { onChange("80%"); onToolChange?.(""); }
+    else if (m === "rpe") { onChange("RPE 7"); onToolChange?.(""); }
     else onChange("-");
   };
 
+  // kgOnly: solo KG (no % no RPE); altrimenti mostra in base all'esercizio
+  const modes: LoadMode[] = kgOnly ? ["kg"] : canPct ? ["pct", "kg", "rpe"] : ["kg", "rpe"];
+
   return (
     <div className="space-y-0.5">
-      <div className="flex gap-0.5 justify-center">
-        {(["pct", "kg", "rpe"] as LoadMode[]).map(m => {
-          const label = m === "pct" ? "%" : m === "kg" ? "KG" : "RPE";
-          const active = mode === m;
-          const disabled = m === "pct" && !canPct;
-          return (
-            <button
-              key={m}
-              type="button"
-              disabled={disabled}
-              onClick={() => switchMode(m)}
-              className={`text-[9px] font-bold px-1.5 py-0.5 rounded transition-colors leading-none ${
-                active
-                  ? "bg-lime-400/20 text-lime-700 dark:text-lime-400"
-                  : disabled
-                  ? "text-gray-200 dark:text-gray-700 cursor-not-allowed"
-                  : "text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 cursor-pointer"
-              }`}
-            >
-              {label}
-            </button>
-          );
-        })}
+      {/* Label + mode pills + DB/KB on same row */}
+      <div className="flex items-center justify-between gap-1">
+        {label && <span className="label mb-0 leading-none shrink-0">{label}</span>}
+        <div className="flex items-center gap-1 ml-auto">
+          <div className="flex gap-0.5">
+            {modes.map(m => {
+              const lbl = m === "pct" ? "%" : m === "kg" ? "KG" : "RPE";
+              const active = mode === m;
+              return (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => switchMode(m)}
+                  className={`text-[9px] font-bold px-1.5 py-0.5 rounded transition-colors leading-none ${
+                    active
+                      ? "bg-lime-400/20 text-lime-700 dark:text-lime-400"
+                      : "text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 cursor-pointer"
+                  }`}
+                >
+                  {lbl}
+                </button>
+              );
+            })}
+          </div>
+          {/* DB / KB toggle — only for non-performance exercises in KG mode */}
+          {onToolChange && !canPct && mode === "kg" && (
+            <>
+              <span className="text-[8px] text-gray-600 dark:text-gray-500 select-none">·</span>
+              <div className="flex gap-0.5">
+                {(["DB", "KB"] as const).map(t => (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => onToolChange(tool === t ? "" : t)}
+                    className={`text-[9px] font-bold px-1.5 py-0.5 rounded transition-colors leading-none ${
+                      tool === t
+                        ? "bg-indigo-400/20 text-indigo-600 dark:text-indigo-400"
+                        : "text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 cursor-pointer"
+                    }`}
+                  >
+                    {t}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
       </div>
       {mode === "pct" ? (
         <select className="input text-xs text-center" value={displayValue} onChange={e => onChange(e.target.value)}>
@@ -1181,6 +1446,14 @@ function calcKgFromPct(pctStr: string, maxKg: number): string {
   if (isNaN(pct) || pct <= 0) return "—";
   const kg = (pct / 100) * maxKg;
   return (Math.round(kg * 2) / 2).toFixed(1);
+}
+
+// Detects default tool (DB/KB) from exercise name keywords.
+function detectTool(name: string): "" | "DB" | "KB" {
+  const n = name.toLowerCase();
+  if (n.includes("manubri") || n.includes("manubrio") || n.includes("bulgarian") || /\bdb\b/.test(n)) return "DB";
+  if (/\bkb\b/.test(n)) return "KB";
+  return "";
 }
 
 // Returns the performance exercise name whose max applies to the given exercise.
@@ -1300,6 +1573,10 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, maxes, onSave, onCan
         rows: prev.forza.rows.map((r, i) => {
           if (i !== idx) return r;
           const next = { ...r, ...patch };
+          // Auto-set tool when exercise name changes
+          if ("name" in patch) {
+            next.tool = resolveMaxKey(next.name) ? "" : detectTool(next.name);
+          }
           // Resize loads array when sets changes in progressive mode
           if (next.progressive && "sets" in patch) {
             const n = Math.max(1, parseInt(next.sets) || 1);
@@ -1320,14 +1597,27 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, maxes, onSave, onCan
       ...prev,
       accessori: {
         ...prev.accessori,
-        [sub]: (prev.accessori[sub] as AccessoriRow[]).map((r, i) => i === idx ? { ...r, ...patch } : r),
+        [sub]: (prev.accessori[sub] as AccessoriRow[]).map((r, i) => {
+          if (i !== idx) return r;
+          const next = { ...r, ...patch };
+          if ("name" in patch) {
+            const detected = detectTool(next.name);
+            if (detected) next.tool = detected; // name keyword wins; otherwise keep sub-type default
+          }
+          return next;
+        }),
       },
     }));
 
   const updC = (idx: number, patch: Partial<CoreRow>) =>
     setState(prev => ({
       ...prev,
-      core: prev.core.map((r, i) => i === idx ? { ...r, ...patch } : r),
+      core: prev.core.map((r, i) => {
+        if (i !== idx) return r;
+        const next = { ...r, ...patch };
+        if ("name" in patch) next.tool = detectTool(next.name);
+        return next;
+      }),
     }));
 
   const updWk = (blockIdx: number, rowIdx: number, patch: Partial<WorkoutRow>) =>
@@ -1335,7 +1625,14 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, maxes, onSave, onCan
       ...prev,
       workout: {
         blocks: prev.workout.blocks.map((b, bi) =>
-          bi === blockIdx ? { ...b, rows: b.rows.map((r, ri) => ri === rowIdx ? { ...r, ...patch } : r) } : b
+          bi === blockIdx ? {
+            ...b, rows: b.rows.map((r, ri) => {
+              if (ri !== rowIdx) return r;
+              const next = { ...r, ...patch };
+              if ("name" in patch) next.tool = detectTool(next.name);
+              return next;
+            })
+          } : b
         ),
       },
     }));
@@ -1383,11 +1680,13 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, maxes, onSave, onCan
   const removeF = (idx: number) =>
     setState(prev => ({ ...prev, forza: { ...prev.forza, rows: prev.forza.rows.filter((_, i) => i !== idx) } }));
 
-  const addA = (sub: keyof BulkState["accessori"]) =>
+  const addA = (sub: keyof BulkState["accessori"]) => {
+    const defaultTool: "" | "DB" | "KB" = sub === "manubri" ? "DB" : sub === "kettlebell" ? "KB" : "";
     setState(prev => ({
       ...prev,
-      accessori: { ...prev.accessori, [sub]: [...(prev.accessori[sub] as AccessoriRow[]), mkAccessoriRow()] },
+      accessori: { ...prev.accessori, [sub]: [...(prev.accessori[sub] as AccessoriRow[]), mkAccessoriRow("", defaultTool)] },
     }));
+  };
   const removeA = (sub: keyof BulkState["accessori"], idx: number) =>
     setState(prev => ({
       ...prev,
@@ -1579,7 +1878,8 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, maxes, onSave, onCan
             />
             {removeBtn(() => removeF(i))}
           </div>
-          <div className={`grid gap-1.5 ${row.progressive ? "grid-cols-3" : "grid-cols-4"}`}>
+          {/* SERIE | REPS | REC.SEC */}
+          <div className="grid grid-cols-3 gap-1.5">
             <div>
               <label className="label">Serie</label>
               <input className="input text-xs text-center" value={row.sets} onChange={e => updF(i, { sets: e.target.value })} placeholder="3" />
@@ -1588,17 +1888,22 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, maxes, onSave, onCan
               <label className="label">Reps</label>
               <input className="input text-xs text-center" value={row.reps} onChange={e => updF(i, { reps: e.target.value })} placeholder="5" />
             </div>
-            {!row.progressive && (
-              <div>
-                <label className="label">Carico</label>
-                <LoadInput exerciseName={row.name} value={row.load} onChange={v => updF(i, { load: v })} />
-              </div>
-            )}
             <div>
               <label className="label">Rec. sec</label>
               <input className="input text-xs text-center" value={row.rest} onChange={e => updF(i, { rest: e.target.value })} placeholder="120" />
             </div>
           </div>
+          {/* CARICO full-width */}
+          {!row.progressive && (
+            <LoadInput
+              label="Carico"
+              exerciseName={row.name}
+              value={row.load}
+              onChange={v => updF(i, { load: v })}
+              tool={row.tool}
+              onToolChange={v => updF(i, { tool: v })}
+            />
+          )}
           {/* Progressive toggle */}
           <label className="flex items-center gap-1 cursor-pointer w-fit">
             <input
@@ -1653,7 +1958,7 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, maxes, onSave, onCan
             />
             {removeBtn(() => removeA(sub, i))}
           </div>
-          <div className={`grid gap-1.5 ${loadType === "none" ? "grid-cols-3" : "grid-cols-4"}`}>
+          <div className="grid grid-cols-3 gap-1.5">
             <div>
               <label className="label">Serie</label>
               <input className="input text-xs text-center" value={row.sets} onChange={e => updA(sub, i, { sets: e.target.value })} placeholder="3" />
@@ -1662,17 +1967,22 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, maxes, onSave, onCan
               <label className="label">Reps</label>
               <input className="input text-xs text-center" value={row.reps} onChange={e => updA(sub, i, { reps: e.target.value })} placeholder="12" />
             </div>
-            {loadType !== "none" && (
-              <div>
-                <label className="label">Carico</label>
-                <LoadInput exerciseName={row.name} value={row.load} onChange={v => updA(sub, i, { load: v })} />
-              </div>
-            )}
             <div>
               <label className="label">Rec. sec</label>
               <input className="input text-xs text-center" value={row.rest} onChange={e => updA(sub, i, { rest: e.target.value })} placeholder="60" />
             </div>
           </div>
+          {loadType !== "none" && (
+            <LoadInput
+              kgOnly
+              label="Carico"
+              exerciseName={row.name}
+              value={row.load}
+              onChange={v => updA(sub, i, { load: v })}
+              tool={row.tool}
+              onToolChange={t => updA(sub, i, { tool: t })}
+            />
+          )}
           <BulkNoteField value={row.notes} onChange={v => updA(sub, i, { notes: v })} />
         </div>
       ))}
@@ -1704,7 +2014,7 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, maxes, onSave, onCan
             />
             {removeBtn(() => removeCoreRow(i))}
           </div>
-          <div className="grid grid-cols-4 gap-1.5">
+          <div className="grid grid-cols-3 gap-1.5">
             <div>
               <label className="label">Serie</label>
               <input className="input text-xs text-center" value={row.sets} onChange={e => updC(i, { sets: e.target.value })} placeholder="3" />
@@ -1714,14 +2024,19 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, maxes, onSave, onCan
               <input className="input text-xs text-center" value={row.reps} onChange={e => updC(i, { reps: e.target.value })} placeholder="15" />
             </div>
             <div>
-              <label className="label">Carico</label>
-              <LoadInput exerciseName={row.name} value={row.load} onChange={v => updC(i, { load: v })} />
-            </div>
-            <div>
               <label className="label">Rec. sec</label>
               <input className="input text-xs text-center" value={row.rest} onChange={e => updC(i, { rest: e.target.value })} placeholder="30" />
             </div>
           </div>
+          <LoadInput
+            kgOnly
+            label="Carico"
+            exerciseName={row.name}
+            value={row.load}
+            onChange={v => updC(i, { load: v })}
+            tool={row.tool}
+            onToolChange={t => updC(i, { tool: t })}
+          />
           <BulkNoteField value={row.notes} onChange={v => updC(i, { notes: v })} />
         </div>
       ))}
@@ -1818,7 +2133,7 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, maxes, onSave, onCan
                         <BulkNoteField value={row.notes} onChange={v => updWk(blockIdx, rowIdx, { notes: v })} />
                       </div>
                     ) : block.subtype === "fortime" ? (
-                      <div className="space-y-1">
+                      <div className="space-y-1.5">
                         <div className="flex gap-2 items-center flex-wrap">
                           <input className="input text-xs w-16 text-center flex-shrink-0" value={row.rounds} onChange={e => updWk(blockIdx, rowIdx, { rounds: e.target.value })} placeholder="Rounds" />
                           <AutocompleteInput
@@ -1830,13 +2145,13 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, maxes, onSave, onCan
                             placeholder="Esercizio"
                           />
                           <input className="input text-xs w-16 text-center flex-shrink-0" value={row.reps} onChange={e => updWk(blockIdx, rowIdx, { reps: e.target.value })} placeholder="15 reps" />
-                          <input className="input text-xs w-20 text-center flex-shrink-0" value={row.load} onChange={e => updWk(blockIdx, rowIdx, { load: e.target.value })} placeholder="20 KG" />
                           {removeBtn(() => removeWkRow(blockIdx, rowIdx))}
                         </div>
+                        <LoadInput kgOnly exerciseName={row.name} value={row.load} onChange={v => updWk(blockIdx, rowIdx, { load: v })} label="Carico" tool={row.tool} onToolChange={t => updWk(blockIdx, rowIdx, { tool: t })} />
                         <BulkNoteField value={row.notes} onChange={v => updWk(blockIdx, rowIdx, { notes: v })} />
                       </div>
                     ) : (
-                      <div className="space-y-1">
+                      <div className="space-y-1.5">
                         <div className="flex gap-2 items-center">
                           <AutocompleteInput
                             value={row.name}
@@ -1847,9 +2162,9 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, maxes, onSave, onCan
                             placeholder="Esercizio"
                           />
                           <input className="input text-xs w-16 text-center flex-shrink-0" value={row.reps} onChange={e => updWk(blockIdx, rowIdx, { reps: e.target.value })} placeholder="10 reps" />
-                          <input className="input text-xs w-20 text-center flex-shrink-0" value={row.load} onChange={e => updWk(blockIdx, rowIdx, { load: e.target.value })} placeholder="20 KG" />
                           {removeBtn(() => removeWkRow(blockIdx, rowIdx))}
                         </div>
+                        <LoadInput kgOnly exerciseName={row.name} value={row.load} onChange={v => updWk(blockIdx, rowIdx, { load: v })} label="Carico" tool={row.tool} onToolChange={t => updWk(blockIdx, rowIdx, { tool: t })} />
                         <BulkNoteField value={row.notes} onChange={v => updWk(blockIdx, rowIdx, { notes: v })} />
                       </div>
                     )}
@@ -1923,6 +2238,10 @@ export default function DayPage() {
   const [saving, setSaving] = useState(false);
   const [showBulkAdd, setShowBulkAdd] = useState(false);
   const [confirmClearAll, setConfirmClearAll] = useState(false);
+  const clearAllRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (confirmClearAll) clearAllRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [confirmClearAll]);
   const [lib, setLib] = useState<LibraryMap>({});
   const [libLoaded, setLibLoaded] = useState(false);
   const [maxes, setMaxes] = useState<Record<string, number>>({});
@@ -2198,59 +2517,62 @@ export default function DayPage() {
     }
 
     // Forza — solo il gruppo del tipo giornata
-    push("strength", bulkState.forza.rows.map(r => ({
-      name: r.name, sets: r.sets, reps: r.reps,
-      load: r.progressive && r.loads.length ? r.loads.join("|") : r.load,
-      rest: r.rest,
-      notes: tagNotes(bulkState.forza.tag, r.notes ?? ""),
-    })));
+    push("strength", bulkState.forza.rows.map(r => {
+      const baseLoad = r.progressive && r.loads.length ? r.loads.join("|") : r.load;
+      const effectiveMode = detectLoadMode(baseLoad) ?? "kg";
+      // Only append tool if name doesn't already imply it (e.g. "Manubri" in name → no "DB" suffix)
+      const toolImpliedByName = detectTool(r.name) === r.tool;
+      const finalLoad = (r.tool && effectiveMode === "kg" && !toolImpliedByName) ? `${baseLoad} ${r.tool}` : baseLoad;
+      return {
+        name: r.name, sets: r.sets, reps: r.reps,
+        load: finalLoad,
+        rest: r.rest,
+        notes: tagNotes(bulkState.forza.tag, r.notes ?? ""),
+      };
+    }));
 
-    // Accessori — MANUBRI/KB need "X KG" suffix, BILANCIERE free text, BODYWEIGHT no load
+    // Accessori
     const accessoriSection = sections.find(s => s.section_type === "accessories");
     if (accessoriSection) {
       const accRows: InsertRow[] = [];
-      let accCount = 0;
 
-      const pushAcc = (rows: AccessoriRow[], loadSuffix: string | null, groupTag: string) => {
-        rows.filter(r => r.name.trim()).forEach((r, i) => {
-          const loadVal = loadSuffix && r.load && r.load !== "-"
-            ? `${r.load}${loadSuffix}`
-            : (!loadSuffix && r.load && r.load !== "-" ? r.load : null);
+      const buildAccLoad = (r: AccessoriRow) => {
+        if (!r.load || r.load === "-") return null;
+        const toolImpliedByName = detectTool(r.name) === r.tool;
+        if (r.tool && !toolImpliedByName) return `${r.load} ${r.tool}`;
+        return r.load;
+      };
+
+      const pushAcc = (rows: AccessoriRow[], groupTag: string, includeLoad = true) => {
+        rows.filter(r => r.name.trim()).forEach(r => {
           accRows.push({
             section_id: accessoriSection.id,
             name: r.name.trim(),
             sets: r.sets?.trim() || null,
             reps: r.reps?.trim() || null,
-            load: loadVal,
+            load: includeLoad ? buildAccLoad(r) : null,
             rest_time: r.rest ? `${r.rest} sec` : null,
             notes: tagNotes(groupTag, r.notes ?? ""),
-            order_index: accCount + accRows.length,
+            order_index: accRows.length,
           });
         });
       };
 
-      pushAcc(bulkState.accessori.bodyweight, null, "bw");
-      pushAcc(bulkState.accessori.manubri, " KG", "man");
-      pushAcc(bulkState.accessori.kettlebell, " KG", "kb");
-      // bilanciere: free text
-      bulkState.accessori.bilanciere.filter(r => r.name.trim()).forEach(r => {
-        accRows.push({
-          section_id: accessoriSection.id,
-          name: r.name.trim(),
-          sets: r.sets?.trim() || null,
-          reps: r.reps?.trim() || null,
-          load: r.load?.trim() || null,
-          rest_time: r.rest ? `${r.rest} sec` : null,
-          notes: tagNotes("bar", r.notes ?? ""),
-          order_index: accCount + accRows.length,
-        });
-      });
+      pushAcc(bulkState.accessori.bodyweight, "bw", false);
+      pushAcc(bulkState.accessori.manubri, "man");
+      pushAcc(bulkState.accessori.kettlebell, "kb");
+      pushAcc(bulkState.accessori.bilanciere, "bar");
 
       toInsert.push(...accRows);
     }
 
     // Core
-    push("core", bulkState.core.map(r => ({ name: r.name, sets: r.sets, reps: r.reps, load: r.load, rest: r.rest, notes: r.notes })));
+    push("core", bulkState.core.map(r => {
+      const toolImpliedByName = detectTool(r.name) === r.tool;
+      const load = (!r.load || r.load === "-") ? undefined
+        : (r.tool && !toolImpliedByName) ? `${r.load} ${r.tool}` : r.load;
+      return { name: r.name, sets: r.sets, reps: r.reps, load, rest: r.rest, notes: r.notes };
+    }));
 
     // Workout — iterate blocks, tag each exercise with its subtype
     if (workoutSection) {
@@ -2259,12 +2581,16 @@ export default function DayPage() {
         const isCardioliss = block.subtype === "cardioliss";
         const isForTime = block.subtype === "fortime";
         block.rows.filter(r => r.name.trim()).forEach(r => {
+          const toolImpliedByName = detectTool(r.name) === r.tool;
+          const rawLoad = r.load?.trim();
+          const load = (!rawLoad || rawLoad === "-") ? null
+            : (r.tool && !toolImpliedByName) ? `${rawLoad} ${r.tool}` : rawLoad;
           toInsert.push({
             section_id: workoutSection.id,
             name: r.name.trim(),
             sets: isForTime ? (r.rounds?.trim() || null) : null,
             reps: isCardioliss ? (r.minutes ? `${r.minutes} min` : null) : (r.reps?.trim() || null),
-            load: r.load?.trim() || null,
+            load,
             rest_time: null,
             notes: tagNotes(block.subtype, r.notes ?? ""),
             order_index: wkCount++,
@@ -2357,7 +2683,7 @@ export default function DayPage() {
         {totalExercises > 0 && (
           <div className="pb-2 text-center">
             {confirmClearAll ? (
-              <div className="card p-4 text-center space-y-3">
+              <div ref={clearAllRef} className="card p-4 text-center space-y-3">
                 <p className="text-sm text-gray-700 dark:text-gray-300 font-medium">Cancellare tutti gli esercizi del giorno?</p>
                 <p className="text-xs text-gray-400">Tutte le sezioni verranno svuotate.</p>
                 <div className="flex gap-2">
@@ -2399,6 +2725,7 @@ export default function DayPage() {
           section={addModalSection}
           lib={lib}
           dayLabel={day?.label ?? ""}
+          maxes={maxes}
           onSave={handleAddExerciseConfirm}
           onCancel={() => setAddModalSection(null)}
         />
