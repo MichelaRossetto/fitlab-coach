@@ -95,6 +95,7 @@ interface ExerciseRowProps {
   sectionType: SectionType;
   sectionSubtype?: string | null;
   libSuggestions?: string[];
+  lib?: LibraryMap;
   editing: boolean;
   noteTag?: string | null;
   exerciseNumber?: number;
@@ -105,29 +106,41 @@ interface ExerciseRowProps {
   onToggleEdit: (id: string) => void;
 }
 
-function parseLoadAndTool(load: string): { rawLoad: string; tool: "" | "DB" | "KB" } {
-  if (load.endsWith(" DB")) return { rawLoad: load.slice(0, -3), tool: "DB" };
-  if (load.endsWith(" KB")) return { rawLoad: load.slice(0, -3), tool: "KB" };
+const TOOL_SUFFIXES = ["Bar", "DB", "KB", "MB", "SB"] as const;
+function parseLoadAndTool(load: string): { rawLoad: string; tool: string } {
+  for (const t of TOOL_SUFFIXES) {
+    if (load.endsWith(` ${t}`)) return { rawLoad: load.slice(0, -(t.length + 1)), tool: t };
+  }
   return { rawLoad: load, tool: "" };
 }
 
-function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, editing, noteTag, exerciseNumber, maxes, onUpdate, onDelete, onSave, onToggleEdit }: ExerciseRowProps) {
-  // Detect cardio warmup: has reps (minutes) but no sets and no load
+function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, lib, editing, noteTag, exerciseNumber, maxes, onUpdate, onDelete, onSave, onToggleEdit }: ExerciseRowProps) {
+  // Detect cardio warmup: reps contiene "min"/"cal" oppure l'esercizio è rep-based senza load
   const isCardioWarmup = sectionType === "warmup" && !exercise.sets && !exercise.load;
   // Detect mobilità warmup: has sets + reps but no load
   const isMobilitaWarmup = sectionType === "warmup" && exercise.sets && !exercise.load;
+
+  // unitMode iniziale: derivato dal valore salvato in reps ("5 min" → "min", "50 cal" → "cal") o dalla libreria
+  const initUnitMode = (() => {
+    if (sectionType !== "warmup") return "min" as const;
+    const r = exercise.reps ?? "";
+    if (r.endsWith(" cal") || r.endsWith("cal")) return "cal" as const;
+    if (exercise.sets) return "rep" as const; // ha sets → modalità rep
+    return "min" as const;
+  })();
+  const [editUnitMode, setEditUnitMode] = useState<"min" | "cal" | "rep">(initUnitMode);
 
   const rawExLoad = exercise.load ?? "";
   const isInitProg = rawExLoad.includes("|");
   const { rawLoad: initRawLoad, tool: initTool } = parseLoadAndTool(isInitProg ? "" : rawExLoad);
   const [editLoad, setEditLoad] = useState(isInitProg ? "" : initRawLoad);
-  const [editTool, setEditTool] = useState<"" | "DB" | "KB">(initTool || detectTool(exercise.name));
+  const [editTool, setEditTool] = useState<string>(initTool || detectTool(exercise.name));
   const [editProgressive, setEditProgressive] = useState(isInitProg);
   const [editProgLoads, setEditProgLoads] = useState<string[]>(isInitProg ? rawExLoad.split("|") : []);
   const [noteOpen, setNoteOpen] = useState(false);
   const [noteText, setNoteText] = useState(exercise.notes ?? "");
 
-  const commitLoad = (rawLoad: string, tool: "" | "DB" | "KB") => {
+  const commitLoad = (rawLoad: string, tool: string) => {
     const effectiveMode = detectLoadMode(rawLoad) ?? "kg";
     const toolImpliedByName = detectTool(exercise.name) === tool;
     const combined = (tool && effectiveMode === "kg" && !toolImpliedByName && rawLoad && rawLoad !== "-")
@@ -153,21 +166,85 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, ed
   };
 
   if (editing) {
-    if (isCardioWarmup && !exercise.sets) {
+    if (sectionType === "warmup" && noteTag === "cardio") {
+      const exLib = lib ? lookupExercise(lib, exercise.name) : undefined;
+      const hasMin = exLib ? exLib.unit_min : true;
+      const hasCal = exLib ? exLib.unit_cal : false;
+      const hasRep = exLib ? exLib.unit_rep : false;
+      const hasKg  = exLib ? exLib.load_kg  : false;
+      const availableUnits = [
+        ...(hasMin ? ["min" as const] : []),
+        ...(hasCal ? ["cal" as const] : []),
+        ...(hasRep ? ["rep" as const] : []),
+      ];
+      // Assicura che unitMode sia valido per questo esercizio
+      const safeMode = availableUnits.includes(editUnitMode) ? editUnitMode : (availableUnits[0] ?? "min");
+      const unitLabels: Record<string, string> = { min: "Min", cal: "Cal", rep: "Reps" };
+      const isTimeBased = safeMode === "min" || safeMode === "cal";
+      // Valore numerico corrente (strip " min" / " cal")
+      const currentVal = (exercise.reps ?? "").replace(/ min$| cal$/, "");
+
+      const commitWarmup = (mode: "min" | "cal" | "rep", val?: string, sets?: string, reps?: string, load?: string) => {
+        if (mode === "rep") {
+          onUpdate(exercise.id, "sets",  sets  ?? exercise.sets  ?? "2");
+          onUpdate(exercise.id, "reps",  reps  ?? exercise.reps  ?? "10");
+          onUpdate(exercise.id, "load",  load  ?? exercise.load  ?? "");
+        } else {
+          onUpdate(exercise.id, "sets",  "");
+          onUpdate(exercise.id, "load",  "");
+          const numVal = val ?? currentVal;
+          onUpdate(exercise.id, "reps",  numVal ? `${numVal} ${mode === "cal" ? "cal" : "min"}` : "");
+        }
+      };
+
       return (
         <div className="p-3 border-b border-gray-100 last:border-0 space-y-2 bg-amber-50 dark:bg-amber-900/20 dark:border-gray-700">
           <AutocompleteInput
             value={exercise.name}
             onChange={v => onUpdate(exercise.id, "name", v)}
             suggestions={libSuggestions ?? []}
+            globalSuggestions={lib ? getAllLibNames(lib) : undefined}
             strict
             placeholder="Nome esercizio *"
             className="input text-sm font-medium w-full"
           />
-          <div>
-            <label className="label">Minuti</label>
-            <input className="input text-sm" placeholder="10 min" value={exercise.reps ?? ""} onChange={e => onUpdate(exercise.id, "reps", e.target.value)} />
-          </div>
+          {/* Toggle unità */}
+          {availableUnits.length > 1 && (
+            <div className="flex gap-1 bg-gray-100 dark:bg-gray-700/50 rounded-xl p-1">
+              {availableUnits.map(u => (
+                <button key={u} onClick={() => { setEditUnitMode(u); commitWarmup(u); }}
+                  className={`flex-1 text-xs py-1.5 rounded-lg font-medium transition-colors ${safeMode === u ? "bg-white dark:bg-gray-700 shadow-sm text-green-600" : "text-gray-400 dark:text-gray-500"}`}
+                >{unitLabels[u]}</button>
+              ))}
+            </div>
+          )}
+          {isTimeBased && (
+            <div>
+              <label className="label">{safeMode === "cal" ? "Calorie" : "Minuti"}</label>
+              <input className="input text-sm text-center w-24" placeholder={safeMode === "cal" ? "50" : "5"}
+                value={currentVal}
+                onChange={e => commitWarmup(safeMode, e.target.value)} />
+            </div>
+          )}
+          {safeMode === "rep" && (
+            <>
+              <div className="grid grid-cols-2 gap-2">
+                <div><label className="label">Serie</label><input className="input text-sm text-center" placeholder="2" value={exercise.sets ?? ""} onChange={e => commitWarmup("rep", undefined, e.target.value)} /></div>
+                <div><label className="label">Reps</label><input className="input text-sm text-center" placeholder="10" value={exercise.reps ?? ""} onChange={e => commitWarmup("rep", undefined, undefined, e.target.value)} /></div>
+              </div>
+              {hasKg && (
+                <LoadInput
+                  label="Carico"
+                  exerciseName={exercise.name}
+                  value={editLoad}
+                  onChange={v => { setEditLoad(v); commitLoad(v, editTool); }}
+                  tool={editTool}
+                  onToolChange={t => { setEditTool(t); commitLoad(editLoad, t); }}
+                  kgOnly
+                />
+              )}
+            </>
+          )}
           <div className="flex gap-2">
             <button className="text-xs text-gray-300 hover:text-red-400 transition-colors py-1.5" onClick={() => onDelete(exercise.id)}>Elimina</button>
             <button className="text-xs text-gray-400 hover:text-gray-600 transition-colors py-1.5 px-2" onClick={() => onToggleEdit(exercise.id)}>Annulla</button>
@@ -186,6 +263,7 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, ed
             value={exercise.name}
             onChange={v => onUpdate(exercise.id, "name", v)}
             suggestions={libSuggestions ?? []}
+            globalSuggestions={lib ? getAllLibNames(lib) : undefined}
             strict
             placeholder="Nome esercizio *"
             className="input text-sm font-medium w-full"
@@ -238,12 +316,23 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, ed
     const showLoad = sectionType !== "warmup" && !isBodyweight;
     const showRec  = sectionType !== "warmup";
 
+    // Tool disponibili dalla libreria per questo esercizio
+    const exLibEdit = lib ? lookupExercise(lib, exercise.name) : undefined;
+    const libTools: string[] = exLibEdit ? [
+      ...(exLibEdit.equip_barbell ? ["Bar"] : []),
+      ...(exLibEdit.equip_db      ? ["DB"]  : []),
+      ...(exLibEdit.equip_kb      ? ["KB"]  : []),
+      ...(exLibEdit.equip_mb      ? ["MB"]  : []),
+      ...(exLibEdit.equip_sb      ? ["SB"]  : []),
+    ] : [];
+
     return (
       <div className="p-3 border-b border-gray-100 last:border-0 space-y-2 bg-amber-50 dark:bg-amber-900/20 dark:border-gray-700">
         <AutocompleteInput
           value={exercise.name}
           onChange={v => onUpdate(exercise.id, "name", v)}
           suggestions={libSuggestions ?? []}
+          globalSuggestions={lib ? getAllLibNames(lib) : undefined}
           strict
           placeholder="Nome esercizio *"
           className="input text-sm font-medium w-full"
@@ -277,6 +366,7 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, ed
             tool={editTool}
             onToolChange={t => { setEditTool(t); commitLoad(editLoad, t); }}
             kgOnly={isKgOnly}
+            tools={libTools.length > 0 ? libTools : undefined}
           />
         )}
 
@@ -514,6 +604,7 @@ function AddExerciseModal({ section, lib, dayLabel, maxes, onSave, onCancel }: {
   const [progressiveLoads, setProgressiveLoads] = useState<string[]>([]);
   const [userNotes, setUserNotes] = useState("");
   const [warmupType, setWarmupType] = useState<"cardio" | "mobilita" | "attivazione">("cardio");
+  const [unitMode, setUnitMode] = useState<"min" | "cal" | "rep">("min");
 
   const dayFilter = getDayMobilitaFilter(dayLabel ?? "");
   const isFullDay = dayFilter === "FULL";
@@ -535,6 +626,14 @@ function AddExerciseModal({ section, lib, dayLabel, maxes, onSave, onCancel }: {
 
   // Reset name and load when switching sub-category
   useEffect(() => { setName(""); setLoad(""); setLoadTool(""); setProgressive(false); setProgressiveLoads([]); setUserNotes(""); }, [warmupType, warmupZone, strengthSub, accessoriSub, workoutSub]);
+
+  // Aggiorna unitMode al default dell'esercizio selezionato (o al fallback warmupType)
+  useEffect(() => {
+    if (section.section_type !== "warmup") return;
+    const ex = lookupExercise(lib, name);
+    const def = ex?.default_unit ?? (warmupType === "cardio" ? "min" : "rep");
+    setUnitMode(def as "min" | "cal" | "rep");
+  }, [name, warmupType]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-set tool from sub-category (accessories) or exercise name
   useEffect(() => {
@@ -603,12 +702,17 @@ function AddExerciseModal({ section, lib, dayLabel, maxes, onSave, onCancel }: {
 
   const handleSave = () => {
     if (!name.trim()) return;
-    if (section.section_type === "warmup" && warmupType === "cardio") {
-      onSave({ name: name.trim(), reps: reps ? `${reps} min` : "5 min", notes: tagNotes("cardio", userNotes) });
-    } else if (section.section_type === "warmup" && warmupType === "attivazione") {
-      onSave({ name: name.trim(), sets: sets || "2", reps: reps || "10", notes: tagNotes("att", userNotes) });
-    } else if (section.section_type === "warmup") {
-      onSave({ name: name.trim(), sets: sets || "2", reps: reps || "10", notes: tagNotes("mob", userNotes) });
+    if (section.section_type === "warmup") {
+      const tag = warmupType === "cardio" ? "cardio" : warmupType === "attivazione" ? "att" : "mob";
+      const exLib = lookupExercise(lib, name);
+      const wuKg  = exLib ? exLib.load_kg  : false;
+      if (unitMode === "min") {
+        onSave({ name: name.trim(), reps: reps ? `${reps} min` : "5 min", notes: tagNotes(tag, userNotes) });
+      } else if (unitMode === "cal") {
+        onSave({ name: name.trim(), reps: reps ? `${reps} cal` : undefined, notes: tagNotes(tag, userNotes) });
+      } else {
+        onSave({ name: name.trim(), sets: sets || "2", reps: reps || "10", load: wuKg ? buildLoad(load) : undefined, notes: tagNotes(tag, userNotes) });
+      }
     } else if (section.section_type === "strength") {
       const tagMap: Record<string, string> = { "UPPER BODY": "upper", "LOWER BODY": "lower", "FULL BODY": "full" };
       onSave({ name: name.trim(), sets: sets || undefined, reps: reps || undefined, load: buildLoad(load), rest_time: rest ? `${rest} sec` : undefined, notes: tagNotes(tagMap[strengthSub], userNotes) });
@@ -663,18 +767,75 @@ function AddExerciseModal({ section, lib, dayLabel, maxes, onSave, onCancel }: {
           <AutocompleteInput value={name} onChange={setName} suggestions={suggestions} globalSuggestions={getAllLibNames(lib)} strict placeholder="Cerca dalla libreria..." />
         </div>
 
-        {/* Warmup fields */}
-        {section.section_type === "warmup" && warmupType === "cardio" && (
-          <div><label className="label">Minuti</label>
-            <input className="input text-sm text-center w-24" placeholder="5" value={reps} onChange={e => setReps(e.target.value)} />
-          </div>
-        )}
-        {section.section_type === "warmup" && warmupType === "mobilita" && (
-          <div className="grid grid-cols-2 gap-3">
-            <div><label className="label">Serie</label><input className="input text-sm text-center" placeholder="2" value={sets} onChange={e => setSets(e.target.value)} /></div>
-            <div><label className="label">Reps</label><input className="input text-sm text-center" placeholder="10" value={reps} onChange={e => setReps(e.target.value)} /></div>
-          </div>
-        )}
+        {/* Warmup fields — dinamici da flag libreria */}
+        {section.section_type === "warmup" && (() => {
+          const exLib = lookupExercise(lib, name);
+          // Cardio: MIN e CAL sempre disponibili, la libreria imposta solo il default
+          // Per mobilità/attivazione: REP sempre, carico/attrezzatura dalla libreria
+          const isCardioType = warmupType === "cardio";
+          const wuMin = exLib ? exLib.unit_min : isCardioType;   // fallback: MIN per cardio sconosciuto
+          const wuCal = exLib ? exLib.unit_cal : false;           // solo da libreria
+          const wuRep = exLib ? exLib.unit_rep : !isCardioType;   // fallback: REP per mob/att sconosciuto
+          const wuKg  = exLib ? exLib.load_kg  : false;
+          const wuDb  = exLib ? exLib.equip_db : false;
+          const wuKb  = exLib ? exLib.equip_kb : false;
+
+          // Unità disponibili per il toggle
+          const availableUnits = [
+            ...(wuMin ? ["min" as const] : []),
+            ...(wuCal ? ["cal" as const] : []),
+            ...(wuRep ? ["rep" as const] : []),
+          ];
+          const unitLabels: Record<string, string> = { min: "Min", cal: "Cal", rep: "Reps" };
+          const isTimeBased = unitMode === "min" || unitMode === "cal";
+
+          return (
+            <>
+              {/* Toggle unità (solo se più di una disponibile) */}
+              {availableUnits.length > 1 && (
+                <div className="flex gap-1 bg-gray-100 dark:bg-gray-700/50 rounded-xl p-1">
+                  {availableUnits.map(u => (
+                    <button key={u} onClick={() => setUnitMode(u)}
+                      className={`flex-1 text-xs py-1.5 rounded-lg font-medium transition-colors ${unitMode === u ? "bg-white dark:bg-gray-700 shadow-sm" : "text-gray-400 dark:text-gray-500"}`}
+                      style={unitMode === u ? { color } : {}}
+                    >{unitLabels[u]}</button>
+                  ))}
+                </div>
+              )}
+
+              {/* Input tempo (MIN o CAL) */}
+              {isTimeBased && (wuMin || wuCal) && (
+                <div>
+                  <label className="label">{unitMode === "cal" ? "Calorie" : "Minuti"}</label>
+                  <input className="input text-sm text-center w-24"
+                    placeholder={unitMode === "cal" ? "50" : "5"}
+                    value={reps} onChange={e => setReps(e.target.value)} />
+                </div>
+              )}
+
+              {/* Input serie + reps */}
+              {unitMode === "rep" && wuRep && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div><label className="label">Serie</label><input className="input text-sm text-center" placeholder="2" value={sets} onChange={e => setSets(e.target.value)} /></div>
+                  <div><label className="label">Reps</label><input className="input text-sm text-center" placeholder="10" value={reps} onChange={e => setReps(e.target.value)} /></div>
+                </div>
+              )}
+
+              {/* Carico (solo se l'esercizio ha load_kg in libreria e siamo in modalità rep) */}
+              {wuKg && unitMode === "rep" && (
+                <LoadInput
+                  exerciseName={name}
+                  value={load}
+                  onChange={setLoad}
+                  label="Carico"
+                  kgOnly
+                  tool={wuDb ? "DB" : wuKb ? "KB" : loadTool}
+                  onToolChange={(wuDb || wuKb) ? setLoadTool : undefined}
+                />
+              )}
+            </>
+          );
+        })()}
 
         {/* Strength fields */}
         {section.section_type === "strength" && (
@@ -929,6 +1090,7 @@ function SectionBlock({ section, lib, editingExId, maxes, onToggleEdit, onUpdate
                       sectionType={section.section_type}
                       sectionSubtype={section.section_subtype}
                       libSuggestions={libSuggestions}
+                      lib={lib}
                       editing={editingExId === ex.id}
                       noteTag={ex._group}
                       exerciseNumber={ex._exNum}
@@ -1013,6 +1175,17 @@ function getWorkoutNames(lib: LibraryMap): string[] {
   return result.sort((a, b) => a.localeCompare(b));
 }
 
+// Cerca un esercizio per nome nella libreria e restituisce l'oggetto completo (con flag)
+function lookupExercise(lib: LibraryMap, name: string): ExerciseLibrary | undefined {
+  if (!name) return undefined;
+  const lower = name.toLowerCase().trim();
+  for (const entries of Object.values(lib)) {
+    const found = entries.find(e => e.name.toLowerCase() === lower);
+    if (found) return found;
+  }
+  return undefined;
+}
+
 // Formatta il carico: aggiunge KG se numero puro, @ se percentuale; gestisce progressivi con | e tool DB/KB
 function formatLoad(load: string): string {
   if (!load || load === "-") return load;
@@ -1040,7 +1213,7 @@ function getRandom<T>(arr: T[], n: number): T[] {
 // ─── Bulk Add Modal ───────────────────────────────────────────
 
 // Row types per sub-section
-interface CardioRow    { name: string; minutes: string; notes: string }
+interface CardioRow    { name: string; minutes: string; unitMode: "min" | "cal" | "rep"; sets: string; reps: string; load: string; tool: "" | "DB" | "KB"; notes: string }
 interface MobilitaRow  { name: string; sets: string; reps: string; notes: string }
 interface ForzaRow     { name: string; sets: string; reps: string; load: string; rest: string; notes: string; progressive: boolean; loads: string[]; tool: "" | "DB" | "KB" }
 interface AccessoriRow { name: string; sets: string; reps: string; load: string; rest: string; notes: string; tool: "" | "DB" | "KB" }
@@ -1077,7 +1250,8 @@ interface BulkState {
   };
 }
 
-const mkCardioRow    = (name = ""): CardioRow    => ({ name, minutes: "5", notes: "" });
+const mkCardioRow    = (name = "", unitMode: "min" | "cal" | "rep" = "min", tool: "" | "DB" | "KB" = ""): CardioRow =>
+  ({ name, minutes: "5", unitMode, sets: "2", reps: "10", load: defaultLoadForTool(tool), tool, notes: "" });
 const mkMobilitaRow  = (name = ""): MobilitaRow  => ({ name, sets: "2", reps: "10", notes: "" });
 const defaultLoadForTool = (tool: "" | "DB" | "KB"): string =>
   tool === "DB" ? "10" : tool === "KB" ? "12" : "-";
@@ -1127,7 +1301,12 @@ function buildInitialState(lib: LibraryMap, dayLabel = ""): BulkState {
 
   return {
     warmup: {
-      cardio: pickPadded("WARMUP", "CARDIO", 2).map(mkCardioRow),
+      cardio: pickPadded("WARMUP", "CARDIO", 2).map(name => {
+        const ex = lib[libKey("WARMUP", "CARDIO")]?.find(e => e.name === name);
+        const unitMode = (ex?.default_unit ?? "min") as "min" | "cal" | "rep";
+        const tool = ex?.equip_db ? "DB" : ex?.equip_kb ? "KB" : "";
+        return mkCardioRow(name, unitMode, tool);
+      }),
       mobilita: pickPadded("WARMUP", "MOBILITÀ", 4, dayFilter).map(mkMobilitaRow),
       attivazione: getRandom(getLibNames(lib, "WARMUP", "ATTIVAZIONE", dayFilter), 2).map(mkMobilitaRow),
     },
@@ -1329,14 +1508,16 @@ function LoadInput({
   tool,
   onToolChange,
   kgOnly = false,
+  tools,
 }: {
   exerciseName?: string;
   value: string;
   onChange: (v: string) => void;
   label?: string;
-  tool?: "" | "DB" | "KB";
-  onToolChange?: (t: "" | "DB" | "KB") => void;
+  tool?: string;
+  onToolChange?: (t: string) => void;
   kgOnly?: boolean;
+  tools?: string[]; // override default ["DB","KB"] — from library equip flags
 }) {
   const canPct = !kgOnly && resolveMaxKey(exerciseName) !== null;
 
@@ -1389,12 +1570,12 @@ function LoadInput({
               );
             })}
           </div>
-          {/* DB / KB toggle — only for non-performance exercises in KG mode */}
+          {/* Tool toggle — dalla libreria se disponibile, altrimenti DB/KB */}
           {onToolChange && !canPct && mode === "kg" && (
             <>
               <span className="text-[8px] text-gray-600 dark:text-gray-500 select-none">·</span>
               <div className="flex gap-0.5">
-                {(["DB", "KB"] as const).map(t => (
+                {(tools ?? ["DB", "KB"]).map(t => (
                   <button
                     key={t}
                     type="button"
@@ -1783,31 +1964,90 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, maxes, onSave, onCan
   const renderWarmup = () => (
     <div className="space-y-1">
       <SubgroupLabel label="Cardio" color={color} />
-      {state.warmup.cardio.map((row, i) => (
-        <div key={i} className="p-2.5 bg-gray-50 dark:bg-gray-700/40 rounded-xl space-y-1">
-          <div className="flex gap-2 items-center">
-            <AutocompleteInput
-              value={row.name}
-              onChange={v => updW("cardio", i, { name: v })}
-              suggestions={getLibNames(lib, "WARMUP", "CARDIO")}
-              globalSuggestions={getAllLibNames(lib)}
-              strict
-              placeholder="Esercizio cardio"
-            />
-            <div className="flex items-center gap-1 flex-shrink-0">
-              <input
-                className="input text-xs w-14 text-center"
-                value={row.minutes}
-                onChange={e => updW("cardio", i, { minutes: e.target.value })}
-                placeholder="10"
+      {state.warmup.cardio.map((row, i) => {
+        const exLib = lookupExercise(lib, row.name);
+        // Se l'esercizio è in libreria → usa i suoi flag esatti
+        // Se non è in libreria → fallback cardio = solo MIN
+        const hasMin  = exLib ? exLib.unit_min : true;
+        const hasCal  = exLib ? exLib.unit_cal : false;
+        const hasRep  = exLib ? exLib.unit_rep : false;
+        const hasKg   = exLib ? exLib.load_kg   : false;
+        const hasDb   = exLib ? exLib.equip_db  : false;
+        const hasKb   = exLib ? exLib.equip_kb  : false;
+        const available = [
+          ...(hasMin ? ["min" as const] : []),
+          ...(hasCal ? ["cal" as const] : []),
+          ...(hasRep ? ["rep" as const] : []),
+        ];
+        const unitLabels: Record<string, string> = { min: "MIN", cal: "CAL", rep: "REP" };
+        const mode = row.unitMode;
+        const showLoad = hasKg && mode === "rep";
+        return (
+          <div key={i} className="p-2.5 bg-gray-50 dark:bg-gray-700/40 rounded-xl space-y-1.5">
+            <div className="flex gap-2 items-center">
+              <AutocompleteInput
+                value={row.name}
+                onChange={v => {
+                  const ex = lookupExercise(lib, v);
+                  const def = (ex?.default_unit ?? "min") as "min" | "cal" | "rep";
+                  const t: "" | "DB" | "KB" = ex?.equip_db ? "DB" : ex?.equip_kb ? "KB" : "";
+                  updW("cardio", i, { name: v, unitMode: def, tool: t, load: defaultLoadForTool(t) });
+                }}
+                suggestions={getLibNames(lib, "WARMUP", "CARDIO")}
+                globalSuggestions={getAllLibNames(lib)}
+                strict
+                placeholder="Esercizio cardio"
               />
-              <span className="text-xs text-gray-400">min</span>
+              <div className="flex items-center gap-1 flex-shrink-0">
+                {/* Toggle unità dinamico */}
+                {available.length > 1 && (
+                  <div className="flex rounded-lg overflow-hidden border border-gray-200 dark:border-gray-600 text-[10px] font-semibold">
+                    {available.map(u => (
+                      <button key={u}
+                        onClick={() => updW("cardio", i, { unitMode: u })}
+                        className={`px-1.5 py-1 transition-colors ${mode === u ? "text-white" : "text-gray-400"}`}
+                        style={mode === u ? { backgroundColor: color } : {}}
+                      >{unitLabels[u]}</button>
+                    ))}
+                  </div>
+                )}
+                {/* MIN o CAL */}
+                {(mode === "min" || mode === "cal") && (
+                  <>
+                    <input className="input text-xs w-14 text-center"
+                      value={row.minutes}
+                      onChange={e => updW("cardio", i, { minutes: e.target.value })}
+                      placeholder={mode === "cal" ? "200" : "10"} />
+                    <span className="text-xs text-gray-400">{mode === "cal" ? "cal" : "min"}</span>
+                  </>
+                )}
+                {/* SERIE x REPS */}
+                {mode === "rep" && (
+                  <>
+                    <input className="input text-xs w-12 text-center" value={row.sets} onChange={e => updW("cardio", i, { sets: e.target.value })} placeholder="2" />
+                    <span className="text-xs text-gray-400 self-center">x</span>
+                    <input className="input text-xs w-12 text-center" value={row.reps} onChange={e => updW("cardio", i, { reps: e.target.value })} placeholder="10" />
+                  </>
+                )}
+              </div>
+              {removeBtn(() => removeW("cardio", i))}
             </div>
-            {removeBtn(() => removeW("cardio", i))}
+            {/* Carico + attrezzo (solo in modalità REP e se l'esercizio ha load_kg) */}
+            {showLoad && (
+              <LoadInput
+                exerciseName={row.name}
+                value={row.load}
+                onChange={v => updW("cardio", i, { load: v })}
+                label="Carico"
+                kgOnly
+                tool={hasDb || hasKb ? row.tool : undefined}
+                onToolChange={hasDb || hasKb ? (t) => updW("cardio", i, { tool: t }) : undefined}
+              />
+            )}
+            <BulkNoteField value={row.notes} onChange={v => updW("cardio", i, { notes: v })} />
           </div>
-          <BulkNoteField value={row.notes} onChange={v => updW("cardio", i, { notes: v })} />
-        </div>
-      ))}
+        );
+      })}
       {addBtn(() => addW("cardio"), "aggiungi cardio")}
 
       <SubgroupLabel label={`Mobilità${mobSubLabel}`} color={color} />
@@ -2475,9 +2715,14 @@ export default function DayPage() {
         warmupRows.push({
           section_id: warmupSection.id,
           name: r.name.trim(),
-          sets: null,
-          reps: r.minutes ? `${r.minutes} min` : null,
-          load: null,
+          sets: r.unitMode === "rep" ? (r.sets || null) : null,
+          reps: r.unitMode === "rep"
+            ? (r.reps || null)
+            : r.minutes ? `${r.minutes} ${r.unitMode === "cal" ? "cal" : "min"}` : null,
+          load: r.unitMode === "rep" && r.load && r.load !== "-" ? (() => {
+            const toolImplied = detectTool(r.name) === r.tool;
+            return r.tool && !toolImplied ? `${r.load} ${r.tool}` : r.load;
+          })() : null,
           rest_time: null,
           notes: tagNotes("cardio", r.notes ?? ""),
           order_index: warmupCount + i,

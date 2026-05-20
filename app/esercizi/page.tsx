@@ -383,30 +383,45 @@ const LOAD_FLAGS = [
   { key: "load_kg"  as const, label: "KG",  defVal: "kg"  as const },
 ];
 const EQUIP_FLAGS = [
-  { key: "equip_barbell" as const, label: "Bilanciere" },
-  { key: "equip_db"      as const, label: "DB" },
-  { key: "equip_kb"      as const, label: "KB" },
-  { key: "equip_mb"      as const, label: "MB" },
-  { key: "equip_sb"      as const, label: "SB" },
+  { key: "equip_barbell" as const, label: "Bilanciere", defVal: "barbell" as const },
+  { key: "equip_db"      as const, label: "DB",         defVal: "db"      as const },
+  { key: "equip_kb"      as const, label: "KB",         defVal: "kb"      as const },
+  { key: "equip_mb"      as const, label: "MB",         defVal: "mb"      as const },
+  { key: "equip_sb"      as const, label: "SB",         defVal: "sb"      as const },
 ];
 
-// Pallino colorato nella riga collassata: indica quante sezioni hanno flag configurati
-function FlagDots({ ex }: { ex: ExerciseLibrary }) {
-  const hasUnit  = ex.unit_min || ex.unit_cal || ex.unit_rep;
-  const hasLoad  = ex.load_pct || ex.load_rpe || ex.load_kg;
-  const hasEquip = ex.equip_barbell || ex.equip_db || ex.equip_kb || ex.equip_mb || ex.equip_sb;
-  if (!hasUnit && !hasLoad && !hasEquip) return null;
+// Mini-tag nella riga collassata: mostra i flag attivi con ★ sul default
+function FlagSummary({ ex }: { ex: ExerciseLibrary }) {
+  const unitActive  = UNIT_FLAGS.filter(f => ex[f.key]);
+  const loadActive  = LOAD_FLAGS.filter(f => ex[f.key]);
+  const equipActive = EQUIP_FLAGS.filter(f => ex[f.key]);
+  if (!unitActive.length && !loadActive.length && !equipActive.length) return null;
+
+  const Tag = ({ label, isDefault, color }: { label: string; isDefault: boolean; color: string }) => (
+    <span
+      className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold"
+      style={{ backgroundColor: isDefault ? "#F59E0B" : color + "22", color: isDefault ? "#fff" : color }}
+    >
+      {label}{isDefault && <span style={{ fontSize: "8px" }}>★</span>}
+    </span>
+  );
+
   return (
-    <div className="flex items-center gap-1 ml-2">
-      {hasUnit  && <span className="w-1.5 h-1.5 rounded-full bg-blue-400" title="Volume configurato" />}
-      {hasLoad  && <span className="w-1.5 h-1.5 rounded-full bg-orange-400" title="Carico configurato" />}
-      {hasEquip && <span className="w-1.5 h-1.5 rounded-full bg-purple-400" title="Attrezzo configurato" />}
+    <div className="flex items-center gap-1 flex-wrap ml-2">
+      {unitActive.map(f => (
+        <Tag key={f.key} label={f.label} isDefault={ex.default_unit === f.defVal} color="#3B82F6" />
+      ))}
+      {loadActive.map(f => (
+        <Tag key={f.key} label={f.label} isDefault={ex.default_load === f.defVal} color="#10B981" />
+      ))}
+      {equipActive.map(f => (
+        <Tag key={f.key} label={f.label} isDefault={ex.default_equip === f.defVal} color="#8B5CF6" />
+      ))}
     </div>
   );
 }
 
 // Chip a 3 stati: "off" (grigio) → "on" (colore sezione) → "default" (ambra ★) → "off"
-// Per le sezioni senza default (attrezzo): solo "off" ↔ "on"
 function FlagChip({
   label, state, onColor, onToggle,
 }: {
@@ -470,7 +485,11 @@ function ExerciseRow({ ex: initialEx, onDelete, onUpdate }: {
     else if (ex.default_load !== defVal) save({ default_load: defVal });
     else                                 save({ [key]: false, default_load: null });
   };
-  const toggleEquip = (key: typeof EQUIP_FLAGS[number]["key"]) => save({ [key]: !ex[key] });
+  const toggleEquip = (key: typeof EQUIP_FLAGS[number]["key"], defVal: "barbell" | "db" | "kb" | "mb" | "sb") => {
+    if (!ex[key])                          save({ [key]: true });                               // off → on
+    else if (ex.default_equip !== defVal)  save({ default_equip: defVal });                    // on  → default
+    else                                   save({ [key]: false, default_equip: null });         // default → off
+  };
 
   return (
     <div className="border-b border-gray-50 dark:border-gray-700/50 last:border-0">
@@ -486,7 +505,7 @@ function ExerciseRow({ ex: initialEx, onDelete, onUpdate }: {
           <path d="M9 18l6-6-6-6"/>
         </svg>
         <span className="text-sm text-gray-800 dark:text-gray-200 flex-1">{ex.name}</span>
-        <FlagDots ex={ex} />
+        <FlagSummary ex={ex} />
         <button
           onClick={e => { e.stopPropagation(); onDelete(); }}
           className="text-gray-300 hover:text-red-400 transition-colors p-1 ml-1"
@@ -544,9 +563,9 @@ function ExerciseRow({ ex: initialEx, onDelete, onUpdate }: {
                 <FlagChip
                   key={f.key}
                   label={f.label}
-                  state={ex[f.key] ? "on" : "off"}
+                  state={!ex[f.key] ? "off" : ex.default_equip === f.defVal ? "default" : "on"}
                   onColor="#8B5CF6"
-                  onToggle={() => toggleEquip(f.key)}
+                  onToggle={() => toggleEquip(f.key, f.defVal)}
                 />
               ))}
             </div>

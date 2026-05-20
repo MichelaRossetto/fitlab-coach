@@ -167,6 +167,7 @@ export interface ExerciseLibrary {
   equip_kb: boolean;
   equip_mb: boolean;
   equip_sb: boolean;
+  default_equip: "barbell" | "db" | "kb" | "mb" | "sb" | null;
 }
 
 export const LIBRARY_CATEGORIES = ["WARMUP", "FORZA", "ACCESSORI", "CORE TRAINING", "WORKOUT"] as const;
