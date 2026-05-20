@@ -120,12 +120,14 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
   // Detect mobilità warmup: has sets + reps but no load
   const isMobilitaWarmup = sectionType === "warmup" && exercise.sets && !exercise.load;
 
-  // unitMode iniziale: derivato dal valore salvato in reps ("5 min" → "min", "50 cal" → "cal") o dalla libreria
+  // unitMode iniziale: derivato dal valore salvato in reps ("5 min" → "min", "50 cal" → "cal")
+  // Il check su "min"/"cal" ha priorità su sets, perché sets può essere residuo di salvataggi precedenti
   const initUnitMode = (() => {
     if (sectionType !== "warmup") return "min" as const;
     const r = exercise.reps ?? "";
-    if (r.endsWith(" cal") || r.endsWith("cal")) return "cal" as const;
-    if (exercise.sets) return "rep" as const; // ha sets → modalità rep
+    if (r.endsWith(" cal") || r === "cal") return "cal" as const;
+    if (r.endsWith(" min") || r === "min") return "min" as const;
+    if (exercise.sets) return "rep" as const;
     return "min" as const;
   })();
   const [editUnitMode, setEditUnitMode] = useState<"min" | "cal" | "rep">(initUnitMode);
@@ -135,6 +137,15 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
   const { rawLoad: initRawLoad, tool: initTool } = parseLoadAndTool(isInitProg ? "" : rawExLoad);
   const [editLoad, setEditLoad] = useState(isInitProg ? "" : initRawLoad);
   const [editTool, setEditTool] = useState<string>(initTool || detectTool(exercise.name));
+
+  // Tool effettivo: stato utente → default_equip dalla libreria → detectTool dal nome
+  const libDefaultTool = (() => {
+    const exL = lib ? lookupExercise(lib, exercise.name) : undefined;
+    if (!exL?.default_equip) return "";
+    const m: Record<string, string> = { barbell: "Bar", db: "DB", kb: "KB", mb: "MB", sb: "SB" };
+    return m[exL.default_equip] ?? "";
+  })();
+  const effectiveTool = editTool || libDefaultTool;
   const [editProgressive, setEditProgressive] = useState(isInitProg);
   const [editProgLoads, setEditProgLoads] = useState<string[]>(isInitProg ? rawExLoad.split("|") : []);
   const [noteOpen, setNoteOpen] = useState(false);
@@ -150,7 +161,7 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
   };
 
   const toggleEditProgressive = (on: boolean) => {
-    if (!on) { setEditProgressive(false); setEditProgLoads([]); commitLoad(editLoad, editTool); return; }
+    if (!on) { setEditProgressive(false); setEditProgLoads([]); commitLoad(editLoad, effectiveTool); return; }
     const n = Math.max(1, parseInt(exercise.sets ?? "3") || 3);
     const base = editLoad && editLoad !== "-" ? editLoad : "80%";
     const loads = Array.from({ length: n }, () => base);
@@ -172,6 +183,13 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
       const hasCal = exLib ? exLib.unit_cal : false;
       const hasRep = exLib ? exLib.unit_rep : false;
       const hasKg  = exLib ? exLib.load_kg  : false;
+      const cardioLibTools: string[] = exLib ? [
+        ...(exLib.equip_barbell ? ["Bar"] : []),
+        ...(exLib.equip_db      ? ["DB"]  : []),
+        ...(exLib.equip_kb      ? ["KB"]  : []),
+        ...(exLib.equip_mb      ? ["MB"]  : []),
+        ...(exLib.equip_sb      ? ["SB"]  : []),
+      ] : [];
       const availableUnits = [
         ...(hasMin ? ["min" as const] : []),
         ...(hasCal ? ["cal" as const] : []),
@@ -186,8 +204,11 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
 
       const commitWarmup = (mode: "min" | "cal" | "rep", val?: string, sets?: string, reps?: string, load?: string) => {
         if (mode === "rep") {
+          // Se reps contiene " min"/" cal" (valore time-based precedente), usa il default 10
+          const existingReps = exercise.reps ?? "";
+          const isTimeSaved = existingReps.endsWith(" min") || existingReps.endsWith(" cal");
           onUpdate(exercise.id, "sets",  sets  ?? exercise.sets  ?? "2");
-          onUpdate(exercise.id, "reps",  reps  ?? exercise.reps  ?? "10");
+          onUpdate(exercise.id, "reps",  reps  ?? (isTimeSaved ? "10" : existingReps || "10"));
           onUpdate(exercise.id, "load",  load  ?? exercise.load  ?? "");
         } else {
           onUpdate(exercise.id, "sets",  "");
@@ -230,17 +251,18 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
             <>
               <div className="grid grid-cols-2 gap-2">
                 <div><label className="label">Serie</label><input className="input text-sm text-center" placeholder="2" value={exercise.sets ?? ""} onChange={e => commitWarmup("rep", undefined, e.target.value)} /></div>
-                <div><label className="label">Reps</label><input className="input text-sm text-center" placeholder="10" value={exercise.reps ?? ""} onChange={e => commitWarmup("rep", undefined, undefined, e.target.value)} /></div>
+                <div><label className="label">Reps</label><input className="input text-sm text-center" placeholder="10" value={(exercise.reps ?? "").replace(/ min$| cal$/, "")} onChange={e => commitWarmup("rep", undefined, undefined, e.target.value)} /></div>
               </div>
               {hasKg && (
                 <LoadInput
                   label="Carico"
                   exerciseName={exercise.name}
                   value={editLoad}
-                  onChange={v => { setEditLoad(v); commitLoad(v, editTool); }}
-                  tool={editTool}
+                  onChange={v => { setEditLoad(v); commitLoad(v, effectiveTool); }}
+                  tool={effectiveTool}
                   onToolChange={t => { setEditTool(t); commitLoad(editLoad, t); }}
                   kgOnly
+                  tools={cardioLibTools.length > 0 ? cardioLibTools : undefined}
                 />
               )}
             </>
@@ -362,8 +384,8 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
             label="Carico"
             exerciseName={exercise.name}
             value={editLoad}
-            onChange={v => { setEditLoad(v); commitLoad(v, editTool); }}
-            tool={editTool}
+            onChange={v => { setEditLoad(v); commitLoad(v, effectiveTool); }}
+            tool={effectiveTool}
             onToolChange={t => { setEditTool(t); commitLoad(editLoad, t); }}
             kgOnly={isKgOnly}
             tools={libTools.length > 0 ? libTools : undefined}
@@ -635,16 +657,20 @@ function AddExerciseModal({ section, lib, dayLabel, maxes, onSave, onCancel }: {
     setUnitMode(def as "min" | "cal" | "rep");
   }, [name, warmupType]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Auto-set tool from sub-category (accessories) or exercise name
+  // Auto-set tool from library default_equip, sub-category, or exercise name
   useEffect(() => {
+    const exLib = lookupExercise(lib, name);
+    const libTool = getDefaultTool(exLib);
     if (section.section_type === "accessories") {
-      if (accessoriSub === "manubri") { setLoadTool("DB"); return; }
-      if (accessoriSub === "kettlebell") { setLoadTool("KB"); return; }
+      if (libTool) { setLoadTool(libTool); return; }
+      if (accessoriSub === "manubri")    { setLoadTool("DB");  return; }
+      if (accessoriSub === "kettlebell") { setLoadTool("KB");  return; }
+      if (accessoriSub === "bilanciere") { setLoadTool("Bar"); return; }
       setLoadTool("");
       return;
     }
     if (!resolveMaxKey(name)) {
-      setLoadTool(detectTool(name));
+      setLoadTool(libTool || detectTool(name));
     } else {
       setLoadTool("");
     }
@@ -822,17 +848,24 @@ function AddExerciseModal({ section, lib, dayLabel, maxes, onSave, onCancel }: {
               )}
 
               {/* Carico (solo se l'esercizio ha load_kg in libreria e siamo in modalità rep) */}
-              {wuKg && unitMode === "rep" && (
-                <LoadInput
-                  exerciseName={name}
-                  value={load}
-                  onChange={setLoad}
-                  label="Carico"
-                  kgOnly
-                  tool={wuDb ? "DB" : wuKb ? "KB" : loadTool}
-                  onToolChange={(wuDb || wuKb) ? setLoadTool : undefined}
-                />
-              )}
+              {wuKg && unitMode === "rep" && (() => {
+                const wuExLib = lookupExercise(lib, name);
+                const wuTools = getAvailableTools(wuExLib).length > 0
+                  ? getAvailableTools(wuExLib)
+                  : [...(wuDb ? ["DB"] : []), ...(wuKb ? ["KB"] : [])];
+                return (
+                  <LoadInput
+                    exerciseName={name}
+                    value={load}
+                    onChange={setLoad}
+                    label="Carico"
+                    kgOnly
+                    tool={loadTool}
+                    onToolChange={wuTools.length > 0 ? setLoadTool : undefined}
+                    tools={wuTools.length > 0 ? wuTools : undefined}
+                  />
+                );
+              })()}
             </>
           );
         })()}
@@ -1254,23 +1287,51 @@ const mkCardioRow    = (name = "", unitMode: "min" | "cal" | "rep" = "min", tool
   ({ name, minutes: "5", unitMode, sets: "2", reps: "10", load: defaultLoadForTool(tool), tool, notes: "" });
 const mkMobilitaRow  = (name = ""): MobilitaRow  => ({ name, sets: "2", reps: "10", notes: "" });
 const defaultLoadForTool = (tool: string): string =>
-  tool === "DB" ? "10" : tool === "KB" ? "12" : "-";
+  tool === "DB" ? "10" : tool === "KB" ? "12" : tool === "MB" ? "4" : tool === "SB" ? "10" : "-";
 
-const mkForzaRow     = (name = ""): ForzaRow     => {
-  const tool = resolveMaxKey(name) ? ("" as const) : detectTool(name);
+// Returns the default tool string from ExerciseLibrary, using default_equip first, then first available equip flag
+function getDefaultTool(exLib: ExerciseLibrary | undefined): string {
+  if (!exLib) return "";
+  if (exLib.default_equip) {
+    const m: Record<string, string> = { barbell: "Bar", db: "DB", kb: "KB", mb: "MB", sb: "SB" };
+    return m[exLib.default_equip] ?? "";
+  }
+  if (exLib.equip_barbell) return "Bar";
+  if (exLib.equip_db)      return "DB";
+  if (exLib.equip_kb)      return "KB";
+  if (exLib.equip_mb)      return "MB";
+  if (exLib.equip_sb)      return "SB";
+  return "";
+}
+
+// Returns all available tool strings from ExerciseLibrary equip flags
+function getAvailableTools(exLib: ExerciseLibrary | undefined): string[] {
+  if (!exLib) return [];
+  return [
+    ...(exLib.equip_barbell ? ["Bar"] : []),
+    ...(exLib.equip_db      ? ["DB"]  : []),
+    ...(exLib.equip_kb      ? ["KB"]  : []),
+    ...(exLib.equip_mb      ? ["MB"]  : []),
+    ...(exLib.equip_sb      ? ["SB"]  : []),
+  ];
+}
+
+// lib-aware factory helpers — accept optional exLib for library-driven defaults
+const mkForzaRow = (name = "", exLib?: ExerciseLibrary): ForzaRow => {
+  const tool = resolveMaxKey(name) ? "" : (getDefaultTool(exLib) || detectTool(name));
   const load = resolveMaxKey(name) ? "80%" : defaultLoadForTool(tool);
   return { name, sets: "3", reps: "5", load, rest: "120", notes: "", progressive: false, loads: [], tool };
 };
-const mkAccessoriRow = (name = "", tool: string = ""): AccessoriRow => {
-  const effectiveTool = tool || detectTool(name);
+const mkAccessoriRow = (name = "", tool: string = "", exLib?: ExerciseLibrary): AccessoriRow => {
+  const effectiveTool = tool || getDefaultTool(exLib) || detectTool(name);
   return { name, sets: "3", reps: "12", load: defaultLoadForTool(effectiveTool), rest: "60", notes: "", tool: effectiveTool };
 };
-const mkCoreRow      = (name = ""): CoreRow      => {
-  const tool = detectTool(name);
+const mkCoreRow = (name = "", exLib?: ExerciseLibrary): CoreRow => {
+  const tool = getDefaultTool(exLib) || detectTool(name);
   return { name, sets: "3", reps: "15", load: defaultLoadForTool(tool), rest: "30", notes: "", tool };
 };
-const mkWorkoutRow   = (name = ""): WorkoutRow   => {
-  const tool = detectTool(name);
+const mkWorkoutRow = (name = "", exLib?: ExerciseLibrary): WorkoutRow => {
+  const tool = getDefaultTool(exLib) || detectTool(name);
   return { name, reps: "10", load: defaultLoadForTool(tool), rounds: "3", minutes: "10", notes: "", tool };
 };
 
@@ -1304,32 +1365,32 @@ function buildInitialState(lib: LibraryMap, dayLabel = ""): BulkState {
       cardio: pickPadded("WARMUP", "CARDIO", 2).map(name => {
         const ex = lib[libKey("WARMUP", "CARDIO")]?.find(e => e.name === name);
         const unitMode = (ex?.default_unit ?? "min") as "min" | "cal" | "rep";
-        const tool = ex?.equip_db ? "DB" : ex?.equip_kb ? "KB" : "";
+        const tool = getDefaultTool(ex) || detectTool(name);
         return mkCardioRow(name, unitMode, tool);
       }),
       mobilita: pickPadded("WARMUP", "MOBILITÀ", 4, dayFilter).map(mkMobilitaRow),
       attivazione: getRandom(getLibNames(lib, "WARMUP", "ATTIVAZIONE", dayFilter), 2).map(mkMobilitaRow),
     },
     forza: {
-      rows: pickPadded("FORZA", forza.libSub, 3).map(mkForzaRow),
+      rows: pickPadded("FORZA", forza.libSub, 3).map(n => mkForzaRow(n, lookupExercise(lib, n))),
       libSub: forza.libSub,
       tag: forza.tag,
       label: forza.label,
     },
     accessori: {
-      bodyweight: pickPadded("ACCESSORI", "BODYWEIGHT", 1).map(n => mkAccessoriRow(n, "")),
-      manubri: pickPadded("ACCESSORI", "MANUBRI", 3).map(n => mkAccessoriRow(n, "DB")),
-      kettlebell: pickPadded("ACCESSORI", "KETTLEBELL", 3).map(n => mkAccessoriRow(n, "KB")),
-      bilanciere: pickPadded("ACCESSORI", "BILANCIERE", 2).map(n => mkAccessoriRow(n, "")),
+      bodyweight: pickPadded("ACCESSORI", "BODYWEIGHT", 1).map(n => mkAccessoriRow(n, getDefaultTool(lookupExercise(lib, n)))),
+      manubri:    pickPadded("ACCESSORI", "MANUBRI",    3).map(n => mkAccessoriRow(n, getDefaultTool(lookupExercise(lib, n)) || "DB")),
+      kettlebell: pickPadded("ACCESSORI", "KETTLEBELL", 3).map(n => mkAccessoriRow(n, getDefaultTool(lookupExercise(lib, n)) || "KB")),
+      bilanciere: pickPadded("ACCESSORI", "BILANCIERE", 2).map(n => mkAccessoriRow(n, getDefaultTool(lookupExercise(lib, n)) || "Bar")),
     },
-    core: pickPadded("CORE TRAINING", null, 4).map(mkCoreRow),
+    core: pickPadded("CORE TRAINING", null, 4).map(n => mkCoreRow(n, lookupExercise(lib, n))),
     workout: (() => {
       const allWk = getLibNames(lib, "WORKOUT", null);
       const pickWk = (sub: string, n: number) => {
         const specific = getLibNames(lib, "WORKOUT", sub);
         const pool = specific.length ? specific : allWk;
         const picked = getRandom(pool, n);
-        return [...picked, ...Array(Math.max(0, n - picked.length)).fill("")].map(mkWorkoutRow);
+        return [...picked, ...Array(Math.max(0, n - picked.length)).fill("")].map(n => mkWorkoutRow(n, lookupExercise(lib, n)));
       };
       return {
         blocks: [
@@ -1862,7 +1923,7 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, maxes, onSave, onCan
     setState(prev => ({ ...prev, forza: { ...prev.forza, rows: prev.forza.rows.filter((_, i) => i !== idx) } }));
 
   const addA = (sub: keyof BulkState["accessori"]) => {
-    const defaultTool: string = sub === "manubri" ? "DB" : sub === "kettlebell" ? "KB" : "";
+    const defaultTool: string = sub === "manubri" ? "DB" : sub === "kettlebell" ? "KB" : sub === "bilanciere" ? "Bar" : "";
     setState(prev => ({
       ...prev,
       accessori: { ...prev.accessori, [sub]: [...(prev.accessori[sub] as AccessoriRow[]), mkAccessoriRow("", defaultTool)] },
@@ -1913,7 +1974,7 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, maxes, onSave, onCan
       const pool = specific.length ? specific : getWorkoutNames(lib);
       const picked = getRandom(pool, 6);
       const names = [...picked, ...Array(Math.max(0, 6 - picked.length)).fill("")];
-      const newBlock: WorkoutBlock = { subtype, capTime: "15", rows: names.map(mkWorkoutRow) };
+      const newBlock: WorkoutBlock = { subtype, capTime: "15", rows: names.map(n => mkWorkoutRow(n, lookupExercise(lib, n))) };
       return { ...prev, workout: { blocks: [...prev.workout.blocks, newBlock] } };
     });
   };
@@ -1972,8 +2033,12 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, maxes, onSave, onCan
         const hasCal  = exLib ? exLib.unit_cal : false;
         const hasRep  = exLib ? exLib.unit_rep : false;
         const hasKg   = exLib ? exLib.load_kg   : false;
-        const hasDb   = exLib ? exLib.equip_db  : false;
-        const hasKb   = exLib ? exLib.equip_kb  : false;
+        const hasDb   = exLib ? exLib.equip_db      : false;
+        const hasKb   = exLib ? exLib.equip_kb      : false;
+        const hasBar  = exLib ? exLib.equip_barbell : false;
+        const hasMb   = exLib ? exLib.equip_mb      : false;
+        const hasSb   = exLib ? exLib.equip_sb      : false;
+        const cardioTools = getAvailableTools(exLib);
         const available = [
           ...(hasMin ? ["min" as const] : []),
           ...(hasCal ? ["cal" as const] : []),
@@ -1990,7 +2055,7 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, maxes, onSave, onCan
                 onChange={v => {
                   const ex = lookupExercise(lib, v);
                   const def = (ex?.default_unit ?? "min") as "min" | "cal" | "rep";
-                  const t: string = ex?.equip_db ? "DB" : ex?.equip_kb ? "KB" : "";
+                  const t: string = getDefaultTool(ex) || detectTool(v);
                   updW("cardio", i, { name: v, unitMode: def, tool: t, load: defaultLoadForTool(t) });
                 }}
                 suggestions={getLibNames(lib, "WARMUP", "CARDIO")}
@@ -2040,8 +2105,9 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, maxes, onSave, onCan
                 onChange={v => updW("cardio", i, { load: v })}
                 label="Carico"
                 kgOnly
-                tool={hasDb || hasKb ? row.tool : undefined}
-                onToolChange={hasDb || hasKb ? (t) => updW("cardio", i, { tool: t }) : undefined}
+                tool={cardioTools.length > 0 ? row.tool : undefined}
+                onToolChange={cardioTools.length > 0 ? (t) => updW("cardio", i, { tool: t }) : undefined}
+                tools={cardioTools.length > 0 ? cardioTools : undefined}
               />
             )}
             <BulkNoteField value={row.notes} onChange={v => updW("cardio", i, { notes: v })} />
