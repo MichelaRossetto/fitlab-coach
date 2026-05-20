@@ -598,7 +598,7 @@ function AddExerciseModal({ section, lib, dayLabel, maxes, onSave, onCancel }: {
   const [sets, setSets] = useState("");
   const [reps, setReps] = useState("");
   const [load, setLoad] = useState("");
-  const [loadTool, setLoadTool] = useState<"" | "DB" | "KB">("");
+  const [loadTool, setLoadTool] = useState<string>("");
   const [rest, setRest] = useState("");
   const [progressive, setProgressive] = useState(false);
   const [progressiveLoads, setProgressiveLoads] = useState<string[]>([]);
@@ -690,7 +690,7 @@ function AddExerciseModal({ section, lib, dayLabel, maxes, onSave, onCancel }: {
   const isWorkout = section.section_type === "workout";
   const accLoadType = accessoriSub === "bodyweight" ? "none" : accessoriSub === "bilanciere" ? "free" : "select";
 
-  const buildLoad = (rawLoad: string, toolOverride?: "" | "DB" | "KB") => {
+  const buildLoad = (rawLoad: string, toolOverride?: string) => {
     const effectiveTool = toolOverride ?? loadTool;
     const baseLoad = progressive && progressiveLoads.length ? progressiveLoads.join("|") : rawLoad;
     const effectiveMode = detectLoadMode(baseLoad) ?? "kg";
@@ -1213,12 +1213,12 @@ function getRandom<T>(arr: T[], n: number): T[] {
 // ─── Bulk Add Modal ───────────────────────────────────────────
 
 // Row types per sub-section
-interface CardioRow    { name: string; minutes: string; unitMode: "min" | "cal" | "rep"; sets: string; reps: string; load: string; tool: "" | "DB" | "KB"; notes: string }
+interface CardioRow    { name: string; minutes: string; unitMode: "min" | "cal" | "rep"; sets: string; reps: string; load: string; tool: string; notes: string }
 interface MobilitaRow  { name: string; sets: string; reps: string; notes: string }
-interface ForzaRow     { name: string; sets: string; reps: string; load: string; rest: string; notes: string; progressive: boolean; loads: string[]; tool: "" | "DB" | "KB" }
-interface AccessoriRow { name: string; sets: string; reps: string; load: string; rest: string; notes: string; tool: "" | "DB" | "KB" }
-interface CoreRow      { name: string; sets: string; reps: string; load: string; rest: string; notes: string; tool: "" | "DB" | "KB" }
-interface WorkoutRow   { name: string; reps: string; load: string; rounds: string; minutes: string; notes: string; tool: "" | "DB" | "KB" }
+interface ForzaRow     { name: string; sets: string; reps: string; load: string; rest: string; notes: string; progressive: boolean; loads: string[]; tool: string }
+interface AccessoriRow { name: string; sets: string; reps: string; load: string; rest: string; notes: string; tool: string }
+interface CoreRow      { name: string; sets: string; reps: string; load: string; rest: string; notes: string; tool: string }
+interface WorkoutRow   { name: string; reps: string; load: string; rounds: string; minutes: string; notes: string; tool: string }
 
 interface WorkoutBlock {
   subtype: WorkoutSubtype;
@@ -1250,10 +1250,10 @@ interface BulkState {
   };
 }
 
-const mkCardioRow    = (name = "", unitMode: "min" | "cal" | "rep" = "min", tool: "" | "DB" | "KB" = ""): CardioRow =>
+const mkCardioRow    = (name = "", unitMode: "min" | "cal" | "rep" = "min", tool: string = ""): CardioRow =>
   ({ name, minutes: "5", unitMode, sets: "2", reps: "10", load: defaultLoadForTool(tool), tool, notes: "" });
 const mkMobilitaRow  = (name = ""): MobilitaRow  => ({ name, sets: "2", reps: "10", notes: "" });
-const defaultLoadForTool = (tool: "" | "DB" | "KB"): string =>
+const defaultLoadForTool = (tool: string): string =>
   tool === "DB" ? "10" : tool === "KB" ? "12" : "-";
 
 const mkForzaRow     = (name = ""): ForzaRow     => {
@@ -1261,7 +1261,7 @@ const mkForzaRow     = (name = ""): ForzaRow     => {
   const load = resolveMaxKey(name) ? "80%" : defaultLoadForTool(tool);
   return { name, sets: "3", reps: "5", load, rest: "120", notes: "", progressive: false, loads: [], tool };
 };
-const mkAccessoriRow = (name = "", tool: "" | "DB" | "KB" = ""): AccessoriRow => {
+const mkAccessoriRow = (name = "", tool: string = ""): AccessoriRow => {
   const effectiveTool = tool || detectTool(name);
   return { name, sets: "3", reps: "12", load: defaultLoadForTool(effectiveTool), rest: "60", notes: "", tool: effectiveTool };
 };
@@ -1630,7 +1630,7 @@ function calcKgFromPct(pctStr: string, maxKg: number): string {
 }
 
 // Detects default tool (DB/KB) from exercise name keywords.
-function detectTool(name: string): "" | "DB" | "KB" {
+function detectTool(name: string): string {
   const n = name.toLowerCase();
   if (n.includes("manubri") || n.includes("manubrio") || n.includes("bulgarian") || /\bdb\b/.test(n)) return "DB";
   if (/\bkb\b/.test(n)) return "KB";
@@ -1862,7 +1862,7 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, maxes, onSave, onCan
     setState(prev => ({ ...prev, forza: { ...prev.forza, rows: prev.forza.rows.filter((_, i) => i !== idx) } }));
 
   const addA = (sub: keyof BulkState["accessori"]) => {
-    const defaultTool: "" | "DB" | "KB" = sub === "manubri" ? "DB" : sub === "kettlebell" ? "KB" : "";
+    const defaultTool: string = sub === "manubri" ? "DB" : sub === "kettlebell" ? "KB" : "";
     setState(prev => ({
       ...prev,
       accessori: { ...prev.accessori, [sub]: [...(prev.accessori[sub] as AccessoriRow[]), mkAccessoriRow("", defaultTool)] },
@@ -1990,7 +1990,7 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, maxes, onSave, onCan
                 onChange={v => {
                   const ex = lookupExercise(lib, v);
                   const def = (ex?.default_unit ?? "min") as "min" | "cal" | "rep";
-                  const t: "" | "DB" | "KB" = ex?.equip_db ? "DB" : ex?.equip_kb ? "KB" : "";
+                  const t: string = ex?.equip_db ? "DB" : ex?.equip_kb ? "KB" : "";
                   updW("cardio", i, { name: v, unitMode: def, tool: t, load: defaultLoadForTool(t) });
                 }}
                 suggestions={getLibNames(lib, "WARMUP", "CARDIO")}
