@@ -136,6 +136,10 @@ export default function EserciziPage() {
     fetchExercises();
   };
 
+  const handleUpdate = useCallback((updated: ExerciseLibrary) => {
+    setExercises(prev => prev.map(e => e.id === updated.id ? updated : e));
+  }, []);
+
   const toggleCategory = (cat: string) => setOpenCategories(p => ({ ...p, [cat]: !p[cat] }));
   const toggleSub = (cat: string, sub: string) => setOpenSubs(p => ({ ...p, [`${cat}__${sub}`]: !p[`${cat}__${sub}`] }));
   const toggleZone = (cat: string, sub: string, zone: string) => setOpenZones(p => ({ ...p, [`${cat}__${sub}__${zone}`]: !p[`${cat}__${sub}__${zone}`] }));
@@ -165,7 +169,8 @@ export default function EserciziPage() {
       setOpenSubs({});
       setOpenZones({});
     }
-  }, [search, exercises]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search]); // solo search: exercises non deve collassare le sezioni aperte
 
   // Raggruppa: category → subcategory → sub_subcategory → esercizi
   const grouped = LIBRARY_CATEGORIES.reduce((acc, cat) => {
@@ -283,7 +288,7 @@ export default function EserciziPage() {
                               {isSubOpen && (
                                 sub === "CARDIO" ? (
                                   <div className="mx-4 mb-3 rounded-xl border border-gray-100 dark:border-gray-700 overflow-hidden">
-                                    {subData["_"].map((ex: ExerciseLibrary) => <ExerciseRow key={ex.id} ex={ex} onDelete={() => setDeleteId(ex.id)} />)}
+                                    {subData["_"].map((ex: ExerciseLibrary) => <ExerciseRow key={ex.id} ex={ex} onDelete={() => setDeleteId(ex.id)} onUpdate={handleUpdate} />)}
                                   </div>
                                 ) : (
                                   <div className="mx-4 mb-3 space-y-2">
@@ -300,7 +305,7 @@ export default function EserciziPage() {
                                             </div>
                                             <svg className={`text-gray-400 transition-transform ${isZoneOpen ? "rotate-90" : ""}`} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 18l6-6-6-6"/></svg>
                                           </button>
-                                          {isZoneOpen && zoneExs.map((ex: ExerciseLibrary) => <ExerciseRow key={ex.id} ex={ex} onDelete={() => setDeleteId(ex.id)} />)}
+                                          {isZoneOpen && zoneExs.map((ex: ExerciseLibrary) => <ExerciseRow key={ex.id} ex={ex} onDelete={() => setDeleteId(ex.id)} onUpdate={handleUpdate} />)}
                                         </div>
                                       );
                                     })}
@@ -327,7 +332,7 @@ export default function EserciziPage() {
                               </button>
                               {isSubOpen && (
                                 <div className="mx-4 mb-3 rounded-xl border border-gray-100 dark:border-gray-700 overflow-hidden">
-                                  {subExs.map((ex: ExerciseLibrary) => <ExerciseRow key={ex.id} ex={ex} onDelete={() => setDeleteId(ex.id)} />)}
+                                  {subExs.map((ex: ExerciseLibrary) => <ExerciseRow key={ex.id} ex={ex} onDelete={() => setDeleteId(ex.id)} onUpdate={handleUpdate} />)}
                                 </div>
                               )}
                             </div>
@@ -335,7 +340,7 @@ export default function EserciziPage() {
                         })
                       ) : (
                         <div className="mx-4 my-3 rounded-xl border border-gray-100 dark:border-gray-700 overflow-hidden">
-                          {grouped[cat]["_"]["_"].map((ex: ExerciseLibrary) => <ExerciseRow key={ex.id} ex={ex} onDelete={() => setDeleteId(ex.id)} />)}
+                          {grouped[cat]["_"]["_"].map((ex: ExerciseLibrary) => <ExerciseRow key={ex.id} ex={ex} onDelete={() => setDeleteId(ex.id)} onUpdate={handleUpdate} />)}
                         </div>
                       )}
                     </div>
@@ -366,16 +371,188 @@ export default function EserciziPage() {
   );
 }
 
-// ─── Riga esercizio ───────────────────────────────────────────
-function ExerciseRow({ ex, onDelete, indent }: { ex: ExerciseLibrary; onDelete: () => void; indent?: boolean }) {
+// ─── Flag config ──────────────────────────────────────────────
+const UNIT_FLAGS = [
+  { key: "unit_min" as const, label: "MIN", defVal: "min" as const },
+  { key: "unit_cal" as const, label: "CAL", defVal: "cal" as const },
+  { key: "unit_rep" as const, label: "REP", defVal: "rep" as const },
+];
+const LOAD_FLAGS = [
+  { key: "load_pct" as const, label: "%",   defVal: "pct" as const },
+  { key: "load_rpe" as const, label: "RPE", defVal: "rpe" as const },
+  { key: "load_kg"  as const, label: "KG",  defVal: "kg"  as const },
+];
+const EQUIP_FLAGS = [
+  { key: "equip_barbell" as const, label: "Bilanciere" },
+  { key: "equip_db"      as const, label: "DB" },
+  { key: "equip_kb"      as const, label: "KB" },
+  { key: "equip_mb"      as const, label: "MB" },
+  { key: "equip_sb"      as const, label: "SB" },
+];
+
+// Pallino colorato nella riga collassata: indica quante sezioni hanno flag configurati
+function FlagDots({ ex }: { ex: ExerciseLibrary }) {
+  const hasUnit  = ex.unit_min || ex.unit_cal || ex.unit_rep;
+  const hasLoad  = ex.load_pct || ex.load_rpe || ex.load_kg;
+  const hasEquip = ex.equip_barbell || ex.equip_db || ex.equip_kb || ex.equip_mb || ex.equip_sb;
+  if (!hasUnit && !hasLoad && !hasEquip) return null;
   return (
-    <div className={`flex items-center justify-between py-3 border-b border-gray-50 dark:border-gray-700/50 last:border-0 ${indent ? "px-8" : "px-4"}`}>
-      <span className="text-sm text-gray-800 dark:text-gray-200">{ex.name}</span>
-      <button onClick={onDelete} className="text-gray-300 hover:text-red-400 transition-colors p-1">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/>
+    <div className="flex items-center gap-1 ml-2">
+      {hasUnit  && <span className="w-1.5 h-1.5 rounded-full bg-blue-400" title="Volume configurato" />}
+      {hasLoad  && <span className="w-1.5 h-1.5 rounded-full bg-orange-400" title="Carico configurato" />}
+      {hasEquip && <span className="w-1.5 h-1.5 rounded-full bg-purple-400" title="Attrezzo configurato" />}
+    </div>
+  );
+}
+
+// Chip a 3 stati: "off" (grigio) → "on" (colore sezione) → "default" (ambra ★) → "off"
+// Per le sezioni senza default (attrezzo): solo "off" ↔ "on"
+function FlagChip({
+  label, state, onColor, onToggle,
+}: {
+  label: string;
+  state: "off" | "on" | "default";
+  onColor: string;
+  onToggle: () => void;
+}) {
+  const bg =
+    state === "default" ? "#F59E0B" :
+    state === "on"      ? onColor   : undefined;
+
+  return (
+    <button
+      onClick={e => { e.stopPropagation(); onToggle(); }}
+      title={state === "off" ? "Click per abilitare" : state === "on" ? "Click per impostare come default" : "Default (click per disabilitare)"}
+      className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold border transition-all select-none ${
+        state === "off"
+          ? "bg-gray-100 border-gray-200 text-gray-400 dark:bg-gray-800 dark:border-gray-700"
+          : "text-white border-transparent"
+      }`}
+      style={bg ? { backgroundColor: bg } : {}}
+    >
+      {label}
+      {state === "default" && <span style={{ fontSize: "9px" }}>★</span>}
+    </button>
+  );
+}
+
+// ─── Riga esercizio ───────────────────────────────────────────
+function ExerciseRow({ ex: initialEx, onDelete, onUpdate }: {
+  ex: ExerciseLibrary;
+  onDelete: () => void;
+  onUpdate: (ex: ExerciseLibrary) => void;
+}) {
+  const [ex, setEx] = useState(initialEx);
+  const [expanded, setExpanded] = useState(false);
+
+  useEffect(() => { setEx(initialEx); }, [initialEx]);
+
+  const save = async (patch: Partial<ExerciseLibrary>) => {
+    const optimistic = { ...ex, ...patch };
+    setEx(optimistic);
+    const { data } = await supabase
+      .from("exercise_library")
+      .update(patch)
+      .eq("id", ex.id)
+      .select()
+      .single();
+    if (data) { setEx(data); onUpdate(data); }
+  };
+
+  // Ciclo 3 stati: off → on → default → off
+  const toggleUnit = (key: typeof UNIT_FLAGS[number]["key"], defVal: "min" | "cal" | "rep") => {
+    if (!ex[key])                        save({ [key]: true });                              // off → on
+    else if (ex.default_unit !== defVal) save({ default_unit: defVal });                    // on  → default
+    else                                 save({ [key]: false, default_unit: null });         // default → off
+  };
+  const toggleLoad = (key: typeof LOAD_FLAGS[number]["key"], defVal: "pct" | "rpe" | "kg") => {
+    if (!ex[key])                        save({ [key]: true });
+    else if (ex.default_load !== defVal) save({ default_load: defVal });
+    else                                 save({ [key]: false, default_load: null });
+  };
+  const toggleEquip = (key: typeof EQUIP_FLAGS[number]["key"]) => save({ [key]: !ex[key] });
+
+  return (
+    <div className="border-b border-gray-50 dark:border-gray-700/50 last:border-0">
+      {/* Riga collassata */}
+      <div
+        className="flex items-center gap-2 px-4 py-3 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors"
+        onClick={() => setExpanded(v => !v)}
+      >
+        <svg
+          className={`text-gray-300 flex-shrink-0 transition-transform ${expanded ? "rotate-90" : ""}`}
+          width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
+        >
+          <path d="M9 18l6-6-6-6"/>
         </svg>
-      </button>
+        <span className="text-sm text-gray-800 dark:text-gray-200 flex-1">{ex.name}</span>
+        <FlagDots ex={ex} />
+        <button
+          onClick={e => { e.stopPropagation(); onDelete(); }}
+          className="text-gray-300 hover:text-red-400 transition-colors p-1 ml-1"
+        >
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/>
+          </svg>
+        </button>
+      </div>
+
+      {/* Pannello flag */}
+      {expanded && (
+        <div className="px-4 pb-3 space-y-3 bg-gray-50/50 dark:bg-gray-800/30">
+          {/* Sezione VOLUME */}
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-blue-400 mb-1.5">
+              Volume <span className="font-normal text-gray-400 normal-case tracking-normal">· 1 click = abilita · 2 click = default ★</span>
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {UNIT_FLAGS.map(f => (
+                <FlagChip
+                  key={f.key}
+                  label={f.label}
+                  state={!ex[f.key] ? "off" : ex.default_unit === f.defVal ? "default" : "on"}
+                  onColor="#3B82F6"
+                  onToggle={() => toggleUnit(f.key, f.defVal)}
+                />
+              ))}
+            </div>
+          </div>
+
+          {/* Sezione CARICO */}
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-green-500 mb-1.5">
+              Carico <span className="font-normal text-gray-400 normal-case tracking-normal">· 1 click = abilita · 2 click = default ★</span>
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {LOAD_FLAGS.map(f => (
+                <FlagChip
+                  key={f.key}
+                  label={f.label}
+                  state={!ex[f.key] ? "off" : ex.default_load === f.defVal ? "default" : "on"}
+                  onColor="#10B981"
+                  onToggle={() => toggleLoad(f.key, f.defVal)}
+                />
+              ))}
+            </div>
+          </div>
+
+          {/* Sezione ATTREZZO */}
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-purple-400 mb-1.5">Attrezzo</p>
+            <div className="flex flex-wrap gap-1.5">
+              {EQUIP_FLAGS.map(f => (
+                <FlagChip
+                  key={f.key}
+                  label={f.label}
+                  state={ex[f.key] ? "on" : "off"}
+                  onColor="#8B5CF6"
+                  onToggle={() => toggleEquip(f.key)}
+                />
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

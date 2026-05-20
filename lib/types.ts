@@ -151,6 +151,22 @@ export interface ExerciseLibrary {
   category: string;
   subcategory: string | null;
   sub_subcategory: string | null;
+  // Volume unit
+  unit_min: boolean;
+  unit_cal: boolean;
+  unit_rep: boolean;
+  default_unit: "min" | "cal" | "rep" | null;
+  // Load type
+  load_pct: boolean;
+  load_rpe: boolean;
+  load_kg: boolean;
+  default_load: "pct" | "rpe" | "kg" | null;
+  // Equipment
+  equip_barbell: boolean;
+  equip_db: boolean;
+  equip_kb: boolean;
+  equip_mb: boolean;
+  equip_sb: boolean;
 }
 
 export const LIBRARY_CATEGORIES = ["WARMUP", "FORZA", "ACCESSORI", "CORE TRAINING", "WORKOUT"] as const;
