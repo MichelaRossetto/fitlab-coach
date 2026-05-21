@@ -1296,6 +1296,16 @@ function SectionBlock({ section, lib, editingExId, maxes, onToggleEdit, onUpdate
       if (cap) capTimeBySubtype[s] = cap;
     });
   }
+  // Mappa subtype → rounds (dal campo sets del primo esercizio del gruppo fortime)
+  const roundsBySubtype: Record<string, string> = {};
+  if (section.section_type === "workout") {
+    (section.exercises ?? []).forEach(ex => {
+      const { group } = parseExerciseGroup(ex.notes);
+      if (group === "fortime" && ex.sets && !roundsBySubtype["fortime"]) {
+        roundsBySubtype["fortime"] = ex.sets;
+      }
+    });
+  }
 
   const subtypeLabel = section.section_type === "workout" && section.section_subtype
     ? (() => {
@@ -1370,7 +1380,8 @@ function SectionBlock({ section, lib, editingExId, maxes, onToggleEdit, onUpdate
                     <div className="px-4 pt-2 pb-0.5">
                       <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color }}>
                         {GROUP_LABELS[ex._group!] ?? ex._group}
-                        {ex._group && capTimeBySubtype[ex._group] ? ` · ${capTimeBySubtype[ex._group]} min` : ""}
+                        {ex._group === "fortime" && roundsBySubtype["fortime"] ? ` · ${roundsBySubtype["fortime"]} rounds` : ""}
+                        {ex._group && capTimeBySubtype[ex._group] ? ` · cap ${capTimeBySubtype[ex._group]} min` : ""}
                       </span>
                     </div>
                   )}
@@ -1516,6 +1527,7 @@ interface WorkoutRow   { name: string; reps: string; load: string; rounds: strin
 interface WorkoutBlock {
   subtype: WorkoutSubtype;
   capTime: string;
+  rounds: string;
   rows: WorkoutRow[];
 }
 
@@ -1713,10 +1725,7 @@ function buildInitialState(lib: LibraryMap, dayLabel = ""): BulkState {
         return [...picked, ...Array(Math.max(0, n - picked.length)).fill("")].map(n => mkWorkoutRow(n, lookupExercise(lib, n)));
       };
       return {
-        blocks: [
-          { subtype: "amrap" as const, capTime: "15", rows: pickWk("AMRAP", 6) },
-          { subtype: "emom" as const,  capTime: "12", rows: pickWk("EMOM", 6)  },
-        ],
+        blocks: [],
       };
     })(),
   };
@@ -2432,15 +2441,23 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, maxes, onSave, onCan
     setState(prev => {
       const existing = prev.workout.blocks.find(b => b.subtype === subtype);
       if (existing) {
-        if (prev.workout.blocks.length <= 1) return prev; // keep at least 1
         return { ...prev, workout: { blocks: prev.workout.blocks.filter(b => b.subtype !== subtype) } };
       }
       if (prev.workout.blocks.length >= 2) return prev; // max 2
+      const isLiss = subtype === "cardioliss";
       const specific = getLibNames(lib, "WORKOUT", WORKOUT_LIB_SUB[subtype]);
-      const pool = specific.length ? specific : getWorkoutNames(lib);
-      const picked = getRandom(pool, 6);
-      const names = [...picked, ...Array(Math.max(0, 6 - picked.length)).fill("")];
-      const newBlock: WorkoutBlock = { subtype, capTime: "15", rows: names.map(n => mkWorkoutRow(n, lookupExercise(lib, n))) };
+      // Cardio LISS: cerca esercizi con "liss" nel nome in tutta la libreria (non solo sottocategoria)
+      const allWorkout = getWorkoutNames(lib);
+      const lissPool = isLiss
+        ? getAllLibNames(lib).filter(n => n.toLowerCase().includes("liss"))
+        : [];
+      const pool = isLiss
+        ? (lissPool.length ? lissPool : (specific.length ? specific : allWorkout))
+        : (specific.length ? specific : allWorkout);
+      const count = isLiss ? 3 : 6;
+      const picked = getRandom(pool, count);
+      const names = [...picked, ...Array(Math.max(0, count - picked.length)).fill("")];
+      const newBlock: WorkoutBlock = { subtype, capTime: "15", rounds: "3", rows: names.map(n => mkWorkoutRow(n, lookupExercise(lib, n))) };
       return { ...prev, workout: { blocks: [...prev.workout.blocks, newBlock] } };
     });
   };
@@ -2931,7 +2948,7 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, maxes, onSave, onCan
       <div className="space-y-4">
         {/* Multi-select pill buttons (max 2) */}
         <div>
-          <p className="text-[10px] text-gray-400 mb-1.5 uppercase tracking-wide">Seleziona tipo (max 2)</p>
+          <p className="text-[10px] text-gray-400 mb-1.5 uppercase tracking-wide">Seleziona tipo (max 2, nessuno = niente workout)</p>
           <div className="flex gap-1.5 flex-wrap">
             {(["amrap", "emom", "fortime", "cardioliss"] as WorkoutSubtype[]).map(t => {
               const isActive = activeSubtypes.includes(t);
@@ -2957,35 +2974,52 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, maxes, onSave, onCan
           </div>
         </div>
 
+        {/* Messaggio nessun workout */}
+        {blocks.length === 0 && (
+          <p className="text-xs text-gray-400 text-center py-3">Nessun workout selezionato — il giorno non avrà sezione workout.</p>
+        )}
+
         {/* Per-block rows */}
         {blocks.map((block, blockIdx) => {
           const isCardioliss = block.subtype === "cardioliss";
           return (
             <div key={block.subtype} className="space-y-2">
-              {/* Block header with cap time */}
+              {/* Block header with rounds (fortime only) + cap time */}
               <div className="flex items-center gap-2">
                 <span className="text-xs font-bold uppercase tracking-wider" style={{ color }}>
                   {WORKOUT_SUBTYPE_LABELS[block.subtype]}
                 </span>
-                {!isCardioliss && (
-                  <div className="flex items-center gap-1 ml-auto">
-                    <label className="text-[10px] text-gray-400">Cap:</label>
-                    <input
-                      className="input text-xs w-16 text-center"
-                      value={block.capTime}
-                      onChange={e => setState(prev => ({
-                        ...prev,
-                        workout: {
-                          blocks: prev.workout.blocks.map((b, bi) =>
-                            bi === blockIdx ? { ...b, capTime: e.target.value } : b
-                          ),
-                        },
-                      }))}
-                      placeholder="15"
-                    />
-                    <span className="text-[10px] text-gray-400">min</span>
-                  </div>
-                )}
+                <div className="flex items-center gap-2 ml-auto">
+                  {block.subtype === "fortime" && (
+                    <div className="flex items-center gap-1">
+                      <input
+                        className="input text-xs w-12 text-center"
+                        value={block.rounds}
+                        onChange={e => setState(prev => ({
+                          ...prev,
+                          workout: { blocks: prev.workout.blocks.map((b, bi) => bi === blockIdx ? { ...b, rounds: e.target.value } : b) },
+                        }))}
+                        placeholder="3"
+                      />
+                      <span className="text-[10px] text-gray-400">rounds</span>
+                    </div>
+                  )}
+                  {!isCardioliss && (
+                    <div className="flex items-center gap-1">
+                      <label className="text-[10px] text-gray-400">Cap:</label>
+                      <input
+                        className="input text-xs w-14 text-center"
+                        value={block.capTime}
+                        onChange={e => setState(prev => ({
+                          ...prev,
+                          workout: { blocks: prev.workout.blocks.map((b, bi) => bi === blockIdx ? { ...b, capTime: e.target.value } : b) },
+                        }))}
+                        placeholder="15"
+                      />
+                      <span className="text-[10px] text-gray-400">min</span>
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* Rows */}
@@ -3027,7 +3061,6 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, maxes, onSave, onCan
                     ) : block.subtype === "fortime" ? (
                       <div className="space-y-1.5">
                         <div className="flex gap-2 items-center flex-wrap">
-                          <input className="input text-xs w-16 text-center flex-shrink-0" value={row.rounds} onChange={e => updWk(blockIdx, rowIdx, { rounds: e.target.value })} placeholder="Rounds" />
                           <AutocompleteInput
                             value={row.name}
                             onChange={v => {
@@ -3527,7 +3560,7 @@ export default function DayPage() {
           toInsert.push({
             section_id: workoutSection.id,
             name: r.name.trim(),
-            sets: isForTime ? (r.rounds?.trim() || null) : null,
+            sets: isForTime ? (block.rounds?.trim() || null) : null,
             reps: isCardioliss ? (r.minutes ? `${r.minutes} min` : null) : (r.reps?.trim() || null),
             load,
             rest_time: null,
