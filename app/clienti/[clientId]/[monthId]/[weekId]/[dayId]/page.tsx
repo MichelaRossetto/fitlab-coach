@@ -138,13 +138,8 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
   const [editLoad, setEditLoad] = useState(isInitProg ? "" : initRawLoad);
   const [editTool, setEditTool] = useState<string>(initTool || detectTool(exercise.name));
 
-  // Tool effettivo: stato utente → default_equip dalla libreria → detectTool dal nome
-  const libDefaultTool = (() => {
-    const exL = lib ? lookupExercise(lib, exercise.name) : undefined;
-    if (!exL?.default_equip) return "";
-    const m: Record<string, string> = { barbell: "Bar", db: "DB", kb: "KB", mb: "MB", sb: "SB" };
-    return m[exL.default_equip] ?? "";
-  })();
+  // Tool effettivo: stato utente → getDefaultTool dalla libreria (default_equip → primo equip flag) → detectTool dal nome
+  const libDefaultTool = getDefaultTool(lib ? lookupExercise(lib, exercise.name) : undefined);
   const effectiveTool = editTool || libDefaultTool;
   const [editProgressive, setEditProgressive] = useState(isInitProg);
   const [editProgLoads, setEditProgLoads] = useState<string[]>(isInitProg ? rawExLoad.split("|") : []);
@@ -174,6 +169,34 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
     const next = editProgLoads.map((l, j) => j === si ? val : l);
     setEditProgLoads(next);
     onUpdate(exercise.id, "load", next.join("|"));
+  };
+
+  // Chiamata quando il nome esercizio cambia: resetta load/tool/progressive dai dati libreria
+  const resetOnNameChange = (newName: string) => {
+    onUpdate(exercise.id, "name", newName);
+    const newExLib = lib ? lookupExercise(lib, newName) : undefined;
+    const isPerf = !!resolveMaxKey(newName);
+    // Solo se troviamo un match esatto in libreria o è un esercizio di performance
+    if (!newExLib && !isPerf) return;
+    const newTool = getDefaultTool(newExLib) || detectTool(newName);
+    const newLoad = newExLib
+      ? (newExLib.default_load === "pct" ? "80%"
+        : newExLib.default_load === "rpe" ? "RPE 7"
+        : defaultLoadForTool(newTool))
+      : (isPerf ? "80%" : defaultLoadForTool(newTool));
+    setEditLoad(newLoad);
+    setEditTool(newTool);
+    // Commit carico in DB
+    const loadMode = detectLoadMode(newLoad) ?? "kg";
+    const toolImplied = detectTool(newName) === newTool;
+    const combined = (newTool && loadMode === "kg" && !toolImplied && newLoad && newLoad !== "-")
+      ? `${newLoad} ${newTool}` : newLoad;
+    onUpdate(exercise.id, "load", combined);
+    // Reset progressivo se il nuovo esercizio non è performance/derivato
+    if (editProgressive && !isPerf && !newExLib?.load_pct) {
+      setEditProgressive(false);
+      setEditProgLoads([]);
+    }
   };
 
   if (editing) {
@@ -222,7 +245,7 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
         <div className="p-3 border-b border-gray-100 last:border-0 space-y-2 bg-amber-50 dark:bg-amber-900/20 dark:border-gray-700">
           <AutocompleteInput
             value={exercise.name}
-            onChange={v => onUpdate(exercise.id, "name", v)}
+            onChange={v => resetOnNameChange(v)}
             suggestions={libSuggestions ?? []}
             globalSuggestions={lib ? getAllLibNames(lib) : undefined}
             strict
@@ -283,7 +306,7 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
         <div className="p-3 border-b border-gray-100 last:border-0 space-y-2 bg-amber-50 dark:bg-amber-900/20 dark:border-gray-700">
           <AutocompleteInput
             value={exercise.name}
-            onChange={v => onUpdate(exercise.id, "name", v)}
+            onChange={v => resetOnNameChange(v)}
             suggestions={libSuggestions ?? []}
             globalSuggestions={lib ? getAllLibNames(lib) : undefined}
             strict
@@ -356,7 +379,7 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
       <div className="p-3 border-b border-gray-100 last:border-0 space-y-2 bg-amber-50 dark:bg-amber-900/20 dark:border-gray-700">
         <AutocompleteInput
           value={exercise.name}
-          onChange={v => onUpdate(exercise.id, "name", v)}
+          onChange={v => resetOnNameChange(v)}
           suggestions={libSuggestions ?? []}
           globalSuggestions={lib ? getAllLibNames(lib) : undefined}
           strict
@@ -395,6 +418,9 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
           />
         )}
 
+        {/* Hint massimale — mostra in edit per tutti i sectionType */}
+        {showLoad && !editProgressive && maxes && <OneRMHint exerciseName={exercise.name} load={editLoad} maxes={maxes} />}
+
         {/* Progressivo — solo Forza */}
         {sectionType === "strength" && (
           <>
@@ -413,7 +439,7 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
                     return (
                       <div key={si}>
                         <label className="label">S{si + 1}</label>
-                        <LoadInput exerciseName={exercise.name} value={pl} onChange={v => updateProgLoad(si, v)} />
+                        <LoadInput exerciseName={exercise.name} value={pl} onChange={v => updateProgLoad(si, v)} libEx={exLibEdit} />
                         {hint && <p className="text-[9px] text-lime-600 dark:text-lime-400 text-center mt-0.5">≈ {hint} kg</p>}
                       </div>
                     );
@@ -421,7 +447,6 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
                 </div>
               </div>
             )}
-            {!editProgressive && maxes && <OneRMHint exerciseName={exercise.name} load={editLoad} maxes={maxes} />}
           </>
         )}
 
@@ -793,7 +818,26 @@ function AddExerciseModal({ section, lib, dayLabel, maxes, onSave, onCancel }: {
         {/* Exercise name */}
         <div>
           <label className="label">Esercizio</label>
-          <AutocompleteInput value={name} onChange={setName} suggestions={suggestions} globalSuggestions={getAllLibNames(lib)} strict placeholder="Cerca dalla libreria..." />
+          <AutocompleteInput
+            value={name}
+            onChange={v => {
+              setName(v);
+              const exLib = lookupExercise(lib, v);
+              const isPerf = !!resolveMaxKey(v);
+              if (exLib || isPerf) {
+                const newLoad = exLib
+                  ? (exLib.default_load === "pct" ? "80%" : exLib.default_load === "rpe" ? "RPE 7" : "")
+                  : (isPerf ? "80%" : "");
+                setLoad(newLoad);
+                setProgressive(false);
+                setProgressiveLoads([]);
+              }
+            }}
+            suggestions={suggestions}
+            globalSuggestions={getAllLibNames(lib)}
+            strict
+            placeholder="Cerca dalla libreria..."
+          />
         </div>
 
         {/* Warmup fields — dinamici da flag libreria */}
