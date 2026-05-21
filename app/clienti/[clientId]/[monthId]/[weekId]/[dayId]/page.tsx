@@ -123,12 +123,12 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
   // unitMode iniziale: derivato dal valore salvato in reps ("5 min" → "min", "50 cal" → "cal")
   // Il check su "min"/"cal" ha priorità su sets, perché sets può essere residuo di salvataggi precedenti
   const initUnitMode = (() => {
-    if (sectionType !== "warmup") return "min" as const;
     const r = exercise.reps ?? "";
     if (r.endsWith(" cal") || r === "cal") return "cal" as const;
     if (r.endsWith(" min") || r === "min") return "min" as const;
-    if (exercise.sets) return "rep" as const;
-    return "min" as const;
+    if (sectionType === "warmup" && exercise.sets) return "rep" as const;
+    // Per sezioni non-warmup: default dalla libreria
+    return getVolumeMode(lib ? lookupExercise(lib, exercise.name) : undefined);
   })();
   const [editUnitMode, setEditUnitMode] = useState<"min" | "cal" | "rep">(initUnitMode);
 
@@ -368,7 +368,9 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
 
     const isBodyweight = noteTag === "bw";
     const exLibEdit = lib ? lookupExercise(lib, exercise.name) : undefined;
-    const editVm = getVolumeMode(exLibEdit);
+    const availVm = getAvailableVmModes(exLibEdit);
+    // editUnitMode è lo stato già inizializzato dalla libreria/dati salvati — usato come vm attivo
+    const activeVm = editUnitMode;
     // Show load: exclude bodyweight; per warmup mostra se libreria ha qualsiasi tipo di carico o esercizio performance
     const exHasAnyLoad = exLibEdit
       ? (exLibEdit.load_pct || exLibEdit.load_rpe || exLibEdit.load_kg)
@@ -383,7 +385,12 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
       <div className="p-3 border-b border-gray-100 last:border-0 space-y-2 bg-amber-50 dark:bg-amber-900/20 dark:border-gray-700">
         <AutocompleteInput
           value={exercise.name}
-          onChange={v => resetOnNameChange(v)}
+          onChange={v => {
+            resetOnNameChange(v);
+            // Reset vm al default libreria quando cambia il nome
+            const newLib = lib ? lookupExercise(lib, v) : undefined;
+            setEditUnitMode(getVolumeMode(newLib));
+          }}
           suggestions={libSuggestions ?? []}
           globalSuggestions={lib ? getAllLibNames(lib) : undefined}
           strict
@@ -391,8 +398,20 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
           className="input text-sm font-medium w-full"
         />
 
+        {/* Toggle unità se l'esercizio ha più modalità disponibili (es. Assault Bike: min/cal) */}
+        {availVm.length > 1 && (
+          <div className="flex gap-1 bg-gray-100 dark:bg-gray-700/50 rounded-lg p-0.5">
+            {availVm.map(m => (
+              <button key={m} onClick={() => setEditUnitMode(m)}
+                className={`flex-1 text-[11px] py-1 rounded-md font-medium transition-colors ${activeVm === m ? "bg-white dark:bg-gray-700 shadow-sm text-gray-700 dark:text-gray-200" : "text-gray-400 dark:text-gray-500"}`}>
+                {m === "min" ? "Minuti" : m === "cal" ? "Calorie" : "Reps"}
+              </button>
+            ))}
+          </div>
+        )}
+
         {/* Volume — library-driven */}
-        {editVm === "rep" ? (
+        {activeVm === "rep" ? (
           <div className={`grid gap-2 ${showRec ? "grid-cols-3" : "grid-cols-2"}`}>
             <div>
               <label className="label">Serie</label>
@@ -411,12 +430,12 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
           </div>
         ) : (
           <div>
-            <label className="label">{editVm === "min" ? "Minuti" : "Calorie"}</label>
+            <label className="label">{activeVm === "min" ? "Minuti" : "Calorie"}</label>
             <input
               className="input text-sm text-center"
-              placeholder={editVm === "min" ? "10" : "50"}
+              placeholder={activeVm === "min" ? "10" : "50"}
               value={(exercise.reps ?? "").replace(/ (min|cal)$/, "")}
-              onChange={e => onUpdate(exercise.id, "reps", e.target.value ? `${e.target.value} ${editVm}` : "")}
+              onChange={e => onUpdate(exercise.id, "reps", e.target.value ? `${e.target.value} ${activeVm}` : "")}
             />
           </div>
         )}
@@ -596,6 +615,10 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
   if (isMobilitaWarmup) {
     const mobLib = lib ? lookupExercise(lib, exercise.name) : undefined;
     const mobVm = getVolumeMode(mobLib);
+    const mobRepsHasUnit = (exercise.reps ?? "").endsWith(" min") || (exercise.reps ?? "").endsWith(" cal");
+    const mobDisplayReps = exercise.reps
+      ? (mobVm !== "rep" && !mobRepsHasUnit ? `${exercise.reps} ${mobVm}` : exercise.reps)
+      : null;
     return (
       <div className="px-4 py-3 border-b border-gray-100 last:border-0 dark:border-gray-700">
         <div className="flex items-center gap-3">
@@ -603,7 +626,7 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
           <div className="flex-1 min-w-0">
             <span className="font-medium text-sm text-gray-900 dark:text-gray-100">{exercise.name}</span>
             {mobVm !== "rep" ? (
-              exercise.reps && <span className="text-sm text-gray-500 dark:text-gray-400"> · {exercise.reps}</span>
+              mobDisplayReps && <span className="text-sm text-gray-500 dark:text-gray-400"> · {mobDisplayReps}</span>
             ) : (
               exercise.sets && exercise.reps && (
                 <span className="text-sm text-gray-500 dark:text-gray-400"> · {exercise.sets}×{exercise.reps}</span>
@@ -632,6 +655,13 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
   const displayLib = lib ? lookupExercise(lib, exercise.name) : undefined;
   const displayVm  = getVolumeMode(displayLib);
   const isMinCal   = displayVm !== "rep";
+  // Aggiunge suffisso unità se manca (retrocompatibilità dati salvati senza "min"/"cal")
+  const repsHasUnit = (exercise.reps ?? "").endsWith(" min") || (exercise.reps ?? "").endsWith(" cal");
+  const displayReps = exercise.reps
+    ? (isMinCal && !repsHasUnit ? `${exercise.reps} ${displayVm}` : exercise.reps)
+    : null;
+  // Filtra carico "-" (placeholder vuoto) per non mostrarlo nel display
+  const hasRealLoad = !!(exercise.load && exercise.load !== "-");
 
   return (
     <div className="px-4 py-3 border-b border-gray-100 last:border-0 dark:border-gray-700">
@@ -641,10 +671,10 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
           <div className="text-sm text-gray-900 dark:text-gray-100 flex flex-wrap items-baseline gap-x-1">
             <span className="font-medium">{exercise.name}</span>
             {isMinCal ? (
-              // min/cal: mostra solo reps (es. "10 min" o "50 cal"), no sets né rest
+              // min/cal: mostra solo reps con unità (es. "10 min" o "50 cal"), no sets né rest né carico vuoto
               <>
-                {exercise.reps && <><span className="text-gray-400 dark:text-gray-500">·</span><span className="text-gray-500 dark:text-gray-400">{exercise.reps}</span></>}
-                {exercise.load && <><span className="text-gray-400 dark:text-gray-500">·</span><span className="text-gray-500 dark:text-gray-400">{formatLoad(exercise.load)}</span></>}
+                {displayReps && <><span className="text-gray-400 dark:text-gray-500">·</span><span className="text-gray-500 dark:text-gray-400">{displayReps}</span></>}
+                {hasRealLoad && <><span className="text-gray-400 dark:text-gray-500">·</span><span className="text-gray-500 dark:text-gray-400">{formatLoad(exercise.load!)}</span></>}
               </>
             ) : (
               // rep: mostra sets×reps, carico, recupero
@@ -657,7 +687,7 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
                   : exercise.sets
                   ? <span className="text-gray-500 dark:text-gray-400">{exercise.sets} serie</span>
                   : null}
-                {exercise.load && <><span className="text-gray-400 dark:text-gray-500">·</span><span className="text-gray-500 dark:text-gray-400">{formatLoad(exercise.load)}</span></>}
+                {hasRealLoad && <><span className="text-gray-400 dark:text-gray-500">·</span><span className="text-gray-500 dark:text-gray-400">{formatLoad(exercise.load!)}</span></>}
                 {exercise.rest_time && <><span className="text-gray-400 dark:text-gray-500">·</span><span className="text-gray-500 dark:text-gray-400">⏱ {exercise.rest_time} rest</span></>}
               </>
             )}
@@ -692,6 +722,8 @@ function AddExerciseModal({ section, lib, dayLabel, maxes, onSave, onCancel }: {
   const [userNotes, setUserNotes] = useState("");
   const [warmupType, setWarmupType] = useState<"cardio" | "mobilita" | "attivazione">("cardio");
   const [unitMode, setUnitMode] = useState<"min" | "cal" | "rep">("min");
+  // vmMode per sezioni non-warmup (strength/accessories/core/workout): aggiornato quando cambia il nome
+  const [vmMode, setVmMode] = useState<"rep" | "min" | "cal">("rep");
 
   const dayFilter = getDayMobilitaFilter(dayLabel ?? "");
   const isFullDay = dayFilter === "FULL";
@@ -721,6 +753,13 @@ function AddExerciseModal({ section, lib, dayLabel, maxes, onSave, onCancel }: {
     const def = ex?.default_unit ?? (warmupType === "cardio" ? "min" : "rep");
     setUnitMode(def as "min" | "cal" | "rep");
   }, [name, warmupType]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Aggiorna vmMode per sezioni non-warmup quando cambia il nome esercizio
+  useEffect(() => {
+    if (section.section_type === "warmup") return;
+    const exLib = lookupExercise(lib, name);
+    setVmMode(getVolumeMode(exLib));
+  }, [name]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-set tool from library default_equip, sub-category, or exercise name
   useEffect(() => {
@@ -806,36 +845,27 @@ function AddExerciseModal({ section, lib, dayLabel, maxes, onSave, onCancel }: {
       }
     } else if (section.section_type === "strength") {
       const tagMap: Record<string, string> = { "UPPER BODY": "upper", "LOWER BODY": "lower", "FULL BODY": "full" };
-      const exLib = lookupExercise(lib, name);
-      const vm = getVolumeMode(exLib);
-      if (vm !== "rep") {
-        onSave({ name: name.trim(), reps: reps ? `${reps} ${vm}` : undefined, load: buildLoad(load), notes: tagNotes(tagMap[strengthSub], userNotes) });
+      if (vmMode !== "rep") {
+        onSave({ name: name.trim(), reps: reps ? `${reps} ${vmMode}` : undefined, load: buildLoad(load), notes: tagNotes(tagMap[strengthSub], userNotes) });
       } else {
         onSave({ name: name.trim(), sets: sets || undefined, reps: reps || undefined, load: buildLoad(load), rest_time: rest ? `${rest} sec` : undefined, notes: tagNotes(tagMap[strengthSub], userNotes) });
       }
     } else if (section.section_type === "accessories") {
       const tagMap: Record<string, string> = { bodyweight: "bw", manubri: "man", kettlebell: "kb", bilanciere: "bar" };
-      const exLib = lookupExercise(lib, name);
-      const vm = getVolumeMode(exLib);
       const loadVal = accLoadType === "none" ? undefined : buildLoad(load);
-      if (vm !== "rep") {
-        onSave({ name: name.trim(), reps: reps ? `${reps} ${vm}` : undefined, load: loadVal, notes: tagNotes(tagMap[accessoriSub], userNotes) });
+      if (vmMode !== "rep") {
+        onSave({ name: name.trim(), reps: reps ? `${reps} ${vmMode}` : undefined, load: loadVal, notes: tagNotes(tagMap[accessoriSub], userNotes) });
       } else {
         onSave({ name: name.trim(), sets: sets || undefined, reps: reps || undefined, load: loadVal, rest_time: rest ? `${rest} sec` : undefined, notes: tagNotes(tagMap[accessoriSub], userNotes) });
       }
     } else if (section.section_type === "core") {
-      const exLib = lookupExercise(lib, name);
-      const vm = getVolumeMode(exLib);
-      if (vm !== "rep") {
-        onSave({ name: name.trim(), reps: reps ? `${reps} ${vm}` : undefined, load: buildLoad(load), notes: userNotes.trim() || undefined });
+      if (vmMode !== "rep") {
+        onSave({ name: name.trim(), reps: reps ? `${reps} ${vmMode}` : undefined, load: buildLoad(load), notes: userNotes.trim() || undefined });
       } else {
         onSave({ name: name.trim(), sets: sets || undefined, reps: reps || undefined, load: buildLoad(load), rest_time: rest ? `${rest} sec` : undefined, notes: userNotes.trim() || undefined });
       }
     } else if (isWorkout && workoutSub === "cardioliss") {
-      const exLib = lookupExercise(lib, name);
-      const clVm = getVolumeMode(exLib);
-      const clSuffix = clVm === "cal" ? "cal" : "min";
-      onSave({ name: name.trim(), reps: reps ? `${reps} ${clSuffix}` : undefined, notes: tagNotes("cardioliss", userNotes) });
+      onSave({ name: name.trim(), reps: reps ? `${reps} ${vmMode !== "rep" ? vmMode : "min"}` : undefined, notes: tagNotes("cardioliss", userNotes) });
     } else if (isWorkout && workoutSub === "fortime") {
       onSave({ name: name.trim(), sets: sets || undefined, reps: reps || undefined, load: buildLoad(load), notes: tagNotes("fortime", userNotes) });
     } else if (isWorkout) {
@@ -969,13 +999,23 @@ function AddExerciseModal({ section, lib, dayLabel, maxes, onSave, onCancel }: {
         {/* Strength fields */}
         {section.section_type === "strength" && (() => {
           const exLib = lookupExercise(lib, name);
-          const vm = getVolumeMode(exLib);
+          const availVm = getAvailableVmModes(exLib);
           const hasLoad = exLib
             ? !!(exLib.load_pct || exLib.load_rpe || exLib.load_kg)
             : (!!resolveMaxKey(name) || load !== "-");
           return (
           <>
-            {vm === "rep" ? (
+            {availVm.length > 1 && (
+              <div className="flex gap-1 bg-gray-100 dark:bg-gray-700/50 rounded-lg p-0.5">
+                {availVm.map(m => (
+                  <button key={m} onClick={() => setVmMode(m)}
+                    className={`flex-1 text-[11px] py-1 rounded-md font-medium transition-colors ${vmMode === m ? "bg-white dark:bg-gray-700 shadow-sm text-gray-700 dark:text-gray-200" : "text-gray-400 dark:text-gray-500"}`}>
+                    {m === "min" ? "Minuti" : m === "cal" ? "Calorie" : "Reps"}
+                  </button>
+                ))}
+              </div>
+            )}
+            {vmMode === "rep" ? (
               <div className="grid grid-cols-3 gap-3">
                 <div><label className="label">Serie</label><input className="input text-sm text-center" placeholder="3" value={sets} onChange={e => setSets(e.target.value)} /></div>
                 <div><label className="label">Reps</label><input className="input text-sm text-center" placeholder="5" value={reps} onChange={e => setReps(e.target.value)} /></div>
@@ -983,8 +1023,8 @@ function AddExerciseModal({ section, lib, dayLabel, maxes, onSave, onCancel }: {
               </div>
             ) : (
               <div>
-                <label className="label">{vm === "min" ? "Minuti" : "Calorie"}</label>
-                <input className="input text-sm text-center" placeholder={vm === "min" ? "10" : "50"} value={reps} onChange={e => setReps(e.target.value)} />
+                <label className="label">{vmMode === "min" ? "Minuti" : "Calorie"}</label>
+                <input className="input text-sm text-center" placeholder={vmMode === "min" ? "10" : "50"} value={reps} onChange={e => setReps(e.target.value)} />
               </div>
             )}
             {hasLoad && !progressive && (
@@ -1033,12 +1073,22 @@ function AddExerciseModal({ section, lib, dayLabel, maxes, onSave, onCancel }: {
         {/* Accessories fields */}
         {section.section_type === "accessories" && (() => {
           const exLib = lookupExercise(lib, name);
-          const vm = getVolumeMode(exLib);
+          const availVm = getAvailableVmModes(exLib);
           const hasLoad = exLib ? !!(exLib.load_kg || exLib.load_pct || exLib.load_rpe) : accessoriSub !== "bodyweight";
           const showProg = !!(exLib?.load_pct) || !!resolveMaxKey(name);
           return (
           <>
-            {vm === "rep" ? (
+            {availVm.length > 1 && (
+              <div className="flex gap-1 bg-gray-100 dark:bg-gray-700/50 rounded-lg p-0.5">
+                {availVm.map(m => (
+                  <button key={m} onClick={() => setVmMode(m)}
+                    className={`flex-1 text-[11px] py-1 rounded-md font-medium transition-colors ${vmMode === m ? "bg-white dark:bg-gray-700 shadow-sm text-gray-700 dark:text-gray-200" : "text-gray-400 dark:text-gray-500"}`}>
+                    {m === "min" ? "Minuti" : m === "cal" ? "Calorie" : "Reps"}
+                  </button>
+                ))}
+              </div>
+            )}
+            {vmMode === "rep" ? (
               <div className="grid grid-cols-3 gap-3">
                 <div><label className="label">Serie</label><input className="input text-sm text-center" placeholder="3" value={sets} onChange={e => setSets(e.target.value)} /></div>
                 <div><label className="label">Reps</label><input className="input text-sm text-center" placeholder="12" value={reps} onChange={e => setReps(e.target.value)} /></div>
@@ -1046,8 +1096,8 @@ function AddExerciseModal({ section, lib, dayLabel, maxes, onSave, onCancel }: {
               </div>
             ) : (
               <div>
-                <label className="label">{vm === "min" ? "Minuti" : "Calorie"}</label>
-                <input className="input text-sm text-center" placeholder={vm === "min" ? "10" : "50"} value={reps} onChange={e => setReps(e.target.value)} />
+                <label className="label">{vmMode === "min" ? "Minuti" : "Calorie"}</label>
+                <input className="input text-sm text-center" placeholder={vmMode === "min" ? "10" : "50"} value={reps} onChange={e => setReps(e.target.value)} />
               </div>
             )}
             {hasLoad && !progressive && <LoadInput exerciseName={name} value={load} onChange={setLoad} label="Carico" tool={loadTool} onToolChange={setLoadTool} libEx={exLib} />}
@@ -1084,12 +1134,22 @@ function AddExerciseModal({ section, lib, dayLabel, maxes, onSave, onCancel }: {
         {/* Core fields */}
         {section.section_type === "core" && (() => {
           const exLib = lookupExercise(lib, name);
-          const vm = getVolumeMode(exLib);
+          const availVm = getAvailableVmModes(exLib);
           const hasLoad = exLib ? !!(exLib.load_kg || exLib.load_pct || exLib.load_rpe) : true;
           const showProg = !!(exLib?.load_pct) || !!resolveMaxKey(name);
           return (
           <>
-            {vm === "rep" ? (
+            {availVm.length > 1 && (
+              <div className="flex gap-1 bg-gray-100 dark:bg-gray-700/50 rounded-lg p-0.5">
+                {availVm.map(m => (
+                  <button key={m} onClick={() => setVmMode(m)}
+                    className={`flex-1 text-[11px] py-1 rounded-md font-medium transition-colors ${vmMode === m ? "bg-white dark:bg-gray-700 shadow-sm text-gray-700 dark:text-gray-200" : "text-gray-400 dark:text-gray-500"}`}>
+                    {m === "min" ? "Minuti" : m === "cal" ? "Calorie" : "Reps"}
+                  </button>
+                ))}
+              </div>
+            )}
+            {vmMode === "rep" ? (
               <div className="grid grid-cols-3 gap-3">
                 <div><label className="label">Serie</label><input className="input text-sm text-center" placeholder="3" value={sets} onChange={e => setSets(e.target.value)} /></div>
                 <div><label className="label">Reps</label><input className="input text-sm text-center" placeholder="15" value={reps} onChange={e => setReps(e.target.value)} /></div>
@@ -1097,8 +1157,8 @@ function AddExerciseModal({ section, lib, dayLabel, maxes, onSave, onCancel }: {
               </div>
             ) : (
               <div>
-                <label className="label">{vm === "min" ? "Minuti" : "Calorie"}</label>
-                <input className="input text-sm text-center" placeholder={vm === "min" ? "10" : "50"} value={reps} onChange={e => setReps(e.target.value)} />
+                <label className="label">{vmMode === "min" ? "Minuti" : "Calorie"}</label>
+                <input className="input text-sm text-center" placeholder={vmMode === "min" ? "10" : "50"} value={reps} onChange={e => setReps(e.target.value)} />
               </div>
             )}
             {hasLoad && !progressive && <LoadInput exerciseName={name} value={load} onChange={setLoad} label="Carico" tool={loadTool} onToolChange={setLoadTool} libEx={exLib} />}
@@ -1135,13 +1195,23 @@ function AddExerciseModal({ section, lib, dayLabel, maxes, onSave, onCancel }: {
         {/* Workout fields */}
         {isWorkout && workoutSub === "cardioliss" && (() => {
           const exLib = lookupExercise(lib, name);
-          const clVm = getVolumeMode(exLib);
-          const label = clVm === "cal" ? "Calorie" : "Minuti";
-          const ph = clVm === "cal" ? "50" : "10";
+          const availVm = getAvailableVmModes(exLib).filter(m => m !== "rep") as ("min" | "cal")[];
           return (
-            <div><label className="label">{label}</label>
-              <input className="input text-sm text-center w-24" placeholder={ph} value={reps} onChange={e => setReps(e.target.value)} />
-            </div>
+            <>
+              {availVm.length > 1 && (
+                <div className="flex gap-1 bg-gray-100 dark:bg-gray-700/50 rounded-lg p-0.5">
+                  {availVm.map(m => (
+                    <button key={m} onClick={() => setVmMode(m)}
+                      className={`flex-1 text-[11px] py-1 rounded-md font-medium transition-colors ${vmMode === m ? "bg-white dark:bg-gray-700 shadow-sm text-gray-700 dark:text-gray-200" : "text-gray-400 dark:text-gray-500"}`}>
+                      {m === "min" ? "Minuti" : "Calorie"}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <div><label className="label">{vmMode === "cal" ? "Calorie" : "Minuti"}</label>
+                <input className="input text-sm text-center w-24" placeholder={vmMode === "cal" ? "50" : "10"} value={reps} onChange={e => setReps(e.target.value)} />
+              </div>
+            </>
           );
         })()}
         {isWorkout && workoutSub === "fortime" && (() => {
@@ -1409,10 +1479,10 @@ function lookupExercise(lib: LibraryMap, name: string): ExerciseLibrary | undefi
   return undefined;
 }
 
-// Formatta il carico: aggiunge KG se numero puro, @ se percentuale; gestisce progressivi con | e tool DB/KB
+// Formatta il carico: aggiunge KG se numero puro, @ se percentuale; gestisce progressivi con | e tool DB/KB/MB/SB/Bar
 function formatLoad(load: string): string {
   if (!load || load === "-") return load;
-  const toolMatch = load.match(/\s+(DB|KB)$/i);
+  const toolMatch = load.match(/\s+(DB|KB|MB|SB|Bar)$/i);
   const loadPart = toolMatch ? load.slice(0, -toolMatch[0].length) : load;
   const toolSuffix = toolMatch ? ` (${toolMatch[1].toUpperCase()})` : "";
   if (loadPart.includes("|")) {
@@ -1438,9 +1508,9 @@ function getRandom<T>(arr: T[], n: number): T[] {
 // Row types per sub-section
 interface CardioRow    { name: string; minutes: string; unitMode: "min" | "cal" | "rep"; sets: string; reps: string; load: string; tool: string; notes: string }
 interface MobilitaRow  { name: string; sets: string; reps: string; load: string; tool: string; notes: string }
-interface ForzaRow     { name: string; sets: string; reps: string; load: string; rest: string; notes: string; progressive: boolean; loads: string[]; tool: string }
-interface AccessoriRow { name: string; sets: string; reps: string; load: string; rest: string; notes: string; tool: string }
-interface CoreRow      { name: string; sets: string; reps: string; load: string; rest: string; notes: string; tool: string }
+interface ForzaRow     { name: string; sets: string; reps: string; load: string; rest: string; notes: string; progressive: boolean; loads: string[]; tool: string; unitMode: "rep" | "min" | "cal" }
+interface AccessoriRow { name: string; sets: string; reps: string; load: string; rest: string; notes: string; tool: string; unitMode: "rep" | "min" | "cal" }
+interface CoreRow      { name: string; sets: string; reps: string; load: string; rest: string; notes: string; tool: string; unitMode: "rep" | "min" | "cal" }
 interface WorkoutRow   { name: string; reps: string; load: string; rounds: string; minutes: string; notes: string; tool: string }
 
 interface WorkoutBlock {
@@ -1516,6 +1586,15 @@ function getVolumeMode(exLib?: ExerciseLibrary): "rep" | "min" | "cal" {
   if (exLib.unit_cal && !exLib.unit_rep) return "cal";
   return "rep";
 }
+// Restituisce tutte le modalità volume disponibili per un esercizio (es. Assault Bike → ["min","cal"])
+function getAvailableVmModes(exLib?: ExerciseLibrary): ("rep" | "min" | "cal")[] {
+  if (!exLib) return ["rep"];
+  const modes: ("rep" | "min" | "cal")[] = [];
+  if (exLib.unit_min) modes.push("min");
+  if (exLib.unit_cal) modes.push("cal");
+  if (exLib.unit_rep) modes.push("rep");
+  return modes.length > 0 ? modes : ["rep"];
+}
 
 // Logica unificata per il carico default — uguale per tutte le sezioni
 // Controlla tutti i flag libreria (pct → rpe → kg) poi fallback su resolveMaxKey
@@ -1540,7 +1619,8 @@ const mkMobilitaRow = (name = "", exLib?: ExerciseLibrary): MobilitaRow => {
 };
 const mkForzaRow = (name = "", exLib?: ExerciseLibrary): ForzaRow => {
   const tool = getDefaultTool(exLib) || detectTool(name);
-  return { name, sets: "3", reps: "5", load: computeLoad(name, tool, exLib), rest: "120", notes: "", progressive: false, loads: [], tool };
+  const vm = getVolumeMode(exLib);
+  return { name, sets: vm === "rep" ? "3" : "", reps: vm === "min" ? "10 min" : vm === "cal" ? "50 cal" : "5", load: computeLoad(name, tool, exLib), rest: vm === "rep" ? "120" : "", notes: "", progressive: false, loads: [], tool, unitMode: vm };
 };
 const mkAccessoriRow = (name = "", tool: string = "", exLib?: ExerciseLibrary): AccessoriRow => {
   const effectiveTool = tool || getDefaultTool(exLib) || detectTool(name);
@@ -1553,6 +1633,7 @@ const mkAccessoriRow = (name = "", tool: string = "", exLib?: ExerciseLibrary): 
     rest: vm === "rep" ? "60" : "",
     notes: "",
     tool: effectiveTool,
+    unitMode: vm,
   };
 };
 const mkCoreRow = (name = "", exLib?: ExerciseLibrary): CoreRow => {
@@ -1566,6 +1647,7 @@ const mkCoreRow = (name = "", exLib?: ExerciseLibrary): CoreRow => {
     rest: vm === "rep" ? "30" : "",
     notes: "",
     tool,
+    unitMode: vm,
   };
 };
 const mkWorkoutRow = (name = "", exLib?: ExerciseLibrary): WorkoutRow => {
@@ -1803,21 +1885,23 @@ interface ExerciseFieldsProps {
   rest?: string;
   load: string;
   tool: string;
+  unitMode?: "rep" | "min" | "cal";
   maxes: Record<string, number>;
   showSets?: boolean;
   showRest?: boolean;
   setsPlaceholder?: string;
   repsPlaceholder?: string;
   restPlaceholder?: string;
-  onChange: (updates: Partial<{ sets: string; reps: string; rest: string; load: string; tool: string }>) => void;
+  onChange: (updates: Partial<{ sets: string; reps: string; rest: string; load: string; tool: string; unitMode: "rep" | "min" | "cal" }>) => void;
 }
 function ExerciseFields({
-  name, exLib, sets = "", reps = "", rest = "", load, tool, maxes,
-  showSets = true, showRest = true,
+  name, exLib, sets = "", reps = "", rest = "", load, tool, unitMode,
+  maxes, showSets = true, showRest = true,
   setsPlaceholder = "3", repsPlaceholder = "10", restPlaceholder = "60",
   onChange,
 }: ExerciseFieldsProps) {
-  const vm = getVolumeMode(exLib);
+  const availVm = getAvailableVmModes(exLib);
+  const vm = unitMode ?? getVolumeMode(exLib);
   const hasLoad = exLib
     ? !!(exLib.load_pct || exLib.load_rpe || exLib.load_kg)
     : (load !== "-" || tool !== "" || !!resolveMaxKey(name));
@@ -1826,6 +1910,22 @@ function ExerciseFields({
 
   return (
     <>
+      {/* Toggle unità se disponibili più modalità (es. Assault Bike: min/cal) */}
+      {availVm.length > 1 && (
+        <div className="flex gap-1 bg-gray-100 dark:bg-gray-700/50 rounded-lg p-0.5">
+          {availVm.map(m => (
+            <button key={m} onClick={() => onChange({
+              unitMode: m,
+              sets: m === "rep" ? (sets || setsPlaceholder) : "",
+              reps: m === "min" ? `${repsPlaceholder} min` : m === "cal" ? `${repsPlaceholder} cal` : repsPlaceholder,
+              rest: m === "rep" ? (rest || restPlaceholder) : "",
+            })}
+              className={`flex-1 text-[11px] py-1 rounded-md font-medium transition-colors ${vm === m ? "bg-white dark:bg-gray-700 shadow-sm text-gray-700 dark:text-gray-200" : "text-gray-400 dark:text-gray-500"}`}>
+              {m === "min" ? "Minuti" : m === "cal" ? "Calorie" : "Reps"}
+            </button>
+          ))}
+        </div>
+      )}
       {vm === "rep" ? (
         <div className={`grid gap-1.5`} style={{ gridTemplateColumns: `repeat(${colCount}, 1fr)` }}>
           {showSets && (
@@ -1936,8 +2036,10 @@ function LoadInput({
     : mode === "pct" ? "80%" : mode === "rpe" ? "RPE 7" : "-";
 
   const switchMode = (m: LoadMode) => {
-    if (m === "pct") { onChange("80%"); onToolChange?.(""); }
-    else if (m === "rpe") { onChange("RPE 7"); onToolChange?.(""); }
+    // onToolChange va chiamato PRIMA di onChange: altrimenti il handler onToolChange
+    // usa la closure stale di editLoad e sovrascrive il valore appena impostato da onChange
+    if (m === "pct") { onToolChange?.(""); onChange("80%"); }
+    else if (m === "rpe") { onToolChange?.(""); onChange("RPE 7"); }
     else {
       // kg mode — imposta un valore numerico valido (non "-") così detectLoadMode lo riconosce come "kg"
       const kgDefault = defaultLoadForTool(tool ?? "");
@@ -2601,7 +2703,8 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, maxes, onSave, onCan
       <SubgroupLabel label={state.forza.label} color={color} />
       {state.forza.rows.map((row, i) => {
         const exLib = lookupExercise(lib, row.name);
-        const vm = getVolumeMode(exLib);
+        const availVm = getAvailableVmModes(exLib);
+        const vm = row.unitMode ?? getVolumeMode(exLib);
         const hasLoad = exLib
           ? !!(exLib.load_pct || exLib.load_rpe || exLib.load_kg)
           : (row.load !== "-" || row.tool !== "" || !!resolveMaxKey(row.name));
@@ -2616,7 +2719,7 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, maxes, onSave, onCan
                   const load = computeLoad(v, tool, ex);
                   const newVm = getVolumeMode(ex);
                   updF(i, {
-                    name: v, tool, load,
+                    name: v, tool, load, unitMode: newVm,
                     sets: newVm === "rep" ? "3" : "",
                     reps: newVm === "min" ? "10 min" : newVm === "cal" ? "50 cal" : "5",
                     rest: newVm === "rep" ? "120" : "",
@@ -2629,6 +2732,17 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, maxes, onSave, onCan
               />
               {removeBtn(() => removeF(i))}
             </div>
+            {/* Toggle unità se disponibili più modalità */}
+            {availVm.length > 1 && (
+              <div className="flex gap-1 bg-gray-100 dark:bg-gray-700/50 rounded-lg p-0.5">
+                {availVm.map(m => (
+                  <button key={m} onClick={() => updF(i, { unitMode: m, sets: m === "rep" ? "3" : "", reps: m === "min" ? "10 min" : m === "cal" ? "50 cal" : "5", rest: m === "rep" ? "120" : "" })}
+                    className={`flex-1 text-[11px] py-1 rounded-md font-medium transition-colors ${vm === m ? "bg-white dark:bg-gray-700 shadow-sm text-gray-700 dark:text-gray-200" : "text-gray-400 dark:text-gray-500"}`}>
+                    {m === "min" ? "Minuti" : m === "cal" ? "Calorie" : "Reps"}
+                  </button>
+                ))}
+              </div>
+            )}
             {/* Volume — library-driven */}
             {vm === "rep" ? (
               <div className="grid grid-cols-3 gap-1.5">
@@ -2725,7 +2839,7 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, maxes, onSave, onCan
                   const load = computeLoad(v, tool, ex);
                   const newVm = getVolumeMode(ex);
                   updA(sub, i, {
-                    name: v, tool, load,
+                    name: v, tool, load, unitMode: newVm,
                     sets: newVm === "rep" ? "3" : "",
                     reps: newVm === "min" ? "10 min" : newVm === "cal" ? "50 cal" : "12",
                     rest: newVm === "rep" ? "60" : "",
@@ -2742,6 +2856,7 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, maxes, onSave, onCan
               name={row.name} exLib={exLib}
               sets={row.sets} reps={row.reps} rest={row.rest}
               load={row.load} tool={row.tool}
+              unitMode={row.unitMode}
               maxes={maxes}
               setsPlaceholder="3" repsPlaceholder="12" restPlaceholder="60"
               onChange={updates => updA(sub, i, updates)}
@@ -2778,7 +2893,7 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, maxes, onSave, onCan
                   const load = computeLoad(v, tool, ex);
                   const newVm = getVolumeMode(ex);
                   updC(i, {
-                    name: v, tool, load,
+                    name: v, tool, load, unitMode: newVm,
                     sets: newVm === "rep" ? "3" : "",
                     reps: newVm === "min" ? "10 min" : newVm === "cal" ? "50 cal" : "15",
                     rest: newVm === "rep" ? "30" : "",
@@ -2795,6 +2910,7 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, maxes, onSave, onCan
               name={row.name} exLib={exLib}
               sets={row.sets} reps={row.reps} rest={row.rest}
               load={row.load} tool={row.tool}
+              unitMode={row.unitMode}
               maxes={maxes}
               setsPlaceholder="3" repsPlaceholder="15" restPlaceholder="30"
               onChange={updates => updC(i, updates)}
