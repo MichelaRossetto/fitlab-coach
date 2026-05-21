@@ -179,11 +179,8 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
     // Solo se troviamo un match esatto in libreria o è un esercizio di performance
     if (!newExLib && !isPerf) return;
     const newTool = getDefaultTool(newExLib) || detectTool(newName);
-    const newLoad = newExLib
-      ? (newExLib.default_load === "pct" ? "80%"
-        : newExLib.default_load === "rpe" ? "RPE 7"
-        : defaultLoadForTool(newTool))
-      : (isPerf ? "80%" : defaultLoadForTool(newTool));
+    // Usa computeLoad — stessa logica delle factory, valida per tutte le sezioni
+    const newLoad = computeLoad(newName, newTool, newExLib);
     setEditLoad(newLoad);
     setEditTool(newTool);
     // Commit carico in DB
@@ -192,8 +189,9 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
     const combined = (newTool && loadMode === "kg" && !toolImplied && newLoad && newLoad !== "-")
       ? `${newLoad} ${newTool}` : newLoad;
     onUpdate(exercise.id, "load", combined);
-    // Reset progressivo se il nuovo esercizio non è performance/derivato
-    if (editProgressive && !isPerf && !newExLib?.load_pct) {
+    // Reset progressivo se il nuovo esercizio non ha % come carico
+    const newHasPct = newExLib ? (newExLib.load_pct || newExLib.default_load === "pct") : isPerf;
+    if (editProgressive && !newHasPct) {
       setEditProgressive(false);
       setEditProgLoads([]);
     }
@@ -302,6 +300,12 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
       const wkSubtypes: WorkoutSubtype[] = ["amrap", "emom", "fortime", "cardioliss"];
       const sub = (noteTag && wkSubtypes.includes(noteTag as WorkoutSubtype) ? noteTag : sectionSubtype) ?? "amrap";
       const wkExLib = lib ? lookupExercise(lib, exercise.name) : undefined;
+      const wkVm = getVolumeMode(wkExLib);
+      const wkHasLoad = wkExLib
+        ? !!(wkExLib.load_pct || wkExLib.load_rpe || wkExLib.load_kg)
+        : (editLoad !== "-" || !!resolveMaxKey(exercise.name));
+      const wkUnitLabel = wkVm === "min" ? "Minuti" : wkVm === "cal" ? "Calorie" : "Reps";
+      const wkPlaceholder = wkVm === "min" ? "10" : wkVm === "cal" ? "50" : "10";
       return (
         <div className="p-3 border-b border-gray-100 last:border-0 space-y-2 bg-amber-50 dark:bg-amber-900/20 dark:border-gray-700">
           <AutocompleteInput
@@ -315,8 +319,8 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
           />
           {sub === "cardioliss" && (
             <div>
-              <label className="label">Minuti</label>
-              <input className="input text-sm" placeholder="10" value={exercise.reps ?? ""} onChange={e => onUpdate(exercise.id, "reps", e.target.value)} />
+              <label className="label">{wkVm === "cal" ? "Calorie" : "Minuti"}</label>
+              <input className="input text-sm" placeholder={wkVm === "cal" ? "50" : "10"} value={exercise.reps ?? ""} onChange={e => onUpdate(exercise.id, "reps", e.target.value)} />
             </div>
           )}
           {sub === "fortime" && (
@@ -327,36 +331,30 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
                   <input className="input text-sm" placeholder="3" value={exercise.sets ?? ""} onChange={e => onUpdate(exercise.id, "sets", e.target.value)} />
                 </div>
                 <div>
-                  <label className="label">Reps</label>
-                  <input className="input text-sm" placeholder="15" value={exercise.reps ?? ""} onChange={e => onUpdate(exercise.id, "reps", e.target.value)} />
+                  <label className="label">{wkUnitLabel}</label>
+                  <input className="input text-sm" placeholder={wkPlaceholder} value={exercise.reps ?? ""} onChange={e => onUpdate(exercise.id, "reps", e.target.value)} />
                 </div>
               </div>
-              <LoadInput
-                label="Carico"
-                exerciseName={exercise.name}
-                value={editLoad}
-                onChange={v => { setEditLoad(v); commitLoad(v, effectiveTool); }}
-                tool={effectiveTool}
-                onToolChange={t => { setEditTool(t); commitLoad(editLoad, t); }}
-                libEx={wkExLib}
-              />
+              {wkHasLoad && (
+                <LoadInput label="Carico" exerciseName={exercise.name} value={editLoad}
+                  onChange={v => { setEditLoad(v); commitLoad(v, effectiveTool); }}
+                  tool={effectiveTool} onToolChange={t => { setEditTool(t); commitLoad(editLoad, t); }}
+                  libEx={wkExLib} />
+              )}
             </>
           )}
           {sub !== "cardioliss" && sub !== "fortime" && (
             <>
               <div>
-                <label className="label">Reps</label>
-                <input className="input text-sm" placeholder="10" value={exercise.reps ?? ""} onChange={e => onUpdate(exercise.id, "reps", e.target.value)} />
+                <label className="label">{wkUnitLabel}</label>
+                <input className="input text-sm" placeholder={wkPlaceholder} value={exercise.reps ?? ""} onChange={e => onUpdate(exercise.id, "reps", e.target.value)} />
               </div>
-              <LoadInput
-                label="Carico"
-                exerciseName={exercise.name}
-                value={editLoad}
-                onChange={v => { setEditLoad(v); commitLoad(v, effectiveTool); }}
-                tool={effectiveTool}
-                onToolChange={t => { setEditTool(t); commitLoad(editLoad, t); }}
-                libEx={wkExLib}
-              />
+              {wkHasLoad && (
+                <LoadInput label="Carico" exerciseName={exercise.name} value={editLoad}
+                  onChange={v => { setEditLoad(v); commitLoad(v, effectiveTool); }}
+                  tool={effectiveTool} onToolChange={t => { setEditTool(t); commitLoad(editLoad, t); }}
+                  libEx={wkExLib} />
+              )}
             </>
           )}
           <div className="flex gap-2">
@@ -370,9 +368,15 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
 
     const isBodyweight = noteTag === "bw";
     const exLibEdit = lib ? lookupExercise(lib, exercise.name) : undefined;
-    // Show load: exclude bodyweight; for warmup only show if library says load_kg or existing load
-    const warmupHasLoad = sectionType === "warmup" && (exLibEdit?.load_kg || (exercise.load && exercise.load !== "-"));
-    const showLoad = (!isBodyweight) && (sectionType !== "warmup" || warmupHasLoad);
+    const editVm = getVolumeMode(exLibEdit);
+    // Show load: exclude bodyweight; per warmup mostra se libreria ha qualsiasi tipo di carico o esercizio performance
+    const exHasAnyLoad = exLibEdit
+      ? (exLibEdit.load_pct || exLibEdit.load_rpe || exLibEdit.load_kg)
+      : (!!resolveMaxKey(exercise.name) || (exercise.load != null && exercise.load !== "-"));
+    const warmupHasLoad = sectionType === "warmup" && exHasAnyLoad;
+    const showLoad = (!isBodyweight)
+      && (sectionType !== "warmup" || warmupHasLoad)
+      && (exLibEdit ? !!(exLibEdit.load_pct || exLibEdit.load_rpe || exLibEdit.load_kg) : true);
     const showRec  = sectionType !== "warmup";
 
     return (
@@ -387,23 +391,35 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
           className="input text-sm font-medium w-full"
         />
 
-        {/* Serie / Reps / Rec */}
-        <div className={`grid gap-2 ${showRec ? "grid-cols-3" : "grid-cols-2"}`}>
-          <div>
-            <label className="label">Serie</label>
-            <input className="input text-sm" placeholder="3" value={exercise.sets ?? ""} onChange={e => onUpdate(exercise.id, "sets", e.target.value)} />
-          </div>
-          <div>
-            <label className="label">Reps</label>
-            <input className="input text-sm" placeholder="10" value={exercise.reps ?? ""} onChange={e => onUpdate(exercise.id, "reps", e.target.value)} />
-          </div>
-          {showRec && (
+        {/* Volume — library-driven */}
+        {editVm === "rep" ? (
+          <div className={`grid gap-2 ${showRec ? "grid-cols-3" : "grid-cols-2"}`}>
             <div>
-              <label className="label">Rec. sec</label>
-              <input className="input text-sm" placeholder="60" value={exercise.rest_time?.replace(" sec", "") ?? ""} onChange={e => onUpdate(exercise.id, "rest_time", e.target.value ? `${e.target.value} sec` : "")} />
+              <label className="label">Serie</label>
+              <input className="input text-sm" placeholder="3" value={exercise.sets ?? ""} onChange={e => onUpdate(exercise.id, "sets", e.target.value)} />
             </div>
-          )}
-        </div>
+            <div>
+              <label className="label">Reps</label>
+              <input className="input text-sm" placeholder="10" value={exercise.reps ?? ""} onChange={e => onUpdate(exercise.id, "reps", e.target.value)} />
+            </div>
+            {showRec && (
+              <div>
+                <label className="label">Rec. sec</label>
+                <input className="input text-sm" placeholder="60" value={exercise.rest_time?.replace(" sec", "") ?? ""} onChange={e => onUpdate(exercise.id, "rest_time", e.target.value ? `${e.target.value} sec` : "")} />
+              </div>
+            )}
+          </div>
+        ) : (
+          <div>
+            <label className="label">{editVm === "min" ? "Minuti" : "Calorie"}</label>
+            <input
+              className="input text-sm text-center"
+              placeholder={editVm === "min" ? "10" : "50"}
+              value={(exercise.reps ?? "").replace(/ (min|cal)$/, "")}
+              onChange={e => onUpdate(exercise.id, "reps", e.target.value ? `${e.target.value} ${editVm}` : "")}
+            />
+          </div>
+        )}
 
         {/* Carico full-width */}
         {showLoad && !editProgressive && (
@@ -421,8 +437,8 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
         {/* Hint massimale — mostra in edit per tutti i sectionType */}
         {showLoad && !editProgressive && maxes && <OneRMHint exerciseName={exercise.name} load={editLoad} maxes={maxes} />}
 
-        {/* Progressivo — solo Forza */}
-        {sectionType === "strength" && (
+        {/* Progressivo — per esercizi con % (forza o performance) in qualsiasi sezione */}
+        {(sectionType === "strength" || !!(exLibEdit?.load_pct) || !!resolveMaxKey(exercise.name)) && (
           <>
             <label className="flex items-center gap-1 cursor-pointer w-fit">
               <input type="checkbox" checked={editProgressive} onChange={e => toggleEditProgressive(e.target.checked)} className="w-3 h-3 accent-lime-500" />
@@ -578,14 +594,20 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
   }
 
   if (isMobilitaWarmup) {
+    const mobLib = lib ? lookupExercise(lib, exercise.name) : undefined;
+    const mobVm = getVolumeMode(mobLib);
     return (
       <div className="px-4 py-3 border-b border-gray-100 last:border-0 dark:border-gray-700">
         <div className="flex items-center gap-3">
           <div className="w-1.5 h-1.5 rounded-full bg-gray-300 flex-shrink-0" />
           <div className="flex-1 min-w-0">
             <span className="font-medium text-sm text-gray-900 dark:text-gray-100">{exercise.name}</span>
-            {exercise.sets && exercise.reps && (
-              <span className="text-sm text-gray-500 dark:text-gray-400"> · {exercise.sets}x {exercise.reps} reps</span>
+            {mobVm !== "rep" ? (
+              exercise.reps && <span className="text-sm text-gray-500 dark:text-gray-400"> · {exercise.reps}</span>
+            ) : (
+              exercise.sets && exercise.reps && (
+                <span className="text-sm text-gray-500 dark:text-gray-400"> · {exercise.sets}×{exercise.reps}</span>
+              )
             )}
           </div>
           <DeleteBtn />
@@ -607,6 +629,10 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
     </button>
   );
 
+  const displayLib = lib ? lookupExercise(lib, exercise.name) : undefined;
+  const displayVm  = getVolumeMode(displayLib);
+  const isMinCal   = displayVm !== "rep";
+
   return (
     <div className="px-4 py-3 border-b border-gray-100 last:border-0 dark:border-gray-700">
       <div className="flex items-start gap-3">
@@ -614,16 +640,27 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
         <div className="flex-1 min-w-0">
           <div className="text-sm text-gray-900 dark:text-gray-100 flex flex-wrap items-baseline gap-x-1">
             <span className="font-medium">{exercise.name}</span>
-            {(exercise.sets || exercise.reps) && <span className="text-gray-400 dark:text-gray-500">·</span>}
-            {exercise.sets && exercise.reps
-              ? <span className="text-gray-500 dark:text-gray-400">{exercise.sets}×{exercise.reps}</span>
-              : exercise.reps
-              ? <span className="text-gray-500 dark:text-gray-400">{exercise.reps}</span>
-              : exercise.sets
-              ? <span className="text-gray-500 dark:text-gray-400">{exercise.sets} serie</span>
-              : null}
-            {exercise.load && <><span className="text-gray-400 dark:text-gray-500">·</span><span className="text-gray-500 dark:text-gray-400">{formatLoad(exercise.load)}</span></>}
-            {exercise.rest_time && <><span className="text-gray-400 dark:text-gray-500">·</span><span className="text-gray-500 dark:text-gray-400">⏱ {exercise.rest_time} rest</span></>}
+            {isMinCal ? (
+              // min/cal: mostra solo reps (es. "10 min" o "50 cal"), no sets né rest
+              <>
+                {exercise.reps && <><span className="text-gray-400 dark:text-gray-500">·</span><span className="text-gray-500 dark:text-gray-400">{exercise.reps}</span></>}
+                {exercise.load && <><span className="text-gray-400 dark:text-gray-500">·</span><span className="text-gray-500 dark:text-gray-400">{formatLoad(exercise.load)}</span></>}
+              </>
+            ) : (
+              // rep: mostra sets×reps, carico, recupero
+              <>
+                {(exercise.sets || exercise.reps) && <span className="text-gray-400 dark:text-gray-500">·</span>}
+                {exercise.sets && exercise.reps
+                  ? <span className="text-gray-500 dark:text-gray-400">{exercise.sets}×{exercise.reps}</span>
+                  : exercise.reps
+                  ? <span className="text-gray-500 dark:text-gray-400">{exercise.reps}</span>
+                  : exercise.sets
+                  ? <span className="text-gray-500 dark:text-gray-400">{exercise.sets} serie</span>
+                  : null}
+                {exercise.load && <><span className="text-gray-400 dark:text-gray-500">·</span><span className="text-gray-500 dark:text-gray-400">{formatLoad(exercise.load)}</span></>}
+                {exercise.rest_time && <><span className="text-gray-400 dark:text-gray-500">·</span><span className="text-gray-500 dark:text-gray-400">⏱ {exercise.rest_time} rest</span></>}
+              </>
+            )}
             <DeleteBtnInline />
           </div>
           {maxes && <OneRMHint exerciseName={exercise.name} load={exercise.load ?? ""} maxes={maxes} />}
@@ -769,15 +806,36 @@ function AddExerciseModal({ section, lib, dayLabel, maxes, onSave, onCancel }: {
       }
     } else if (section.section_type === "strength") {
       const tagMap: Record<string, string> = { "UPPER BODY": "upper", "LOWER BODY": "lower", "FULL BODY": "full" };
-      onSave({ name: name.trim(), sets: sets || undefined, reps: reps || undefined, load: buildLoad(load), rest_time: rest ? `${rest} sec` : undefined, notes: tagNotes(tagMap[strengthSub], userNotes) });
+      const exLib = lookupExercise(lib, name);
+      const vm = getVolumeMode(exLib);
+      if (vm !== "rep") {
+        onSave({ name: name.trim(), reps: reps ? `${reps} ${vm}` : undefined, load: buildLoad(load), notes: tagNotes(tagMap[strengthSub], userNotes) });
+      } else {
+        onSave({ name: name.trim(), sets: sets || undefined, reps: reps || undefined, load: buildLoad(load), rest_time: rest ? `${rest} sec` : undefined, notes: tagNotes(tagMap[strengthSub], userNotes) });
+      }
     } else if (section.section_type === "accessories") {
       const tagMap: Record<string, string> = { bodyweight: "bw", manubri: "man", kettlebell: "kb", bilanciere: "bar" };
+      const exLib = lookupExercise(lib, name);
+      const vm = getVolumeMode(exLib);
       const loadVal = accLoadType === "none" ? undefined : buildLoad(load);
-      onSave({ name: name.trim(), sets: sets || undefined, reps: reps || undefined, load: loadVal, rest_time: rest ? `${rest} sec` : undefined, notes: tagNotes(tagMap[accessoriSub], userNotes) });
+      if (vm !== "rep") {
+        onSave({ name: name.trim(), reps: reps ? `${reps} ${vm}` : undefined, load: loadVal, notes: tagNotes(tagMap[accessoriSub], userNotes) });
+      } else {
+        onSave({ name: name.trim(), sets: sets || undefined, reps: reps || undefined, load: loadVal, rest_time: rest ? `${rest} sec` : undefined, notes: tagNotes(tagMap[accessoriSub], userNotes) });
+      }
     } else if (section.section_type === "core") {
-      onSave({ name: name.trim(), sets: sets || undefined, reps: reps || undefined, load: buildLoad(load), rest_time: rest ? `${rest} sec` : undefined, notes: userNotes.trim() || undefined });
+      const exLib = lookupExercise(lib, name);
+      const vm = getVolumeMode(exLib);
+      if (vm !== "rep") {
+        onSave({ name: name.trim(), reps: reps ? `${reps} ${vm}` : undefined, load: buildLoad(load), notes: userNotes.trim() || undefined });
+      } else {
+        onSave({ name: name.trim(), sets: sets || undefined, reps: reps || undefined, load: buildLoad(load), rest_time: rest ? `${rest} sec` : undefined, notes: userNotes.trim() || undefined });
+      }
     } else if (isWorkout && workoutSub === "cardioliss") {
-      onSave({ name: name.trim(), reps: reps ? `${reps} min` : undefined, notes: tagNotes("cardioliss", userNotes) });
+      const exLib = lookupExercise(lib, name);
+      const clVm = getVolumeMode(exLib);
+      const clSuffix = clVm === "cal" ? "cal" : "min";
+      onSave({ name: name.trim(), reps: reps ? `${reps} ${clSuffix}` : undefined, notes: tagNotes("cardioliss", userNotes) });
     } else if (isWorkout && workoutSub === "fortime") {
       onSave({ name: name.trim(), sets: sets || undefined, reps: reps || undefined, load: buildLoad(load), notes: tagNotes("fortime", userNotes) });
     } else if (isWorkout) {
@@ -825,10 +883,8 @@ function AddExerciseModal({ section, lib, dayLabel, maxes, onSave, onCancel }: {
               const exLib = lookupExercise(lib, v);
               const isPerf = !!resolveMaxKey(v);
               if (exLib || isPerf) {
-                const newLoad = exLib
-                  ? (exLib.default_load === "pct" ? "80%" : exLib.default_load === "rpe" ? "RPE 7" : "")
-                  : (isPerf ? "80%" : "");
-                setLoad(newLoad);
+                const tool = getDefaultTool(exLib) || detectTool(v);
+                setLoad(computeLoad(v, tool, exLib));
                 setProgressive(false);
                 setProgressiveLoads([]);
               }
@@ -911,23 +967,28 @@ function AddExerciseModal({ section, lib, dayLabel, maxes, onSave, onCancel }: {
         })()}
 
         {/* Strength fields */}
-        {section.section_type === "strength" && (
+        {section.section_type === "strength" && (() => {
+          const exLib = lookupExercise(lib, name);
+          const vm = getVolumeMode(exLib);
+          const hasLoad = exLib
+            ? !!(exLib.load_pct || exLib.load_rpe || exLib.load_kg)
+            : (!!resolveMaxKey(name) || load !== "-");
+          return (
           <>
-            <div className="grid grid-cols-3 gap-3">
-              <div><label className="label">Serie</label><input className="input text-sm text-center" placeholder="3" value={sets} onChange={e => setSets(e.target.value)} /></div>
-              <div><label className="label">Reps</label><input className="input text-sm text-center" placeholder="5" value={reps} onChange={e => setReps(e.target.value)} /></div>
-              <div><label className="label">Rec. sec</label><input className="input text-sm text-center" placeholder="120" value={rest} onChange={e => setRest(e.target.value)} /></div>
-            </div>
-            {!progressive && (
-              <LoadInput
-                exerciseName={name}
-                value={load}
-                onChange={setLoad}
-                label="Carico"
-                tool={loadTool}
-                onToolChange={setLoadTool}
-                libEx={lookupExercise(lib, name)}
-              />
+            {vm === "rep" ? (
+              <div className="grid grid-cols-3 gap-3">
+                <div><label className="label">Serie</label><input className="input text-sm text-center" placeholder="3" value={sets} onChange={e => setSets(e.target.value)} /></div>
+                <div><label className="label">Reps</label><input className="input text-sm text-center" placeholder="5" value={reps} onChange={e => setReps(e.target.value)} /></div>
+                <div><label className="label">Rec. sec</label><input className="input text-sm text-center" placeholder="120" value={rest} onChange={e => setRest(e.target.value)} /></div>
+              </div>
+            ) : (
+              <div>
+                <label className="label">{vm === "min" ? "Minuti" : "Calorie"}</label>
+                <input className="input text-sm text-center" placeholder={vm === "min" ? "10" : "50"} value={reps} onChange={e => setReps(e.target.value)} />
+              </div>
+            )}
+            {hasLoad && !progressive && (
+              <LoadInput exerciseName={name} value={load} onChange={setLoad} label="Carico" tool={loadTool} onToolChange={setLoadTool} libEx={exLib} />
             )}
             <label className="flex items-center gap-1 cursor-pointer w-fit">
               <input
@@ -961,83 +1022,159 @@ function AddExerciseModal({ section, lib, dayLabel, maxes, onSave, onCancel }: {
                 </div>
               </div>
             )}
-            {!progressive && <OneRMHint exerciseName={name} load={load} maxes={maxes} />}
           </>
-        )}
+          );
+        })()}
+        {/* hint massimale per forza */}
+        {section.section_type === "strength" && !progressive && <OneRMHint exerciseName={name} load={load} maxes={maxes} />}
+        {/* OneRMHint per esercizi performance in sezioni non-forza */}
+        {section.section_type !== "strength" && !progressive && !!resolveMaxKey(name) && <OneRMHint exerciseName={name} load={load} maxes={maxes} />}
 
         {/* Accessories fields */}
-        {section.section_type === "accessories" && (
+        {section.section_type === "accessories" && (() => {
+          const exLib = lookupExercise(lib, name);
+          const vm = getVolumeMode(exLib);
+          const hasLoad = exLib ? !!(exLib.load_kg || exLib.load_pct || exLib.load_rpe) : accessoriSub !== "bodyweight";
+          const showProg = !!(exLib?.load_pct) || !!resolveMaxKey(name);
+          return (
           <>
-            <div className="grid grid-cols-3 gap-3">
-              <div><label className="label">Serie</label><input className="input text-sm text-center" placeholder="3" value={sets} onChange={e => setSets(e.target.value)} /></div>
-              <div><label className="label">Reps</label><input className="input text-sm text-center" placeholder="12" value={reps} onChange={e => setReps(e.target.value)} /></div>
-              <div><label className="label">Rec. sec</label><input className="input text-sm text-center" placeholder="60" value={rest} onChange={e => setRest(e.target.value)} /></div>
-            </div>
-            {(() => {
-              const exLib = lookupExercise(lib, name);
-              const hasLoad = exLib ? (exLib.load_kg || exLib.load_pct || exLib.load_rpe) : accessoriSub !== "bodyweight";
-              return hasLoad ? (
-                <LoadInput
-                  exerciseName={name}
-                  value={load}
-                  onChange={setLoad}
-                  label="Carico"
-                  tool={loadTool}
-                  onToolChange={setLoadTool}
-                  libEx={exLib}
-                />
-              ) : null;
-            })()}
+            {vm === "rep" ? (
+              <div className="grid grid-cols-3 gap-3">
+                <div><label className="label">Serie</label><input className="input text-sm text-center" placeholder="3" value={sets} onChange={e => setSets(e.target.value)} /></div>
+                <div><label className="label">Reps</label><input className="input text-sm text-center" placeholder="12" value={reps} onChange={e => setReps(e.target.value)} /></div>
+                <div><label className="label">Rec. sec</label><input className="input text-sm text-center" placeholder="60" value={rest} onChange={e => setRest(e.target.value)} /></div>
+              </div>
+            ) : (
+              <div>
+                <label className="label">{vm === "min" ? "Minuti" : "Calorie"}</label>
+                <input className="input text-sm text-center" placeholder={vm === "min" ? "10" : "50"} value={reps} onChange={e => setReps(e.target.value)} />
+              </div>
+            )}
+            {hasLoad && !progressive && <LoadInput exerciseName={name} value={load} onChange={setLoad} label="Carico" tool={loadTool} onToolChange={setLoadTool} libEx={exLib} />}
+            {showProg && (
+              <label className="flex items-center gap-1 cursor-pointer w-fit">
+                <input type="checkbox" checked={progressive} onChange={e => toggleProgressive(e.target.checked)} className="w-3 h-3 accent-lime-500" />
+                <span className="text-[10px] text-gray-400 select-none">Progressivo</span>
+              </label>
+            )}
+            {showProg && progressive && progressiveLoads.length > 0 && (
+              <div>
+                <p className="text-[9px] text-gray-400 uppercase tracking-wider mb-1">Carico per set</p>
+                <div className="grid gap-1.5" style={{ gridTemplateColumns: `repeat(${Math.min(progressiveLoads.length, 4)}, 1fr)` }}>
+                  {progressiveLoads.map((pl, si) => {
+                    const key = resolveMaxKey(name);
+                    const max = key ? maxes[key] : undefined;
+                    const hint = max && pl.includes("%") ? calcKgFromPct(pl, max) : null;
+                    return (
+                      <div key={si}>
+                        <label className="label">S{si + 1}</label>
+                        <LoadInput exerciseName={name} value={pl} onChange={v => setProgressiveLoads(prev => prev.map((x, j) => j === si ? v : x))} libEx={exLib} />
+                        {hint && <p className="text-[9px] text-lime-600 dark:text-lime-400 text-center mt-0.5">≈ {hint} kg</p>}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+            {!progressive && <OneRMHint exerciseName={name} load={load} maxes={maxes} />}
           </>
-        )}
+          );
+        })()}
 
         {/* Core fields */}
-        {section.section_type === "core" && (
+        {section.section_type === "core" && (() => {
+          const exLib = lookupExercise(lib, name);
+          const vm = getVolumeMode(exLib);
+          const hasLoad = exLib ? !!(exLib.load_kg || exLib.load_pct || exLib.load_rpe) : true;
+          const showProg = !!(exLib?.load_pct) || !!resolveMaxKey(name);
+          return (
           <>
-            <div className="grid grid-cols-3 gap-3">
-              <div><label className="label">Serie</label><input className="input text-sm text-center" placeholder="3" value={sets} onChange={e => setSets(e.target.value)} /></div>
-              <div><label className="label">Reps</label><input className="input text-sm text-center" placeholder="15" value={reps} onChange={e => setReps(e.target.value)} /></div>
-              <div><label className="label">Rec. sec</label><input className="input text-sm text-center" placeholder="30" value={rest} onChange={e => setRest(e.target.value)} /></div>
-            </div>
-            {(() => {
-              const exLib = lookupExercise(lib, name);
-              const hasLoad = exLib ? (exLib.load_kg || exLib.load_pct || exLib.load_rpe) : true;
-              return hasLoad ? (
-                <LoadInput
-                  exerciseName={name}
-                  value={load}
-                  onChange={setLoad}
-                  label="Carico"
-                  tool={loadTool}
-                  onToolChange={setLoadTool}
-                  libEx={exLib}
-                />
-              ) : null;
-            })()}
+            {vm === "rep" ? (
+              <div className="grid grid-cols-3 gap-3">
+                <div><label className="label">Serie</label><input className="input text-sm text-center" placeholder="3" value={sets} onChange={e => setSets(e.target.value)} /></div>
+                <div><label className="label">Reps</label><input className="input text-sm text-center" placeholder="15" value={reps} onChange={e => setReps(e.target.value)} /></div>
+                <div><label className="label">Rec. sec</label><input className="input text-sm text-center" placeholder="30" value={rest} onChange={e => setRest(e.target.value)} /></div>
+              </div>
+            ) : (
+              <div>
+                <label className="label">{vm === "min" ? "Minuti" : "Calorie"}</label>
+                <input className="input text-sm text-center" placeholder={vm === "min" ? "10" : "50"} value={reps} onChange={e => setReps(e.target.value)} />
+              </div>
+            )}
+            {hasLoad && !progressive && <LoadInput exerciseName={name} value={load} onChange={setLoad} label="Carico" tool={loadTool} onToolChange={setLoadTool} libEx={exLib} />}
+            {showProg && (
+              <label className="flex items-center gap-1 cursor-pointer w-fit">
+                <input type="checkbox" checked={progressive} onChange={e => toggleProgressive(e.target.checked)} className="w-3 h-3 accent-lime-500" />
+                <span className="text-[10px] text-gray-400 select-none">Progressivo</span>
+              </label>
+            )}
+            {showProg && progressive && progressiveLoads.length > 0 && (
+              <div>
+                <p className="text-[9px] text-gray-400 uppercase tracking-wider mb-1">Carico per set</p>
+                <div className="grid gap-1.5" style={{ gridTemplateColumns: `repeat(${Math.min(progressiveLoads.length, 4)}, 1fr)` }}>
+                  {progressiveLoads.map((pl, si) => {
+                    const key = resolveMaxKey(name);
+                    const max = key ? maxes[key] : undefined;
+                    const hint = max && pl.includes("%") ? calcKgFromPct(pl, max) : null;
+                    return (
+                      <div key={si}>
+                        <label className="label">S{si + 1}</label>
+                        <LoadInput exerciseName={name} value={pl} onChange={v => setProgressiveLoads(prev => prev.map((x, j) => j === si ? v : x))} libEx={exLib} />
+                        {hint && <p className="text-[9px] text-lime-600 dark:text-lime-400 text-center mt-0.5">≈ {hint} kg</p>}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+            {!progressive && <OneRMHint exerciseName={name} load={load} maxes={maxes} />}
           </>
-        )}
+          );
+        })()}
 
         {/* Workout fields */}
-        {isWorkout && workoutSub === "cardioliss" && (
-          <div><label className="label">Minuti</label>
-            <input className="input text-sm text-center w-24" placeholder="10" value={reps} onChange={e => setReps(e.target.value)} />
-          </div>
-        )}
-        {isWorkout && workoutSub === "fortime" && (
+        {isWorkout && workoutSub === "cardioliss" && (() => {
+          const exLib = lookupExercise(lib, name);
+          const clVm = getVolumeMode(exLib);
+          const label = clVm === "cal" ? "Calorie" : "Minuti";
+          const ph = clVm === "cal" ? "50" : "10";
+          return (
+            <div><label className="label">{label}</label>
+              <input className="input text-sm text-center w-24" placeholder={ph} value={reps} onChange={e => setReps(e.target.value)} />
+            </div>
+          );
+        })()}
+        {isWorkout && workoutSub === "fortime" && (() => {
+          const exLib = lookupExercise(lib, name);
+          const wkVm = getVolumeMode(exLib);
+          const wkHasLoad = exLib ? !!(exLib.load_pct || exLib.load_rpe || exLib.load_kg) : (load !== "-" || !!resolveMaxKey(name));
+          return (
           <>
             <div className="grid grid-cols-2 gap-3">
               <div><label className="label">Rounds</label><input className="input text-sm text-center" placeholder="3" value={sets} onChange={e => setSets(e.target.value)} /></div>
-              <div><label className="label">Reps</label><input className="input text-sm text-center" placeholder="15" value={reps} onChange={e => setReps(e.target.value)} /></div>
+              <div>
+                <label className="label">{wkVm === "min" ? "Minuti" : wkVm === "cal" ? "Calorie" : "Reps"}</label>
+                <input className="input text-sm text-center" placeholder={wkVm === "min" ? "10" : wkVm === "cal" ? "50" : "15"} value={reps} onChange={e => setReps(e.target.value)} />
+              </div>
             </div>
-            <LoadInput exerciseName={name} value={load} onChange={setLoad} label="Carico" tool={loadTool} onToolChange={setLoadTool} libEx={lookupExercise(lib, name)} />
+            {wkHasLoad && <LoadInput exerciseName={name} value={load} onChange={setLoad} label="Carico" tool={loadTool} onToolChange={setLoadTool} libEx={exLib} />}
           </>
-        )}
-        {isWorkout && workoutSub !== "cardioliss" && workoutSub !== "fortime" && (
+          );
+        })()}
+        {isWorkout && workoutSub !== "cardioliss" && workoutSub !== "fortime" && (() => {
+          const exLib = lookupExercise(lib, name);
+          const wkVm = getVolumeMode(exLib);
+          const wkHasLoad = exLib ? !!(exLib.load_pct || exLib.load_rpe || exLib.load_kg) : (load !== "-" || !!resolveMaxKey(name));
+          return (
           <>
-            <div><label className="label">Reps</label><input className="input text-sm text-center" placeholder="10" value={reps} onChange={e => setReps(e.target.value)} /></div>
-            <LoadInput exerciseName={name} value={load} onChange={setLoad} label="Carico" tool={loadTool} onToolChange={setLoadTool} libEx={lookupExercise(lib, name)} />
+            <div>
+              <label className="label">{wkVm === "min" ? "Minuti" : wkVm === "cal" ? "Calorie" : "Reps"}</label>
+              <input className="input text-sm text-center" placeholder={wkVm === "min" ? "10" : wkVm === "cal" ? "50" : "10"} value={reps} onChange={e => setReps(e.target.value)} />
+            </div>
+            {wkHasLoad && <LoadInput exerciseName={name} value={load} onChange={setLoad} label="Carico" tool={loadTool} onToolChange={setLoadTool} libEx={exLib} />}
           </>
-        )}
+          );
+        })()}
 
         <BulkNoteField value={userNotes} onChange={setUserNotes} />
 
@@ -1368,37 +1505,72 @@ function getAvailableTools(exLib: ExerciseLibrary | undefined): string[] {
   ];
 }
 
-// lib-aware factory helpers — accept optional exLib for library-driven defaults
+// Determina la modalità volume di un esercizio dalla libreria:
+// "min" → mostra campo Minuti | "cal" → Calorie | "rep" → Serie/Reps/Rec (default)
+function getVolumeMode(exLib?: ExerciseLibrary): "rep" | "min" | "cal" {
+  if (!exLib) return "rep";
+  if (exLib.default_unit === "min") return "min";
+  if (exLib.default_unit === "cal") return "cal";
+  if (exLib.default_unit === "rep") return "rep";
+  if (exLib.unit_min && !exLib.unit_rep) return "min";
+  if (exLib.unit_cal && !exLib.unit_rep) return "cal";
+  return "rep";
+}
+
+// Logica unificata per il carico default — uguale per tutte le sezioni
+// Controlla tutti i flag libreria (pct → rpe → kg) poi fallback su resolveMaxKey
+function computeLoad(name: string, tool: string, exLib?: ExerciseLibrary): string {
+  if (exLib) {
+    if (exLib.default_load === "pct") return "80%";
+    if (exLib.default_load === "rpe") return "RPE 7";
+    if (exLib.load_pct) return "80%";
+    if (exLib.load_rpe) return "RPE 7";
+    if (exLib.load_kg)  return defaultLoadForTool(tool);
+    return "-";
+  }
+  // Fallback: esercizi performance non trovati in libreria
+  if (resolveMaxKey(name)) return "80%";
+  return defaultLoadForTool(tool);
+}
+
+// lib-aware factory helpers — tutte usano computeLoad
 const mkMobilitaRow = (name = "", exLib?: ExerciseLibrary): MobilitaRow => {
   const tool = getDefaultTool(exLib) || detectTool(name);
-  const load = exLib?.load_kg ? defaultLoadForTool(tool) : "-";
-  return { name, sets: "2", reps: "10", load, tool, notes: "" };
+  return { name, sets: "2", reps: "10", load: computeLoad(name, tool, exLib), tool, notes: "" };
 };
 const mkForzaRow = (name = "", exLib?: ExerciseLibrary): ForzaRow => {
   const tool = getDefaultTool(exLib) || detectTool(name);
-  const load = exLib
-    ? (exLib.default_load === "pct" ? "80%" : exLib.default_load === "rpe" ? "RPE 7" : defaultLoadForTool(tool))
-    : (resolveMaxKey(name) ? "80%" : defaultLoadForTool(tool));
-  return { name, sets: "3", reps: "5", load, rest: "120", notes: "", progressive: false, loads: [], tool };
+  return { name, sets: "3", reps: "5", load: computeLoad(name, tool, exLib), rest: "120", notes: "", progressive: false, loads: [], tool };
 };
 const mkAccessoriRow = (name = "", tool: string = "", exLib?: ExerciseLibrary): AccessoriRow => {
   const effectiveTool = tool || getDefaultTool(exLib) || detectTool(name);
-  const load = exLib
-    ? (exLib.default_load === "pct" ? "80%" : exLib.default_load === "rpe" ? "RPE 7" : defaultLoadForTool(effectiveTool))
-    : defaultLoadForTool(effectiveTool);
-  return { name, sets: "3", reps: "12", load, rest: "60", notes: "", tool: effectiveTool };
+  const vm = getVolumeMode(exLib);
+  return {
+    name,
+    sets: vm === "rep" ? "3" : "",
+    reps: vm === "min" ? "10 min" : vm === "cal" ? "50 cal" : "12",
+    load: computeLoad(name, effectiveTool, exLib),
+    rest: vm === "rep" ? "60" : "",
+    notes: "",
+    tool: effectiveTool,
+  };
 };
 const mkCoreRow = (name = "", exLib?: ExerciseLibrary): CoreRow => {
   const tool = getDefaultTool(exLib) || detectTool(name);
-  const load = exLib?.load_kg ? defaultLoadForTool(tool) : "-";
-  return { name, sets: "3", reps: "15", load, rest: "30", notes: "", tool };
+  const vm = getVolumeMode(exLib);
+  return {
+    name,
+    sets: vm === "rep" ? "3" : "",
+    reps: vm === "min" ? "10 min" : vm === "cal" ? "50 cal" : "15",
+    load: computeLoad(name, tool, exLib),
+    rest: vm === "rep" ? "30" : "",
+    notes: "",
+    tool,
+  };
 };
 const mkWorkoutRow = (name = "", exLib?: ExerciseLibrary): WorkoutRow => {
   const tool = getDefaultTool(exLib) || detectTool(name);
-  const load = exLib
-    ? (exLib.default_load === "pct" ? "80%" : exLib.default_load === "rpe" ? "RPE 7" : defaultLoadForTool(tool))
-    : defaultLoadForTool(tool);
-  return { name, reps: "10", load, rounds: "3", minutes: "10", notes: "", tool };
+  return { name, reps: "10", load: computeLoad(name, tool, exLib), rounds: "3", minutes: "10", notes: "", tool };
 };
 
 // Derives "UPPER" | "LOWER" | "FULL" from day label (e.g. "Day 1 · Lower Body")
@@ -1560,6 +1732,9 @@ function AutocompleteInput({ value, onChange, suggestions, globalSuggestions, pl
         if (!isValid) {
           setError(true);
           setTimeout(() => { setInputText(value); setError(false); }, 2500);
+        } else if (inputText !== value) {
+          // Testo valido ma cambiato senza selezionare dal dropdown → aggiorna state
+          onChange(inputText);
         }
       }
     }, 150);
@@ -1613,6 +1788,87 @@ function LoadSelect({ value, onChange }: { value: string; onChange: (v: string) 
         <option key={o} value={o}>{o} KG</option>
       ))}
     </select>
+  );
+}
+
+// ─── ExerciseFields ───────────────────────────────────────────
+// Componente unico per volume + carico + hint massimali.
+// Usato in BulkAdd, AddExerciseModal e ExerciseRow.
+// Tutta la logica libreria vive qui — nessuna duplicazione.
+interface ExerciseFieldsProps {
+  name: string;
+  exLib?: ExerciseLibrary;
+  sets?: string;
+  reps?: string;
+  rest?: string;
+  load: string;
+  tool: string;
+  maxes: Record<string, number>;
+  showSets?: boolean;
+  showRest?: boolean;
+  setsPlaceholder?: string;
+  repsPlaceholder?: string;
+  restPlaceholder?: string;
+  onChange: (updates: Partial<{ sets: string; reps: string; rest: string; load: string; tool: string }>) => void;
+}
+function ExerciseFields({
+  name, exLib, sets = "", reps = "", rest = "", load, tool, maxes,
+  showSets = true, showRest = true,
+  setsPlaceholder = "3", repsPlaceholder = "10", restPlaceholder = "60",
+  onChange,
+}: ExerciseFieldsProps) {
+  const vm = getVolumeMode(exLib);
+  const hasLoad = exLib
+    ? !!(exLib.load_pct || exLib.load_rpe || exLib.load_kg)
+    : (load !== "-" || tool !== "" || !!resolveMaxKey(name));
+  const rawReps = reps?.replace(/ (min|cal)$/, "") ?? "";
+  const colCount = (vm === "rep") ? [showSets, true, showRest].filter(Boolean).length : 1;
+
+  return (
+    <>
+      {vm === "rep" ? (
+        <div className={`grid gap-1.5`} style={{ gridTemplateColumns: `repeat(${colCount}, 1fr)` }}>
+          {showSets && (
+            <div>
+              <label className="label">Serie</label>
+              <input className="input text-xs text-center" value={sets} onChange={e => onChange({ sets: e.target.value })} placeholder={setsPlaceholder} />
+            </div>
+          )}
+          <div>
+            <label className="label">Reps</label>
+            <input className="input text-xs text-center" value={reps} onChange={e => onChange({ reps: e.target.value })} placeholder={repsPlaceholder} />
+          </div>
+          {showRest && (
+            <div>
+              <label className="label">Rec. sec</label>
+              <input className="input text-xs text-center" value={rest} onChange={e => onChange({ rest: e.target.value })} placeholder={restPlaceholder} />
+            </div>
+          )}
+        </div>
+      ) : (
+        <div>
+          <label className="label">{vm === "min" ? "Minuti" : "Calorie"}</label>
+          <input
+            className="input text-xs text-center"
+            value={rawReps}
+            onChange={e => onChange({ reps: e.target.value ? `${e.target.value} ${vm}` : "" })}
+            placeholder={vm === "min" ? "10" : "50"}
+          />
+        </div>
+      )}
+      {hasLoad && (
+        <LoadInput
+          label="Carico"
+          exerciseName={name}
+          value={load}
+          onChange={v => onChange({ load: v })}
+          tool={tool}
+          onToolChange={t => onChange({ tool: t })}
+          libEx={exLib}
+        />
+      )}
+      {hasLoad && <OneRMHint exerciseName={name} load={load} maxes={maxes} />}
+    </>
   );
 }
 
@@ -1682,7 +1938,11 @@ function LoadInput({
   const switchMode = (m: LoadMode) => {
     if (m === "pct") { onChange("80%"); onToolChange?.(""); }
     else if (m === "rpe") { onChange("RPE 7"); onToolChange?.(""); }
-    else onChange("-");
+    else {
+      // kg mode — imposta un valore numerico valido (non "-") così detectLoadMode lo riconosce come "kg"
+      const kgDefault = defaultLoadForTool(tool ?? "");
+      onChange(kgDefault !== "-" ? kgDefault : "20");
+    }
   };
 
   // Tool disponibili: dalla libreria se libEx presente, altrimenti tools prop o ["DB","KB"]
@@ -1714,8 +1974,8 @@ function LoadInput({
               );
             })}
           </div>
-          {/* Tool toggle — dalla libreria se disponibile */}
-          {onToolChange && mode === "kg" && effectiveTools.length > 0 && (
+          {/* Tool toggle — dalla libreria se disponibile, sempre visibile se l'esercizio ha attrezzi */}
+          {onToolChange && effectiveTools.length > 0 && (
             <>
               <span className="text-[8px] text-gray-600 dark:text-gray-500 select-none">·</span>
               <div className="flex gap-0.5">
@@ -1798,10 +2058,31 @@ function OneRMHint({ exerciseName, load, maxes }: {
   load: string;
   maxes: Record<string, number>;
 }) {
-  if (!load.includes("%")) return null;
   const key = resolveMaxKey(exerciseName);
   if (!key) return null;
   const max = maxes[key];
+
+  // Performance exercise but load is not in % (e.g. stored as "-" or kg)
+  // Show a nudge so the coach knows this exercise has a max
+  if (!load.includes("%")) {
+    if (!load || load === "-") {
+      if (!max) {
+        return (
+          <div className="flex items-center gap-1 px-0.5 mt-0.5">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4m0 4h.01"/></svg>
+            <span className="text-[11px] text-gray-400 italic">Massimale non inserito per {key}</span>
+          </div>
+        );
+      }
+      return (
+        <div className="flex items-center gap-1.5 px-0.5 mt-0.5">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#C0D738" strokeWidth="2.5"><path d="M6 4v16M18 4v16M3 8h4m10 0h4M3 16h4m10 0h4M7 12h10"/></svg>
+          <span className="text-[11px] text-gray-400">{key} max <strong className="text-gray-500 dark:text-gray-300">{max} kg</strong> — imposta % per calcolare il carico</span>
+        </div>
+      );
+    }
+    return null;
+  }
 
   // Progressive loads: "70%|75%|80%"
   if (load.includes("|")) {
@@ -2192,6 +2473,7 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, maxes, onSave, onCan
                 libEx={exLib}
               />
             )}
+            {showLoad && <OneRMHint exerciseName={row.name} load={row.load} maxes={maxes} />}
             <BulkNoteField value={row.notes} onChange={v => updW("cardio", i, { notes: v })} />
           </div>
         );
@@ -2201,7 +2483,10 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, maxes, onSave, onCan
       <SubgroupLabel label={`Mobilità${mobSubLabel}`} color={color} />
       {state.warmup.mobilita.map((row, i) => {
         const exLib = lookupExercise(lib, row.name);
-        const hasLoad = row.load !== "-" || row.tool !== "";
+        const vm = getVolumeMode(exLib);
+        const hasLoad = exLib
+          ? !!(exLib.load_pct || exLib.load_rpe || exLib.load_kg)
+          : (row.load !== "-" || row.tool !== "" || !!resolveMaxKey(row.name));
         return (
           <div key={i} className="p-2.5 bg-gray-50 dark:bg-gray-700/40 rounded-xl space-y-1">
             <div className="flex gap-2 items-center">
@@ -2210,32 +2495,41 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, maxes, onSave, onCan
                 onChange={v => {
                   const ex = lookupExercise(lib, v);
                   const tool = getDefaultTool(ex) || detectTool(v);
-                  const load = ex?.load_kg ? defaultLoadForTool(tool) : "-";
-                  updW("mobilita", i, { name: v, tool, load });
+                  const load = computeLoad(v, tool, ex);
+                  const newVm = getVolumeMode(ex);
+                  updW("mobilita", i, {
+                    name: v, tool, load,
+                    sets: newVm === "rep" ? "2" : "",
+                    reps: newVm === "min" ? "10" : newVm === "cal" ? "50" : "10",
+                  });
                 }}
                 suggestions={getLibNames(lib, "WARMUP", "MOBILITÀ", mobFilter)}
                 globalSuggestions={getAllLibNames(lib)}
                 strict
                 placeholder="Esercizio mobilità"
               />
-              <div className="flex gap-1 flex-shrink-0">
-                <input className="input text-xs w-12 text-center" value={row.sets} onChange={e => updW("mobilita", i, { sets: e.target.value })} placeholder="2" />
-                <span className="text-xs text-gray-400 self-center">x</span>
-                <input className="input text-xs w-12 text-center" value={row.reps} onChange={e => updW("mobilita", i, { reps: e.target.value })} placeholder="10" />
+              <div className="flex items-center gap-1 flex-shrink-0">
+                {vm === "rep" ? (
+                  <>
+                    <input className="input text-xs w-12 text-center" value={row.sets} onChange={e => updW("mobilita", i, { sets: e.target.value })} placeholder="2" />
+                    <span className="text-xs text-gray-400 self-center">x</span>
+                    <input className="input text-xs w-12 text-center" value={row.reps} onChange={e => updW("mobilita", i, { reps: e.target.value })} placeholder="10" />
+                  </>
+                ) : (
+                  <>
+                    <input className="input text-xs w-14 text-center" value={row.reps} onChange={e => updW("mobilita", i, { reps: e.target.value })} placeholder={vm === "min" ? "10" : "50"} />
+                    <span className="text-xs text-gray-400">{vm === "min" ? "min" : "cal"}</span>
+                  </>
+                )}
               </div>
               {removeBtn(() => removeW("mobilita", i))}
             </div>
             {hasLoad && (
-              <LoadInput
-                label="Carico"
-                exerciseName={row.name}
-                value={row.load}
-                onChange={v => updW("mobilita", i, { load: v })}
-                tool={row.tool}
-                onToolChange={t => updW("mobilita", i, { tool: t })}
-                libEx={exLib}
-              />
+              <LoadInput label="Carico" exerciseName={row.name} value={row.load}
+                onChange={v => updW("mobilita", i, { load: v })} tool={row.tool}
+                onToolChange={t => updW("mobilita", i, { tool: t })} libEx={exLib} />
             )}
+            {hasLoad && <OneRMHint exerciseName={row.name} load={row.load} maxes={maxes} />}
             <BulkNoteField value={row.notes} onChange={v => updW("mobilita", i, { notes: v })} />
           </div>
         );
@@ -2245,7 +2539,10 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, maxes, onSave, onCan
       <SubgroupLabel label={`Attivazione${mobSubLabel}`} color={color} />
       {state.warmup.attivazione.map((row, i) => {
         const exLib = lookupExercise(lib, row.name);
-        const hasLoad = row.load !== "-" || row.tool !== "";
+        const vm = getVolumeMode(exLib);
+        const hasLoad = exLib
+          ? !!(exLib.load_pct || exLib.load_rpe || exLib.load_kg)
+          : (row.load !== "-" || row.tool !== "" || !!resolveMaxKey(row.name));
         return (
           <div key={i} className="p-2.5 bg-gray-50 dark:bg-gray-700/40 rounded-xl space-y-1">
             <div className="flex gap-2 items-center">
@@ -2254,8 +2551,13 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, maxes, onSave, onCan
                 onChange={v => {
                   const ex = lookupExercise(lib, v);
                   const tool = getDefaultTool(ex) || detectTool(v);
-                  const load = ex?.load_kg ? defaultLoadForTool(tool) : "-";
-                  updW("attivazione", i, { name: v, tool, load });
+                  const load = computeLoad(v, tool, ex);
+                  const newVm = getVolumeMode(ex);
+                  updW("attivazione", i, {
+                    name: v, tool, load,
+                    sets: newVm === "rep" ? "2" : "",
+                    reps: newVm === "min" ? "10" : newVm === "cal" ? "50" : "10",
+                  });
                 }}
                 suggestions={mobFilter === "FULL"
                   ? [...getLibNames(lib, "WARMUP", "ATTIVAZIONE", "UPPER"), ...getLibNames(lib, "WARMUP", "ATTIVAZIONE", "LOWER")]
@@ -2264,24 +2566,28 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, maxes, onSave, onCan
                 strict
                 placeholder="Esercizio attivazione"
               />
-              <div className="flex gap-1 flex-shrink-0">
-                <input className="input text-xs w-12 text-center" value={row.sets} onChange={e => updW("attivazione", i, { sets: e.target.value })} placeholder="2" />
-                <span className="text-xs text-gray-400 self-center">x</span>
-                <input className="input text-xs w-12 text-center" value={row.reps} onChange={e => updW("attivazione", i, { reps: e.target.value })} placeholder="10" />
+              <div className="flex items-center gap-1 flex-shrink-0">
+                {vm === "rep" ? (
+                  <>
+                    <input className="input text-xs w-12 text-center" value={row.sets} onChange={e => updW("attivazione", i, { sets: e.target.value })} placeholder="2" />
+                    <span className="text-xs text-gray-400 self-center">x</span>
+                    <input className="input text-xs w-12 text-center" value={row.reps} onChange={e => updW("attivazione", i, { reps: e.target.value })} placeholder="10" />
+                  </>
+                ) : (
+                  <>
+                    <input className="input text-xs w-14 text-center" value={row.reps} onChange={e => updW("attivazione", i, { reps: e.target.value })} placeholder={vm === "min" ? "10" : "50"} />
+                    <span className="text-xs text-gray-400">{vm === "min" ? "min" : "cal"}</span>
+                  </>
+                )}
               </div>
               {removeBtn(() => removeW("attivazione", i))}
             </div>
             {hasLoad && (
-              <LoadInput
-                label="Carico"
-                exerciseName={row.name}
-                value={row.load}
-                onChange={v => updW("attivazione", i, { load: v })}
-                tool={row.tool}
-                onToolChange={t => updW("attivazione", i, { tool: t })}
-                libEx={exLib}
-              />
+              <LoadInput label="Carico" exerciseName={row.name} value={row.load}
+                onChange={v => updW("attivazione", i, { load: v })} tool={row.tool}
+                onToolChange={t => updW("attivazione", i, { tool: t })} libEx={exLib} />
             )}
+            {hasLoad && <OneRMHint exerciseName={row.name} load={row.load} maxes={maxes} />}
             <BulkNoteField value={row.notes} onChange={v => updW("attivazione", i, { notes: v })} />
           </div>
         );
@@ -2293,80 +2599,112 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, maxes, onSave, onCan
   const renderForza = () => (
     <div className="space-y-1">
       <SubgroupLabel label={state.forza.label} color={color} />
-      {state.forza.rows.map((row, i) => (
-        <div key={i} className="p-2.5 bg-gray-50 dark:bg-gray-700/40 rounded-xl space-y-1.5">
-          <div className="flex gap-2 items-center">
-            <AutocompleteInput
-              value={row.name}
-              onChange={v => updF(i, { name: v })}
-              suggestions={getLibNames(lib, "FORZA", state.forza.libSub)}
-              globalSuggestions={getAllLibNames(lib)}
-              strict
-              placeholder={`Esercizio ${state.forza.label.toLowerCase()}`}
-            />
-            {removeBtn(() => removeF(i))}
-          </div>
-          {/* SERIE | REPS | REC.SEC */}
-          <div className="grid grid-cols-3 gap-1.5">
-            <div>
-              <label className="label">Serie</label>
-              <input className="input text-xs text-center" value={row.sets} onChange={e => updF(i, { sets: e.target.value })} placeholder="3" />
+      {state.forza.rows.map((row, i) => {
+        const exLib = lookupExercise(lib, row.name);
+        const vm = getVolumeMode(exLib);
+        const hasLoad = exLib
+          ? !!(exLib.load_pct || exLib.load_rpe || exLib.load_kg)
+          : (row.load !== "-" || row.tool !== "" || !!resolveMaxKey(row.name));
+        return (
+          <div key={i} className="p-2.5 bg-gray-50 dark:bg-gray-700/40 rounded-xl space-y-1.5">
+            <div className="flex gap-2 items-center">
+              <AutocompleteInput
+                value={row.name}
+                onChange={v => {
+                  const ex = lookupExercise(lib, v);
+                  const tool = getDefaultTool(ex) || detectTool(v);
+                  const load = computeLoad(v, tool, ex);
+                  const newVm = getVolumeMode(ex);
+                  updF(i, {
+                    name: v, tool, load,
+                    sets: newVm === "rep" ? "3" : "",
+                    reps: newVm === "min" ? "10 min" : newVm === "cal" ? "50 cal" : "5",
+                    rest: newVm === "rep" ? "120" : "",
+                  });
+                }}
+                suggestions={getLibNames(lib, "FORZA", state.forza.libSub)}
+                globalSuggestions={getAllLibNames(lib)}
+                strict
+                placeholder={`Esercizio ${state.forza.label.toLowerCase()}`}
+              />
+              {removeBtn(() => removeF(i))}
             </div>
-            <div>
-              <label className="label">Reps</label>
-              <input className="input text-xs text-center" value={row.reps} onChange={e => updF(i, { reps: e.target.value })} placeholder="5" />
-            </div>
-            <div>
-              <label className="label">Rec. sec</label>
-              <input className="input text-xs text-center" value={row.rest} onChange={e => updF(i, { rest: e.target.value })} placeholder="120" />
-            </div>
-          </div>
-          {/* CARICO full-width */}
-          {!row.progressive && (
-            <LoadInput
-              label="Carico"
-              exerciseName={row.name}
-              value={row.load}
-              onChange={v => updF(i, { load: v })}
-              tool={row.tool}
-              onToolChange={v => updF(i, { tool: v })}
-              libEx={lookupExercise(lib, row.name)}
-            />
-          )}
-          {/* Progressive toggle */}
-          <label className="flex items-center gap-1 cursor-pointer w-fit">
-            <input
-              type="checkbox"
-              checked={row.progressive}
-              onChange={e => toggleProgressive(i, e.target.checked)}
-              className="w-3 h-3 accent-lime-500"
-            />
-            <span className="text-[10px] text-gray-400 select-none">Progressivo</span>
-          </label>
-          {/* Per-set loads when progressive */}
-          {row.progressive && row.loads.length > 0 && (
-            <div>
-              <p className="text-[9px] text-gray-400 uppercase tracking-wider mb-1">Carico per set</p>
-              <div className="grid gap-1.5" style={{ gridTemplateColumns: `repeat(${Math.min(row.loads.length, 4)}, 1fr)` }}>
-                {row.loads.map((load, si) => {
-                  const key = resolveMaxKey(row.name);
-                  const max = key ? maxes[key] : undefined;
-                  const hint = max && load.includes("%") ? calcKgFromPct(load, max) : null;
-                  return (
-                    <div key={si}>
-                      <label className="label">S{si + 1}</label>
-                      <LoadInput exerciseName={row.name} value={load} onChange={v => updFLoad(i, si, v)} />
-                      {hint && <p className="text-[9px] text-lime-600 dark:text-lime-400 text-center mt-0.5">≈ {hint} kg</p>}
-                    </div>
-                  );
-                })}
+            {/* Volume — library-driven */}
+            {vm === "rep" ? (
+              <div className="grid grid-cols-3 gap-1.5">
+                <div>
+                  <label className="label">Serie</label>
+                  <input className="input text-xs text-center" value={row.sets} onChange={e => updF(i, { sets: e.target.value })} placeholder="3" />
+                </div>
+                <div>
+                  <label className="label">Reps</label>
+                  <input className="input text-xs text-center" value={row.reps} onChange={e => updF(i, { reps: e.target.value })} placeholder="5" />
+                </div>
+                <div>
+                  <label className="label">Rec. sec</label>
+                  <input className="input text-xs text-center" value={row.rest} onChange={e => updF(i, { rest: e.target.value })} placeholder="120" />
+                </div>
               </div>
-            </div>
-          )}
-          {!row.progressive && <OneRMHint exerciseName={row.name} load={row.load} maxes={maxes} />}
-          <BulkNoteField value={row.notes} onChange={v => updF(i, { notes: v })} />
-        </div>
-      ))}
+            ) : (
+              <div>
+                <label className="label">{vm === "min" ? "Minuti" : "Calorie"}</label>
+                <input
+                  className="input text-xs text-center"
+                  value={row.reps?.replace(/ (min|cal)$/, "") ?? ""}
+                  onChange={e => updF(i, { reps: e.target.value ? `${e.target.value} ${vm}` : "" })}
+                  placeholder={vm === "min" ? "10" : "50"}
+                />
+              </div>
+            )}
+            {/* CARICO — library-driven, solo se ha carico */}
+            {hasLoad && !row.progressive && (
+              <LoadInput
+                label="Carico"
+                exerciseName={row.name}
+                value={row.load}
+                onChange={v => updF(i, { load: v })}
+                tool={row.tool}
+                onToolChange={v => updF(i, { tool: v })}
+                libEx={exLib}
+              />
+            )}
+            {/* Progressive — solo per esercizi rep */}
+            {vm === "rep" && (
+              <label className="flex items-center gap-1 cursor-pointer w-fit">
+                <input
+                  type="checkbox"
+                  checked={row.progressive}
+                  onChange={e => toggleProgressive(i, e.target.checked)}
+                  className="w-3 h-3 accent-lime-500"
+                />
+                <span className="text-[10px] text-gray-400 select-none">Progressivo</span>
+              </label>
+            )}
+            {/* Per-set loads when progressive */}
+            {row.progressive && row.loads.length > 0 && (
+              <div>
+                <p className="text-[9px] text-gray-400 uppercase tracking-wider mb-1">Carico per set</p>
+                <div className="grid gap-1.5" style={{ gridTemplateColumns: `repeat(${Math.min(row.loads.length, 4)}, 1fr)` }}>
+                  {row.loads.map((load, si) => {
+                    const key = resolveMaxKey(row.name);
+                    const max = key ? maxes[key] : undefined;
+                    const hint = max && load.includes("%") ? calcKgFromPct(load, max) : null;
+                    return (
+                      <div key={si}>
+                        <label className="label">S{si + 1}</label>
+                        <LoadInput exerciseName={row.name} value={load} onChange={v => updFLoad(i, si, v)} libEx={exLib} />
+                        {hint && <p className="text-[9px] text-lime-600 dark:text-lime-400 text-center mt-0.5">≈ {hint} kg</p>}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+            {hasLoad && !row.progressive && <OneRMHint exerciseName={row.name} load={row.load} maxes={maxes} />}
+            <BulkNoteField value={row.notes} onChange={v => updF(i, { notes: v })} />
+          </div>
+        );
+      })}
       {addBtn(addF, "aggiungi esercizio")}
     </div>
   );
@@ -2376,7 +2714,6 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, maxes, onSave, onCan
       <SubgroupLabel label={label} color={color} />
       {(state.accessori[sub] as AccessoriRow[]).map((row, i) => {
         const exLib = lookupExercise(lib, row.name);
-        const hasLoad = row.load !== "-" || row.tool !== "";
         return (
           <div key={i} className="p-2.5 bg-gray-50 dark:bg-gray-700/40 rounded-xl space-y-1.5">
             <div className="flex gap-2 items-center">
@@ -2385,10 +2722,14 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, maxes, onSave, onCan
                 onChange={v => {
                   const ex = lookupExercise(lib, v);
                   const tool = getDefaultTool(ex) || detectTool(v);
-                  const load = ex
-                    ? (ex.default_load === "pct" ? "80%" : ex.default_load === "rpe" ? "RPE 7" : defaultLoadForTool(tool))
-                    : defaultLoadForTool(tool);
-                  updA(sub, i, { name: v, tool, load });
+                  const load = computeLoad(v, tool, ex);
+                  const newVm = getVolumeMode(ex);
+                  updA(sub, i, {
+                    name: v, tool, load,
+                    sets: newVm === "rep" ? "3" : "",
+                    reps: newVm === "min" ? "10 min" : newVm === "cal" ? "50 cal" : "12",
+                    rest: newVm === "rep" ? "60" : "",
+                  });
                 }}
                 suggestions={getLibNames(lib, "ACCESSORI", libSub)}
                 globalSuggestions={getAllLibNames(lib)}
@@ -2397,31 +2738,14 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, maxes, onSave, onCan
               />
               {removeBtn(() => removeA(sub, i))}
             </div>
-            <div className="grid grid-cols-3 gap-1.5">
-              <div>
-                <label className="label">Serie</label>
-                <input className="input text-xs text-center" value={row.sets} onChange={e => updA(sub, i, { sets: e.target.value })} placeholder="3" />
-              </div>
-              <div>
-                <label className="label">Reps</label>
-                <input className="input text-xs text-center" value={row.reps} onChange={e => updA(sub, i, { reps: e.target.value })} placeholder="12" />
-              </div>
-              <div>
-                <label className="label">Rec. sec</label>
-                <input className="input text-xs text-center" value={row.rest} onChange={e => updA(sub, i, { rest: e.target.value })} placeholder="60" />
-              </div>
-            </div>
-            {hasLoad && (
-              <LoadInput
-                label="Carico"
-                exerciseName={row.name}
-                value={row.load}
-                onChange={v => updA(sub, i, { load: v })}
-                tool={row.tool}
-                onToolChange={t => updA(sub, i, { tool: t })}
-                libEx={exLib}
-              />
-            )}
+            <ExerciseFields
+              name={row.name} exLib={exLib}
+              sets={row.sets} reps={row.reps} rest={row.rest}
+              load={row.load} tool={row.tool}
+              maxes={maxes}
+              setsPlaceholder="3" repsPlaceholder="12" restPlaceholder="60"
+              onChange={updates => updA(sub, i, updates)}
+            />
             <BulkNoteField value={row.notes} onChange={v => updA(sub, i, { notes: v })} />
           </div>
         );
@@ -2443,7 +2767,6 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, maxes, onSave, onCan
     <div className="space-y-1">
       {state.core.map((row, i) => {
         const exLib = lookupExercise(lib, row.name);
-        const hasLoad = row.load !== "-" || row.tool !== "";
         return (
           <div key={i} className="p-2.5 bg-gray-50 dark:bg-gray-700/40 rounded-xl space-y-1.5">
             <div className="flex gap-2 items-center">
@@ -2452,8 +2775,14 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, maxes, onSave, onCan
                 onChange={v => {
                   const ex = lookupExercise(lib, v);
                   const tool = getDefaultTool(ex) || detectTool(v);
-                  const load = ex?.load_kg ? defaultLoadForTool(tool) : "-";
-                  updC(i, { name: v, tool, load });
+                  const load = computeLoad(v, tool, ex);
+                  const newVm = getVolumeMode(ex);
+                  updC(i, {
+                    name: v, tool, load,
+                    sets: newVm === "rep" ? "3" : "",
+                    reps: newVm === "min" ? "10 min" : newVm === "cal" ? "50 cal" : "15",
+                    rest: newVm === "rep" ? "30" : "",
+                  });
                 }}
                 suggestions={getLibNames(lib, "CORE TRAINING", null)}
                 globalSuggestions={getAllLibNames(lib)}
@@ -2462,31 +2791,14 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, maxes, onSave, onCan
               />
               {removeBtn(() => removeCoreRow(i))}
             </div>
-            <div className="grid grid-cols-3 gap-1.5">
-              <div>
-                <label className="label">Serie</label>
-                <input className="input text-xs text-center" value={row.sets} onChange={e => updC(i, { sets: e.target.value })} placeholder="3" />
-              </div>
-              <div>
-                <label className="label">Reps</label>
-                <input className="input text-xs text-center" value={row.reps} onChange={e => updC(i, { reps: e.target.value })} placeholder="15" />
-              </div>
-              <div>
-                <label className="label">Rec. sec</label>
-                <input className="input text-xs text-center" value={row.rest} onChange={e => updC(i, { rest: e.target.value })} placeholder="30" />
-              </div>
-            </div>
-            {hasLoad && (
-              <LoadInput
-                label="Carico"
-                exerciseName={row.name}
-                value={row.load}
-                onChange={v => updC(i, { load: v })}
-                tool={row.tool}
-                onToolChange={t => updC(i, { tool: t })}
-                libEx={exLib}
-              />
-            )}
+            <ExerciseFields
+              name={row.name} exLib={exLib}
+              sets={row.sets} reps={row.reps} rest={row.rest}
+              load={row.load} tool={row.tool}
+              maxes={maxes}
+              setsPlaceholder="3" repsPlaceholder="15" restPlaceholder="30"
+              onChange={updates => updC(i, updates)}
+            />
             <BulkNoteField value={row.notes} onChange={v => updC(i, { notes: v })} />
           </div>
         );
@@ -2562,14 +2874,27 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, maxes, onSave, onCan
 
               {/* Rows */}
               <div className="space-y-1.5">
-                {block.rows.map((row, rowIdx) => (
+                {block.rows.map((row, rowIdx) => {
+                  const wkExLib = lookupExercise(lib, row.name);
+                  const wkVm = getVolumeMode(wkExLib);
+                  const wkHasLoad = wkExLib
+                    ? !!(wkExLib.load_pct || wkExLib.load_rpe || wkExLib.load_kg)
+                    : (row.load !== "-" || row.tool !== "" || !!resolveMaxKey(row.name));
+                  const wkUnitLabel = wkVm === "min" ? "min" : wkVm === "cal" ? "cal" : "reps";
+                  const wkPlaceholder = wkVm === "min" ? "10" : wkVm === "cal" ? "50" : "10";
+                  return (
                   <div key={rowIdx} className="p-2.5 bg-gray-50 dark:bg-gray-700/40 rounded-xl">
                     {isCardioliss ? (
                       <div className="space-y-1">
                         <div className="flex gap-2 items-center">
                           <AutocompleteInput
                             value={row.name}
-                            onChange={v => updWk(blockIdx, rowIdx, { name: v })}
+                            onChange={v => {
+                              const ex = lookupExercise(lib, v);
+                              const tool = getDefaultTool(ex) || detectTool(v);
+                              const load = computeLoad(v, tool, ex);
+                              updWk(blockIdx, rowIdx, { name: v, tool, load });
+                            }}
                             suggestions={getWorkoutNames(lib)}
                             globalSuggestions={getAllLibNames(lib)}
                             strict
@@ -2589,16 +2914,29 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, maxes, onSave, onCan
                           <input className="input text-xs w-16 text-center flex-shrink-0" value={row.rounds} onChange={e => updWk(blockIdx, rowIdx, { rounds: e.target.value })} placeholder="Rounds" />
                           <AutocompleteInput
                             value={row.name}
-                            onChange={v => updWk(blockIdx, rowIdx, { name: v })}
+                            onChange={v => {
+                              const ex = lookupExercise(lib, v);
+                              const tool = getDefaultTool(ex) || detectTool(v);
+                              const load = computeLoad(v, tool, ex);
+                              const newVm = getVolumeMode(ex);
+                              updWk(blockIdx, rowIdx, {
+                                name: v, tool, load,
+                                reps: newVm === "min" ? "10" : newVm === "cal" ? "50" : "15",
+                              });
+                            }}
                             suggestions={getWorkoutNames(lib)}
                             globalSuggestions={getAllLibNames(lib)}
                             strict
                             placeholder="Esercizio"
                           />
-                          <input className="input text-xs w-16 text-center flex-shrink-0" value={row.reps} onChange={e => updWk(blockIdx, rowIdx, { reps: e.target.value })} placeholder="15 reps" />
+                          <div className="flex items-center gap-1 flex-shrink-0">
+                            <input className="input text-xs w-14 text-center" value={row.reps} onChange={e => updWk(blockIdx, rowIdx, { reps: e.target.value })} placeholder={wkPlaceholder} />
+                            <span className="text-xs text-gray-400">{wkUnitLabel}</span>
+                          </div>
                           {removeBtn(() => removeWkRow(blockIdx, rowIdx))}
                         </div>
-                        <LoadInput exerciseName={row.name} value={row.load} onChange={v => updWk(blockIdx, rowIdx, { load: v })} label="Carico" tool={row.tool} onToolChange={t => updWk(blockIdx, rowIdx, { tool: t })} libEx={lookupExercise(lib, row.name)} />
+                        {wkHasLoad && <LoadInput exerciseName={row.name} value={row.load} onChange={v => updWk(blockIdx, rowIdx, { load: v })} label="Carico" tool={row.tool} onToolChange={t => updWk(blockIdx, rowIdx, { tool: t })} libEx={wkExLib} />}
+                        {wkHasLoad && <OneRMHint exerciseName={row.name} load={row.load} maxes={maxes} />}
                         <BulkNoteField value={row.notes} onChange={v => updWk(blockIdx, rowIdx, { notes: v })} />
                       </div>
                     ) : (
@@ -2606,21 +2944,35 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, maxes, onSave, onCan
                         <div className="flex gap-2 items-center">
                           <AutocompleteInput
                             value={row.name}
-                            onChange={v => updWk(blockIdx, rowIdx, { name: v })}
+                            onChange={v => {
+                              const ex = lookupExercise(lib, v);
+                              const tool = getDefaultTool(ex) || detectTool(v);
+                              const load = computeLoad(v, tool, ex);
+                              const newVm = getVolumeMode(ex);
+                              updWk(blockIdx, rowIdx, {
+                                name: v, tool, load,
+                                reps: newVm === "min" ? "10" : newVm === "cal" ? "50" : "10",
+                              });
+                            }}
                             suggestions={getWorkoutNames(lib)}
                             globalSuggestions={getAllLibNames(lib)}
                             strict
                             placeholder="Esercizio"
                           />
-                          <input className="input text-xs w-16 text-center flex-shrink-0" value={row.reps} onChange={e => updWk(blockIdx, rowIdx, { reps: e.target.value })} placeholder="10 reps" />
+                          <div className="flex items-center gap-1 flex-shrink-0">
+                            <input className="input text-xs w-14 text-center" value={row.reps} onChange={e => updWk(blockIdx, rowIdx, { reps: e.target.value })} placeholder={wkPlaceholder} />
+                            <span className="text-xs text-gray-400">{wkUnitLabel}</span>
+                          </div>
                           {removeBtn(() => removeWkRow(blockIdx, rowIdx))}
                         </div>
-                        <LoadInput exerciseName={row.name} value={row.load} onChange={v => updWk(blockIdx, rowIdx, { load: v })} label="Carico" tool={row.tool} onToolChange={t => updWk(blockIdx, rowIdx, { tool: t })} libEx={lookupExercise(lib, row.name)} />
+                        {wkHasLoad && <LoadInput exerciseName={row.name} value={row.load} onChange={v => updWk(blockIdx, rowIdx, { load: v })} label="Carico" tool={row.tool} onToolChange={t => updWk(blockIdx, rowIdx, { tool: t })} libEx={wkExLib} />}
+                        {wkHasLoad && <OneRMHint exerciseName={row.name} load={row.load} maxes={maxes} />}
                         <BulkNoteField value={row.notes} onChange={v => updWk(blockIdx, rowIdx, { notes: v })} />
                       </div>
                     )}
                   </div>
-                ))}
+                  );
+                })}
                 {addBtn(() => addWkRow(blockIdx), "aggiungi esercizio")}
               </div>
             </div>
@@ -2830,12 +3182,27 @@ export default function DayPage() {
 
   const handleSaveExercise = async (sectionId: string, ex: Exercise) => {
     setSaving(true);
+    // Library-driven: esercizi min/cal non devono avere sets né rest_time
+    const exLib = lib ? lookupExercise(lib, ex.name) : undefined;
+    const vm = getVolumeMode(exLib);
+    const isMinCal = vm !== "rep";
+    const setsVal     = isMinCal ? null : (ex.sets ?? null);
+    const restTimeVal = isMinCal ? null : (ex.rest_time ?? null);
+    // Aggiorna anche lo stato locale per coerenza nel display
+    if (isMinCal && (ex.sets || ex.rest_time)) {
+      setSections(prev => prev.map(s => ({
+        ...s,
+        exercises: (s.exercises ?? []).map(e =>
+          e.id === ex.id ? { ...e, sets: null, rest_time: null } : e
+        ),
+      })));
+    }
     await supabase.from("exercises").update({
       name: ex.name,
-      sets: ex.sets ?? null,
+      sets: setsVal,
       reps: ex.reps ?? null,
       load: ex.load ?? null,
-      rest_time: ex.rest_time ?? null,
+      rest_time: restTimeVal,
       notes: ex.notes ?? null,
     }).eq("id", ex.id);
     setSaving(false);
