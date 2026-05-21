@@ -261,8 +261,7 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
                   onChange={v => { setEditLoad(v); commitLoad(v, effectiveTool); }}
                   tool={effectiveTool}
                   onToolChange={t => { setEditTool(t); commitLoad(editLoad, t); }}
-                  kgOnly
-                  tools={cardioLibTools.length > 0 ? cardioLibTools : undefined}
+                  libEx={exLib}
                 />
               )}
             </>
@@ -279,6 +278,7 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
     if (sectionType === "workout") {
       const wkSubtypes: WorkoutSubtype[] = ["amrap", "emom", "fortime", "cardioliss"];
       const sub = (noteTag && wkSubtypes.includes(noteTag as WorkoutSubtype) ? noteTag : sectionSubtype) ?? "amrap";
+      const wkExLib = lib ? lookupExercise(lib, exercise.name) : undefined;
       return (
         <div className="p-3 border-b border-gray-100 last:border-0 space-y-2 bg-amber-50 dark:bg-amber-900/20 dark:border-gray-700">
           <AutocompleteInput
@@ -297,32 +297,44 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
             </div>
           )}
           {sub === "fortime" && (
-            <div className="grid grid-cols-3 gap-2">
-              <div>
-                <label className="label">Rounds</label>
-                <input className="input text-sm" placeholder="3" value={exercise.sets ?? ""} onChange={e => onUpdate(exercise.id, "sets", e.target.value)} />
+            <>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="label">Rounds</label>
+                  <input className="input text-sm" placeholder="3" value={exercise.sets ?? ""} onChange={e => onUpdate(exercise.id, "sets", e.target.value)} />
+                </div>
+                <div>
+                  <label className="label">Reps</label>
+                  <input className="input text-sm" placeholder="15" value={exercise.reps ?? ""} onChange={e => onUpdate(exercise.id, "reps", e.target.value)} />
+                </div>
               </div>
-              <div>
-                <label className="label">Reps</label>
-                <input className="input text-sm" placeholder="15" value={exercise.reps ?? ""} onChange={e => onUpdate(exercise.id, "reps", e.target.value)} />
-              </div>
-              <div>
-                <label className="label">Carico</label>
-                <input className="input text-sm" placeholder="20kg" value={exercise.load ?? ""} onChange={e => onUpdate(exercise.id, "load", e.target.value)} />
-              </div>
-            </div>
+              <LoadInput
+                label="Carico"
+                exerciseName={exercise.name}
+                value={editLoad}
+                onChange={v => { setEditLoad(v); commitLoad(v, effectiveTool); }}
+                tool={effectiveTool}
+                onToolChange={t => { setEditTool(t); commitLoad(editLoad, t); }}
+                libEx={wkExLib}
+              />
+            </>
           )}
           {sub !== "cardioliss" && sub !== "fortime" && (
-            <div className="grid grid-cols-2 gap-2">
+            <>
               <div>
                 <label className="label">Reps</label>
                 <input className="input text-sm" placeholder="10" value={exercise.reps ?? ""} onChange={e => onUpdate(exercise.id, "reps", e.target.value)} />
               </div>
-              <div>
-                <label className="label">Carico</label>
-                <input className="input text-sm" placeholder="20kg" value={exercise.load ?? ""} onChange={e => onUpdate(exercise.id, "load", e.target.value)} />
-              </div>
-            </div>
+              <LoadInput
+                label="Carico"
+                exerciseName={exercise.name}
+                value={editLoad}
+                onChange={v => { setEditLoad(v); commitLoad(v, effectiveTool); }}
+                tool={effectiveTool}
+                onToolChange={t => { setEditTool(t); commitLoad(editLoad, t); }}
+                libEx={wkExLib}
+              />
+            </>
           )}
           <div className="flex gap-2">
             <button className="text-xs text-gray-300 hover:text-red-400 transition-colors py-1.5" onClick={() => onDelete(exercise.id)}>Elimina</button>
@@ -334,19 +346,11 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
     }
 
     const isBodyweight = noteTag === "bw";
-    const isKgOnly = sectionType !== "strength";
-    const showLoad = sectionType !== "warmup" && !isBodyweight;
-    const showRec  = sectionType !== "warmup";
-
-    // Tool disponibili dalla libreria per questo esercizio
     const exLibEdit = lib ? lookupExercise(lib, exercise.name) : undefined;
-    const libTools: string[] = exLibEdit ? [
-      ...(exLibEdit.equip_barbell ? ["Bar"] : []),
-      ...(exLibEdit.equip_db      ? ["DB"]  : []),
-      ...(exLibEdit.equip_kb      ? ["KB"]  : []),
-      ...(exLibEdit.equip_mb      ? ["MB"]  : []),
-      ...(exLibEdit.equip_sb      ? ["SB"]  : []),
-    ] : [];
+    // Show load: exclude bodyweight; for warmup only show if library says load_kg or existing load
+    const warmupHasLoad = sectionType === "warmup" && (exLibEdit?.load_kg || (exercise.load && exercise.load !== "-"));
+    const showLoad = (!isBodyweight) && (sectionType !== "warmup" || warmupHasLoad);
+    const showRec  = sectionType !== "warmup";
 
     return (
       <div className="p-3 border-b border-gray-100 last:border-0 space-y-2 bg-amber-50 dark:bg-amber-900/20 dark:border-gray-700">
@@ -387,8 +391,7 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
             onChange={v => { setEditLoad(v); commitLoad(v, effectiveTool); }}
             tool={effectiveTool}
             onToolChange={t => { setEditTool(t); commitLoad(editLoad, t); }}
-            kgOnly={isKgOnly}
-            tools={libTools.length > 0 ? libTools : undefined}
+            libEx={exLibEdit}
           />
         )}
 
@@ -848,24 +851,17 @@ function AddExerciseModal({ section, lib, dayLabel, maxes, onSave, onCancel }: {
               )}
 
               {/* Carico (solo se l'esercizio ha load_kg in libreria e siamo in modalità rep) */}
-              {wuKg && unitMode === "rep" && (() => {
-                const wuExLib = lookupExercise(lib, name);
-                const wuTools = getAvailableTools(wuExLib).length > 0
-                  ? getAvailableTools(wuExLib)
-                  : [...(wuDb ? ["DB"] : []), ...(wuKb ? ["KB"] : [])];
-                return (
-                  <LoadInput
-                    exerciseName={name}
-                    value={load}
-                    onChange={setLoad}
-                    label="Carico"
-                    kgOnly
-                    tool={loadTool}
-                    onToolChange={wuTools.length > 0 ? setLoadTool : undefined}
-                    tools={wuTools.length > 0 ? wuTools : undefined}
-                  />
-                );
-              })()}
+              {wuKg && unitMode === "rep" && (
+                <LoadInput
+                  exerciseName={name}
+                  value={load}
+                  onChange={setLoad}
+                  label="Carico"
+                  tool={loadTool}
+                  onToolChange={setLoadTool}
+                  libEx={exLib}
+                />
+              )}
             </>
           );
         })()}
@@ -886,6 +882,7 @@ function AddExerciseModal({ section, lib, dayLabel, maxes, onSave, onCancel }: {
                 label="Carico"
                 tool={loadTool}
                 onToolChange={setLoadTool}
+                libEx={lookupExercise(lib, name)}
               />
             )}
             <label className="flex items-center gap-1 cursor-pointer w-fit">
@@ -932,16 +929,21 @@ function AddExerciseModal({ section, lib, dayLabel, maxes, onSave, onCancel }: {
               <div><label className="label">Reps</label><input className="input text-sm text-center" placeholder="12" value={reps} onChange={e => setReps(e.target.value)} /></div>
               <div><label className="label">Rec. sec</label><input className="input text-sm text-center" placeholder="60" value={rest} onChange={e => setRest(e.target.value)} /></div>
             </div>
-            {accLoadType !== "none" && (
-              <LoadInput
-                exerciseName={name}
-                value={load}
-                onChange={setLoad}
-                label="Carico"
-                tool={loadTool}
-                onToolChange={setLoadTool}
-              />
-            )}
+            {(() => {
+              const exLib = lookupExercise(lib, name);
+              const hasLoad = exLib ? (exLib.load_kg || exLib.load_pct || exLib.load_rpe) : accessoriSub !== "bodyweight";
+              return hasLoad ? (
+                <LoadInput
+                  exerciseName={name}
+                  value={load}
+                  onChange={setLoad}
+                  label="Carico"
+                  tool={loadTool}
+                  onToolChange={setLoadTool}
+                  libEx={exLib}
+                />
+              ) : null;
+            })()}
           </>
         )}
 
@@ -953,14 +955,21 @@ function AddExerciseModal({ section, lib, dayLabel, maxes, onSave, onCancel }: {
               <div><label className="label">Reps</label><input className="input text-sm text-center" placeholder="15" value={reps} onChange={e => setReps(e.target.value)} /></div>
               <div><label className="label">Rec. sec</label><input className="input text-sm text-center" placeholder="30" value={rest} onChange={e => setRest(e.target.value)} /></div>
             </div>
-            <LoadInput
-              exerciseName={name}
-              value={load}
-              onChange={setLoad}
-              label="Carico"
-              tool={loadTool}
-              onToolChange={setLoadTool}
-            />
+            {(() => {
+              const exLib = lookupExercise(lib, name);
+              const hasLoad = exLib ? (exLib.load_kg || exLib.load_pct || exLib.load_rpe) : true;
+              return hasLoad ? (
+                <LoadInput
+                  exerciseName={name}
+                  value={load}
+                  onChange={setLoad}
+                  label="Carico"
+                  tool={loadTool}
+                  onToolChange={setLoadTool}
+                  libEx={exLib}
+                />
+              ) : null;
+            })()}
           </>
         )}
 
@@ -976,13 +985,13 @@ function AddExerciseModal({ section, lib, dayLabel, maxes, onSave, onCancel }: {
               <div><label className="label">Rounds</label><input className="input text-sm text-center" placeholder="3" value={sets} onChange={e => setSets(e.target.value)} /></div>
               <div><label className="label">Reps</label><input className="input text-sm text-center" placeholder="15" value={reps} onChange={e => setReps(e.target.value)} /></div>
             </div>
-            <LoadInput kgOnly exerciseName={name} value={load} onChange={setLoad} label="Carico" tool={loadTool} onToolChange={setLoadTool} />
+            <LoadInput exerciseName={name} value={load} onChange={setLoad} label="Carico" tool={loadTool} onToolChange={setLoadTool} libEx={lookupExercise(lib, name)} />
           </>
         )}
         {isWorkout && workoutSub !== "cardioliss" && workoutSub !== "fortime" && (
           <>
             <div><label className="label">Reps</label><input className="input text-sm text-center" placeholder="10" value={reps} onChange={e => setReps(e.target.value)} /></div>
-            <LoadInput kgOnly exerciseName={name} value={load} onChange={setLoad} label="Carico" tool={loadTool} onToolChange={setLoadTool} />
+            <LoadInput exerciseName={name} value={load} onChange={setLoad} label="Carico" tool={loadTool} onToolChange={setLoadTool} libEx={lookupExercise(lib, name)} />
           </>
         )}
 
@@ -1247,7 +1256,7 @@ function getRandom<T>(arr: T[], n: number): T[] {
 
 // Row types per sub-section
 interface CardioRow    { name: string; minutes: string; unitMode: "min" | "cal" | "rep"; sets: string; reps: string; load: string; tool: string; notes: string }
-interface MobilitaRow  { name: string; sets: string; reps: string; notes: string }
+interface MobilitaRow  { name: string; sets: string; reps: string; load: string; tool: string; notes: string }
 interface ForzaRow     { name: string; sets: string; reps: string; load: string; rest: string; notes: string; progressive: boolean; loads: string[]; tool: string }
 interface AccessoriRow { name: string; sets: string; reps: string; load: string; rest: string; notes: string; tool: string }
 interface CoreRow      { name: string; sets: string; reps: string; load: string; rest: string; notes: string; tool: string }
@@ -1285,7 +1294,6 @@ interface BulkState {
 
 const mkCardioRow    = (name = "", unitMode: "min" | "cal" | "rep" = "min", tool: string = ""): CardioRow =>
   ({ name, minutes: "5", unitMode, sets: "2", reps: "10", load: defaultLoadForTool(tool), tool, notes: "" });
-const mkMobilitaRow  = (name = ""): MobilitaRow  => ({ name, sets: "2", reps: "10", notes: "" });
 const defaultLoadForTool = (tool: string): string =>
   tool === "DB" ? "10" : tool === "KB" ? "12" : tool === "MB" ? "4" : tool === "SB" ? "10" : "-";
 
@@ -1317,22 +1325,36 @@ function getAvailableTools(exLib: ExerciseLibrary | undefined): string[] {
 }
 
 // lib-aware factory helpers — accept optional exLib for library-driven defaults
+const mkMobilitaRow = (name = "", exLib?: ExerciseLibrary): MobilitaRow => {
+  const tool = getDefaultTool(exLib) || detectTool(name);
+  const load = exLib?.load_kg ? defaultLoadForTool(tool) : "-";
+  return { name, sets: "2", reps: "10", load, tool, notes: "" };
+};
 const mkForzaRow = (name = "", exLib?: ExerciseLibrary): ForzaRow => {
-  const tool = resolveMaxKey(name) ? "" : (getDefaultTool(exLib) || detectTool(name));
-  const load = resolveMaxKey(name) ? "80%" : defaultLoadForTool(tool);
+  const tool = getDefaultTool(exLib) || detectTool(name);
+  const load = exLib
+    ? (exLib.default_load === "pct" ? "80%" : exLib.default_load === "rpe" ? "RPE 7" : defaultLoadForTool(tool))
+    : (resolveMaxKey(name) ? "80%" : defaultLoadForTool(tool));
   return { name, sets: "3", reps: "5", load, rest: "120", notes: "", progressive: false, loads: [], tool };
 };
 const mkAccessoriRow = (name = "", tool: string = "", exLib?: ExerciseLibrary): AccessoriRow => {
   const effectiveTool = tool || getDefaultTool(exLib) || detectTool(name);
-  return { name, sets: "3", reps: "12", load: defaultLoadForTool(effectiveTool), rest: "60", notes: "", tool: effectiveTool };
+  const load = exLib
+    ? (exLib.default_load === "pct" ? "80%" : exLib.default_load === "rpe" ? "RPE 7" : defaultLoadForTool(effectiveTool))
+    : defaultLoadForTool(effectiveTool);
+  return { name, sets: "3", reps: "12", load, rest: "60", notes: "", tool: effectiveTool };
 };
 const mkCoreRow = (name = "", exLib?: ExerciseLibrary): CoreRow => {
   const tool = getDefaultTool(exLib) || detectTool(name);
-  return { name, sets: "3", reps: "15", load: defaultLoadForTool(tool), rest: "30", notes: "", tool };
+  const load = exLib?.load_kg ? defaultLoadForTool(tool) : "-";
+  return { name, sets: "3", reps: "15", load, rest: "30", notes: "", tool };
 };
 const mkWorkoutRow = (name = "", exLib?: ExerciseLibrary): WorkoutRow => {
   const tool = getDefaultTool(exLib) || detectTool(name);
-  return { name, reps: "10", load: defaultLoadForTool(tool), rounds: "3", minutes: "10", notes: "", tool };
+  const load = exLib
+    ? (exLib.default_load === "pct" ? "80%" : exLib.default_load === "rpe" ? "RPE 7" : defaultLoadForTool(tool))
+    : defaultLoadForTool(tool);
+  return { name, reps: "10", load, rounds: "3", minutes: "10", notes: "", tool };
 };
 
 // Derives "UPPER" | "LOWER" | "FULL" from day label (e.g. "Day 1 · Lower Body")
@@ -1368,8 +1390,8 @@ function buildInitialState(lib: LibraryMap, dayLabel = ""): BulkState {
         const tool = getDefaultTool(ex) || detectTool(name);
         return mkCardioRow(name, unitMode, tool);
       }),
-      mobilita: pickPadded("WARMUP", "MOBILITÀ", 4, dayFilter).map(mkMobilitaRow),
-      attivazione: getRandom(getLibNames(lib, "WARMUP", "ATTIVAZIONE", dayFilter), 2).map(mkMobilitaRow),
+      mobilita: pickPadded("WARMUP", "MOBILITÀ", 4, dayFilter).map(n => mkMobilitaRow(n, lookupExercise(lib, n))),
+      attivazione: getRandom(getLibNames(lib, "WARMUP", "ATTIVAZIONE", dayFilter), 2).map(n => mkMobilitaRow(n, lookupExercise(lib, n))),
     },
     forza: {
       rows: pickPadded("FORZA", forza.libSub, 3).map(n => mkForzaRow(n, lookupExercise(lib, n))),
@@ -1570,6 +1592,7 @@ function LoadInput({
   onToolChange,
   kgOnly = false,
   tools,
+  libEx,
 }: {
   exerciseName?: string;
   value: string;
@@ -1578,20 +1601,36 @@ function LoadInput({
   tool?: string;
   onToolChange?: (t: string) => void;
   kgOnly?: boolean;
-  tools?: string[]; // override default ["DB","KB"] — from library equip flags
+  tools?: string[];
+  libEx?: ExerciseLibrary; // se presente, sovrascrive tutta la logica hardcoded
 }) {
-  const canPct = !kgOnly && resolveMaxKey(exerciseName) !== null;
+  // Se libEx disponibile → usa flag libreria; altrimenti fallback legacy
+  const canPct = libEx ? libEx.load_pct : (!kgOnly && resolveMaxKey(exerciseName) !== null);
+  const canRpe = libEx ? libEx.load_rpe : !kgOnly;
+  const canKg  = libEx ? libEx.load_kg  : true;
 
-  // Sync load mode when exercise name changes
+  // Modes disponibili
+  const modes: LoadMode[] = libEx
+    ? [...(canPct ? ["pct" as const] : []), ...(canKg ? ["kg" as const] : []), ...(canRpe ? ["rpe" as const] : [])]
+    : kgOnly ? ["kg"] : canPct ? ["pct", "kg", "rpe"] : ["kg", "rpe"];
+
+  const defaultMode: LoadMode = libEx
+    ? (libEx.default_load === "pct" ? "pct" : libEx.default_load === "rpe" ? "rpe" : "kg")
+    : (canPct ? "pct" : "kg");
+
+  // Sync load mode when exercise name / libEx changes
   useEffect(() => {
-    if (canPct && (!value || value === "-")) {
-      onChange("80%");
-    } else if (!canPct && value.includes("%")) {
+    if (!value || value === "-") {
+      if (defaultMode === "pct") onChange("80%");
+      else if (defaultMode === "rpe") onChange("RPE 7");
+    } else if (value.includes("%") && !canPct) {
+      onChange("-");
+    } else if (/^rpe\s/i.test(value) && !canRpe) {
       onChange("-");
     }
-  }, [exerciseName, kgOnly]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [exerciseName, libEx?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const mode: LoadMode = detectLoadMode(value) ?? (canPct ? "pct" : "kg");
+  const mode: LoadMode = detectLoadMode(value) ?? defaultMode;
   const displayValue = value && value !== "-"
     ? value
     : mode === "pct" ? "80%" : mode === "rpe" ? "RPE 7" : "-";
@@ -1602,8 +1641,8 @@ function LoadInput({
     else onChange("-");
   };
 
-  // kgOnly: solo KG (no % no RPE); altrimenti mostra in base all'esercizio
-  const modes: LoadMode[] = kgOnly ? ["kg"] : canPct ? ["pct", "kg", "rpe"] : ["kg", "rpe"];
+  // Tool disponibili: dalla libreria se libEx presente, altrimenti tools prop o ["DB","KB"]
+  const effectiveTools = libEx ? getAvailableTools(libEx) : (tools ?? []);
 
   return (
     <div className="space-y-0.5">
@@ -1631,12 +1670,12 @@ function LoadInput({
               );
             })}
           </div>
-          {/* Tool toggle — dalla libreria se disponibile, altrimenti DB/KB */}
-          {onToolChange && !canPct && mode === "kg" && (
+          {/* Tool toggle — dalla libreria se disponibile */}
+          {onToolChange && mode === "kg" && effectiveTools.length > 0 && (
             <>
               <span className="text-[8px] text-gray-600 dark:text-gray-500 select-none">·</span>
               <div className="flex gap-0.5">
-                {(tools ?? ["DB", "KB"]).map(t => (
+                {effectiveTools.map(t => (
                   <button
                     key={t}
                     type="button"
@@ -2104,10 +2143,9 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, maxes, onSave, onCan
                 value={row.load}
                 onChange={v => updW("cardio", i, { load: v })}
                 label="Carico"
-                kgOnly
-                tool={cardioTools.length > 0 ? row.tool : undefined}
-                onToolChange={cardioTools.length > 0 ? (t) => updW("cardio", i, { tool: t }) : undefined}
-                tools={cardioTools.length > 0 ? cardioTools : undefined}
+                tool={row.tool}
+                onToolChange={t => updW("cardio", i, { tool: t })}
+                libEx={exLib}
               />
             )}
             <BulkNoteField value={row.notes} onChange={v => updW("cardio", i, { notes: v })} />
@@ -2117,53 +2155,93 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, maxes, onSave, onCan
       {addBtn(() => addW("cardio"), "aggiungi cardio")}
 
       <SubgroupLabel label={`Mobilità${mobSubLabel}`} color={color} />
-      {state.warmup.mobilita.map((row, i) => (
-        <div key={i} className="p-2.5 bg-gray-50 dark:bg-gray-700/40 rounded-xl space-y-1">
-          <div className="flex gap-2 items-center">
-            <AutocompleteInput
-              value={row.name}
-              onChange={v => updW("mobilita", i, { name: v })}
-              suggestions={getLibNames(lib, "WARMUP", "MOBILITÀ", mobFilter)}
-              globalSuggestions={getAllLibNames(lib)}
-              strict
-              placeholder="Esercizio mobilità"
-            />
-            <div className="flex gap-1 flex-shrink-0">
-              <input className="input text-xs w-12 text-center" value={row.sets} onChange={e => updW("mobilita", i, { sets: e.target.value })} placeholder="2" />
-              <span className="text-xs text-gray-400 self-center">x</span>
-              <input className="input text-xs w-12 text-center" value={row.reps} onChange={e => updW("mobilita", i, { reps: e.target.value })} placeholder="10" />
+      {state.warmup.mobilita.map((row, i) => {
+        const exLib = lookupExercise(lib, row.name);
+        const hasLoad = row.load !== "-" || row.tool !== "";
+        return (
+          <div key={i} className="p-2.5 bg-gray-50 dark:bg-gray-700/40 rounded-xl space-y-1">
+            <div className="flex gap-2 items-center">
+              <AutocompleteInput
+                value={row.name}
+                onChange={v => {
+                  const ex = lookupExercise(lib, v);
+                  const tool = getDefaultTool(ex) || detectTool(v);
+                  const load = ex?.load_kg ? defaultLoadForTool(tool) : "-";
+                  updW("mobilita", i, { name: v, tool, load });
+                }}
+                suggestions={getLibNames(lib, "WARMUP", "MOBILITÀ", mobFilter)}
+                globalSuggestions={getAllLibNames(lib)}
+                strict
+                placeholder="Esercizio mobilità"
+              />
+              <div className="flex gap-1 flex-shrink-0">
+                <input className="input text-xs w-12 text-center" value={row.sets} onChange={e => updW("mobilita", i, { sets: e.target.value })} placeholder="2" />
+                <span className="text-xs text-gray-400 self-center">x</span>
+                <input className="input text-xs w-12 text-center" value={row.reps} onChange={e => updW("mobilita", i, { reps: e.target.value })} placeholder="10" />
+              </div>
+              {removeBtn(() => removeW("mobilita", i))}
             </div>
-            {removeBtn(() => removeW("mobilita", i))}
+            {hasLoad && (
+              <LoadInput
+                label="Carico"
+                exerciseName={row.name}
+                value={row.load}
+                onChange={v => updW("mobilita", i, { load: v })}
+                tool={row.tool}
+                onToolChange={t => updW("mobilita", i, { tool: t })}
+                libEx={exLib}
+              />
+            )}
+            <BulkNoteField value={row.notes} onChange={v => updW("mobilita", i, { notes: v })} />
           </div>
-          <BulkNoteField value={row.notes} onChange={v => updW("mobilita", i, { notes: v })} />
-        </div>
-      ))}
+        );
+      })}
       {addBtn(() => addW("mobilita"), "aggiungi mobilità")}
 
       <SubgroupLabel label={`Attivazione${mobSubLabel}`} color={color} />
-      {state.warmup.attivazione.map((row, i) => (
-        <div key={i} className="p-2.5 bg-gray-50 dark:bg-gray-700/40 rounded-xl space-y-1">
-          <div className="flex gap-2 items-center">
-            <AutocompleteInput
-              value={row.name}
-              onChange={v => updW("attivazione", i, { name: v })}
-              suggestions={mobFilter === "FULL"
-                ? [...getLibNames(lib, "WARMUP", "ATTIVAZIONE", "UPPER"), ...getLibNames(lib, "WARMUP", "ATTIVAZIONE", "LOWER")]
-                : getLibNames(lib, "WARMUP", "ATTIVAZIONE", mobFilter)}
-              globalSuggestions={getAllLibNames(lib)}
-              strict
-              placeholder="Esercizio attivazione"
-            />
-            <div className="flex gap-1 flex-shrink-0">
-              <input className="input text-xs w-12 text-center" value={row.sets} onChange={e => updW("attivazione", i, { sets: e.target.value })} placeholder="2" />
-              <span className="text-xs text-gray-400 self-center">x</span>
-              <input className="input text-xs w-12 text-center" value={row.reps} onChange={e => updW("attivazione", i, { reps: e.target.value })} placeholder="10" />
+      {state.warmup.attivazione.map((row, i) => {
+        const exLib = lookupExercise(lib, row.name);
+        const hasLoad = row.load !== "-" || row.tool !== "";
+        return (
+          <div key={i} className="p-2.5 bg-gray-50 dark:bg-gray-700/40 rounded-xl space-y-1">
+            <div className="flex gap-2 items-center">
+              <AutocompleteInput
+                value={row.name}
+                onChange={v => {
+                  const ex = lookupExercise(lib, v);
+                  const tool = getDefaultTool(ex) || detectTool(v);
+                  const load = ex?.load_kg ? defaultLoadForTool(tool) : "-";
+                  updW("attivazione", i, { name: v, tool, load });
+                }}
+                suggestions={mobFilter === "FULL"
+                  ? [...getLibNames(lib, "WARMUP", "ATTIVAZIONE", "UPPER"), ...getLibNames(lib, "WARMUP", "ATTIVAZIONE", "LOWER")]
+                  : getLibNames(lib, "WARMUP", "ATTIVAZIONE", mobFilter)}
+                globalSuggestions={getAllLibNames(lib)}
+                strict
+                placeholder="Esercizio attivazione"
+              />
+              <div className="flex gap-1 flex-shrink-0">
+                <input className="input text-xs w-12 text-center" value={row.sets} onChange={e => updW("attivazione", i, { sets: e.target.value })} placeholder="2" />
+                <span className="text-xs text-gray-400 self-center">x</span>
+                <input className="input text-xs w-12 text-center" value={row.reps} onChange={e => updW("attivazione", i, { reps: e.target.value })} placeholder="10" />
+              </div>
+              {removeBtn(() => removeW("attivazione", i))}
             </div>
-            {removeBtn(() => removeW("attivazione", i))}
+            {hasLoad && (
+              <LoadInput
+                label="Carico"
+                exerciseName={row.name}
+                value={row.load}
+                onChange={v => updW("attivazione", i, { load: v })}
+                tool={row.tool}
+                onToolChange={t => updW("attivazione", i, { tool: t })}
+                libEx={exLib}
+              />
+            )}
+            <BulkNoteField value={row.notes} onChange={v => updW("attivazione", i, { notes: v })} />
           </div>
-          <BulkNoteField value={row.notes} onChange={v => updW("attivazione", i, { notes: v })} />
-        </div>
-      ))}
+        );
+      })}
       {addBtn(() => addW("attivazione"), "aggiungi attivazione")}
     </div>
   );
@@ -2208,6 +2286,7 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, maxes, onSave, onCan
               onChange={v => updF(i, { load: v })}
               tool={row.tool}
               onToolChange={v => updF(i, { tool: v })}
+              libEx={lookupExercise(lib, row.name)}
             />
           )}
           {/* Progressive toggle */}
@@ -2248,104 +2327,126 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, maxes, onSave, onCan
     </div>
   );
 
-  const accessoriGroup = (label: string, sub: keyof BulkState["accessori"], libSub: string, loadType: "select" | "free" | "none") => (
+  const accessoriGroup = (label: string, sub: keyof BulkState["accessori"], libSub: string) => (
     <>
       <SubgroupLabel label={label} color={color} />
-      {(state.accessori[sub] as AccessoriRow[]).map((row, i) => (
-        <div key={i} className="p-2.5 bg-gray-50 dark:bg-gray-700/40 rounded-xl space-y-1.5">
-          <div className="flex gap-2 items-center">
-            <AutocompleteInput
-              value={row.name}
-              onChange={v => updA(sub, i, { name: v })}
-              suggestions={getLibNames(lib, "ACCESSORI", libSub)}
-              globalSuggestions={getAllLibNames(lib)}
-              strict
-              placeholder={`Esercizio ${label.toLowerCase()}`}
-            />
-            {removeBtn(() => removeA(sub, i))}
+      {(state.accessori[sub] as AccessoriRow[]).map((row, i) => {
+        const exLib = lookupExercise(lib, row.name);
+        const hasLoad = row.load !== "-" || row.tool !== "";
+        return (
+          <div key={i} className="p-2.5 bg-gray-50 dark:bg-gray-700/40 rounded-xl space-y-1.5">
+            <div className="flex gap-2 items-center">
+              <AutocompleteInput
+                value={row.name}
+                onChange={v => {
+                  const ex = lookupExercise(lib, v);
+                  const tool = getDefaultTool(ex) || detectTool(v);
+                  const load = ex
+                    ? (ex.default_load === "pct" ? "80%" : ex.default_load === "rpe" ? "RPE 7" : defaultLoadForTool(tool))
+                    : defaultLoadForTool(tool);
+                  updA(sub, i, { name: v, tool, load });
+                }}
+                suggestions={getLibNames(lib, "ACCESSORI", libSub)}
+                globalSuggestions={getAllLibNames(lib)}
+                strict
+                placeholder={`Esercizio ${label.toLowerCase()}`}
+              />
+              {removeBtn(() => removeA(sub, i))}
+            </div>
+            <div className="grid grid-cols-3 gap-1.5">
+              <div>
+                <label className="label">Serie</label>
+                <input className="input text-xs text-center" value={row.sets} onChange={e => updA(sub, i, { sets: e.target.value })} placeholder="3" />
+              </div>
+              <div>
+                <label className="label">Reps</label>
+                <input className="input text-xs text-center" value={row.reps} onChange={e => updA(sub, i, { reps: e.target.value })} placeholder="12" />
+              </div>
+              <div>
+                <label className="label">Rec. sec</label>
+                <input className="input text-xs text-center" value={row.rest} onChange={e => updA(sub, i, { rest: e.target.value })} placeholder="60" />
+              </div>
+            </div>
+            {hasLoad && (
+              <LoadInput
+                label="Carico"
+                exerciseName={row.name}
+                value={row.load}
+                onChange={v => updA(sub, i, { load: v })}
+                tool={row.tool}
+                onToolChange={t => updA(sub, i, { tool: t })}
+                libEx={exLib}
+              />
+            )}
+            <BulkNoteField value={row.notes} onChange={v => updA(sub, i, { notes: v })} />
           </div>
-          <div className="grid grid-cols-3 gap-1.5">
-            <div>
-              <label className="label">Serie</label>
-              <input className="input text-xs text-center" value={row.sets} onChange={e => updA(sub, i, { sets: e.target.value })} placeholder="3" />
-            </div>
-            <div>
-              <label className="label">Reps</label>
-              <input className="input text-xs text-center" value={row.reps} onChange={e => updA(sub, i, { reps: e.target.value })} placeholder="12" />
-            </div>
-            <div>
-              <label className="label">Rec. sec</label>
-              <input className="input text-xs text-center" value={row.rest} onChange={e => updA(sub, i, { rest: e.target.value })} placeholder="60" />
-            </div>
-          </div>
-          {loadType !== "none" && (
-            <LoadInput
-              kgOnly
-              label="Carico"
-              exerciseName={row.name}
-              value={row.load}
-              onChange={v => updA(sub, i, { load: v })}
-              tool={row.tool}
-              onToolChange={t => updA(sub, i, { tool: t })}
-            />
-          )}
-          <BulkNoteField value={row.notes} onChange={v => updA(sub, i, { notes: v })} />
-        </div>
-      ))}
+        );
+      })}
       {addBtn(() => addA(sub), `aggiungi ${label.toLowerCase()}`)}
     </>
   );
 
   const renderAccessori = () => (
     <div className="space-y-1">
-      {accessoriGroup("Bodyweight", "bodyweight", "BODYWEIGHT", "none")}
-      {accessoriGroup("Manubri", "manubri", "MANUBRI", "select")}
-      {accessoriGroup("Kettlebell", "kettlebell", "KETTLEBELL", "select")}
-      {accessoriGroup("Bilanciere", "bilanciere", "BILANCIERE", "free")}
+      {accessoriGroup("Bodyweight", "bodyweight", "BODYWEIGHT")}
+      {accessoriGroup("Manubri", "manubri", "MANUBRI")}
+      {accessoriGroup("Kettlebell", "kettlebell", "KETTLEBELL")}
+      {accessoriGroup("Bilanciere", "bilanciere", "BILANCIERE")}
     </div>
   );
 
   const renderCore = () => (
     <div className="space-y-1">
-      {state.core.map((row, i) => (
-        <div key={i} className="p-2.5 bg-gray-50 dark:bg-gray-700/40 rounded-xl space-y-1.5">
-          <div className="flex gap-2 items-center">
-            <AutocompleteInput
-              value={row.name}
-              onChange={v => updC(i, { name: v })}
-              suggestions={getLibNames(lib, "CORE TRAINING", null)}
-              globalSuggestions={getAllLibNames(lib)}
-              strict
-              placeholder="Esercizio core"
-            />
-            {removeBtn(() => removeCoreRow(i))}
+      {state.core.map((row, i) => {
+        const exLib = lookupExercise(lib, row.name);
+        const hasLoad = row.load !== "-" || row.tool !== "";
+        return (
+          <div key={i} className="p-2.5 bg-gray-50 dark:bg-gray-700/40 rounded-xl space-y-1.5">
+            <div className="flex gap-2 items-center">
+              <AutocompleteInput
+                value={row.name}
+                onChange={v => {
+                  const ex = lookupExercise(lib, v);
+                  const tool = getDefaultTool(ex) || detectTool(v);
+                  const load = ex?.load_kg ? defaultLoadForTool(tool) : "-";
+                  updC(i, { name: v, tool, load });
+                }}
+                suggestions={getLibNames(lib, "CORE TRAINING", null)}
+                globalSuggestions={getAllLibNames(lib)}
+                strict
+                placeholder="Esercizio core"
+              />
+              {removeBtn(() => removeCoreRow(i))}
+            </div>
+            <div className="grid grid-cols-3 gap-1.5">
+              <div>
+                <label className="label">Serie</label>
+                <input className="input text-xs text-center" value={row.sets} onChange={e => updC(i, { sets: e.target.value })} placeholder="3" />
+              </div>
+              <div>
+                <label className="label">Reps</label>
+                <input className="input text-xs text-center" value={row.reps} onChange={e => updC(i, { reps: e.target.value })} placeholder="15" />
+              </div>
+              <div>
+                <label className="label">Rec. sec</label>
+                <input className="input text-xs text-center" value={row.rest} onChange={e => updC(i, { rest: e.target.value })} placeholder="30" />
+              </div>
+            </div>
+            {hasLoad && (
+              <LoadInput
+                label="Carico"
+                exerciseName={row.name}
+                value={row.load}
+                onChange={v => updC(i, { load: v })}
+                tool={row.tool}
+                onToolChange={t => updC(i, { tool: t })}
+                libEx={exLib}
+              />
+            )}
+            <BulkNoteField value={row.notes} onChange={v => updC(i, { notes: v })} />
           </div>
-          <div className="grid grid-cols-3 gap-1.5">
-            <div>
-              <label className="label">Serie</label>
-              <input className="input text-xs text-center" value={row.sets} onChange={e => updC(i, { sets: e.target.value })} placeholder="3" />
-            </div>
-            <div>
-              <label className="label">Reps</label>
-              <input className="input text-xs text-center" value={row.reps} onChange={e => updC(i, { reps: e.target.value })} placeholder="15" />
-            </div>
-            <div>
-              <label className="label">Rec. sec</label>
-              <input className="input text-xs text-center" value={row.rest} onChange={e => updC(i, { rest: e.target.value })} placeholder="30" />
-            </div>
-          </div>
-          <LoadInput
-            kgOnly
-            label="Carico"
-            exerciseName={row.name}
-            value={row.load}
-            onChange={v => updC(i, { load: v })}
-            tool={row.tool}
-            onToolChange={t => updC(i, { tool: t })}
-          />
-          <BulkNoteField value={row.notes} onChange={v => updC(i, { notes: v })} />
-        </div>
-      ))}
+        );
+      })}
       {addBtn(addCoreRow, "aggiungi esercizio")}
     </div>
   );
@@ -2453,7 +2554,7 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, maxes, onSave, onCan
                           <input className="input text-xs w-16 text-center flex-shrink-0" value={row.reps} onChange={e => updWk(blockIdx, rowIdx, { reps: e.target.value })} placeholder="15 reps" />
                           {removeBtn(() => removeWkRow(blockIdx, rowIdx))}
                         </div>
-                        <LoadInput kgOnly exerciseName={row.name} value={row.load} onChange={v => updWk(blockIdx, rowIdx, { load: v })} label="Carico" tool={row.tool} onToolChange={t => updWk(blockIdx, rowIdx, { tool: t })} />
+                        <LoadInput exerciseName={row.name} value={row.load} onChange={v => updWk(blockIdx, rowIdx, { load: v })} label="Carico" tool={row.tool} onToolChange={t => updWk(blockIdx, rowIdx, { tool: t })} libEx={lookupExercise(lib, row.name)} />
                         <BulkNoteField value={row.notes} onChange={v => updWk(blockIdx, rowIdx, { notes: v })} />
                       </div>
                     ) : (
@@ -2470,7 +2571,7 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, maxes, onSave, onCan
                           <input className="input text-xs w-16 text-center flex-shrink-0" value={row.reps} onChange={e => updWk(blockIdx, rowIdx, { reps: e.target.value })} placeholder="10 reps" />
                           {removeBtn(() => removeWkRow(blockIdx, rowIdx))}
                         </div>
-                        <LoadInput kgOnly exerciseName={row.name} value={row.load} onChange={v => updWk(blockIdx, rowIdx, { load: v })} label="Carico" tool={row.tool} onToolChange={t => updWk(blockIdx, rowIdx, { tool: t })} />
+                        <LoadInput exerciseName={row.name} value={row.load} onChange={v => updWk(blockIdx, rowIdx, { load: v })} label="Carico" tool={row.tool} onToolChange={t => updWk(blockIdx, rowIdx, { tool: t })} libEx={lookupExercise(lib, row.name)} />
                         <BulkNoteField value={row.notes} onChange={v => updWk(blockIdx, rowIdx, { notes: v })} />
                       </div>
                     )}

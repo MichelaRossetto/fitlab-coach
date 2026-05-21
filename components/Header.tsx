@@ -30,6 +30,16 @@ export function Header({ backHref, title, subtitle, right }: HeaderProps) {
           </Link>
           <div className="flex items-center gap-3">
             <span className="text-xs text-gray-400 font-medium">Michela · Coach</span>
+            <Link
+              href="/esercizi"
+              className="text-gray-300 hover:text-gray-500 transition-colors"
+              title="Libreria esercizi"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
+                <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+              </svg>
+            </Link>
             <button
               onClick={handleLogout}
               className="text-xs text-gray-300 hover:text-gray-500 transition-colors"
