@@ -1384,7 +1384,11 @@ function SectionBlock({ section, lib, editingExId, maxes, onToggleEdit, onUpdate
                       <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color }}>
                         {GROUP_LABELS[ex._group!] ?? ex._group}
                         {ex._group === "fortime" && roundsBySubtype["fortime"] ? ` · ${roundsBySubtype["fortime"]} rounds` : ""}
-                        {ex._group && capTimeBySubtype[ex._group] ? ` · cap ${capTimeBySubtype[ex._group]} min` : ""}
+                        {ex._group && capTimeBySubtype[ex._group]
+                          ? ex._group === "fortime"
+                            ? ` · cap ${capTimeBySubtype[ex._group]} min`
+                            : ` · ${capTimeBySubtype[ex._group]} min`
+                          : ""}
                       </span>
                     </div>
                   )}
@@ -3679,8 +3683,12 @@ export default function DayPage() {
       return groupOrder.map(tag => {
         const info = blockInfo[tag];
         const parts = [info?.label ?? tag.toUpperCase()];
-        if (info?.cap) parts.push(`${info.cap} min`);
-        if (tag === "fortime" && info?.rounds) parts.push(`${info.rounds} rounds`);
+        if (tag === "fortime") {
+          if (info?.rounds) parts.push(`${info.rounds} rounds`);
+          if (info?.cap) parts.push(`cap ${info.cap} min`);
+        } else {
+          if (info?.cap) parts.push(`${info.cap} min`);
+        }
         return `
           <div style="margin-bottom:14px">
             <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#EA580C;margin-bottom:5px">

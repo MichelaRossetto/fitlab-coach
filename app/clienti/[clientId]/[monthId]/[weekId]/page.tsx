@@ -266,8 +266,12 @@ export default function WeekPage() {
       return groupOrder.map(tag => {
         const info = blockInfo[tag];
         const parts = [info?.label ?? tag.toUpperCase()];
-        if (info?.cap) parts.push(`${info.cap} min`);
-        if (tag === "fortime" && info?.rounds) parts.push(`${info.rounds} rounds`);
+        if (tag === "fortime") {
+          if (info?.rounds) parts.push(`${info.rounds} rounds`);
+          if (info?.cap) parts.push(`cap ${info.cap} min`);
+        } else {
+          if (info?.cap) parts.push(`${info.cap} min`);
+        }
         return `<div style="margin-bottom:12px">
           <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#EA580C;margin-bottom:4px">${parts.join(" · ")}</div>
           <table style="width:100%;border-collapse:collapse;background:#f9f9f9;border-radius:6px;overflow:hidden">
