@@ -453,14 +453,12 @@ function ScheduleSection({ clientId, isClientView, onScheduleChange }: {
     setEditSchedule({ ...schedule });
     setSaveError("");
     setEditing(true);
-    // Se vista cliente → carica disponibilità slot dalla coach
-    if (isClientView) {
-      setLoadingAvail(true);
-      const res = await fetch(`/api/slot-availability?exclude_client=${clientId}`);
-      const data = await res.json();
-      setAvailability(data ?? {});
-      setLoadingAvail(false);
-    }
+    // Carica disponibilità slot per entrambe le viste
+    setLoadingAvail(true);
+    const res = await fetch(`/api/slot-availability?exclude_client=${clientId}`);
+    const data = await res.json();
+    setAvailability(data ?? {});
+    setLoadingAvail(false);
   };
 
   const cancelEdit = () => { setEditing(false); setSaveError(""); };
@@ -511,6 +509,36 @@ function ScheduleSection({ clientId, isClientView, onScheduleChange }: {
     const saved = { ...editSchedule };
     setSchedule(saved);
     onScheduleChange?.(saved);
+
+    // ── Aggiorna day_date delle prossime training_days ─────────
+    const newScheduledDays = Object.keys(saved).map(Number).sort((a, b) => a - b);
+    if (newScheduledDays.length > 0) {
+      const today = new Date(); today.setHours(0, 0, 0, 0);
+      const todayStr = today.toISOString().split("T")[0];
+      const { data: upWeeks } = await supabase
+        .from("training_weeks")
+        .select("id, date_start, month_id, training_days(id, day_number, day_date), training_months!inner(client_id)")
+        .eq("training_months.client_id", clientId)
+        .gte("date_start", todayStr)
+        .not("date_start", "is", null);
+      if (upWeeks) {
+        for (const week of upWeeks as any[]) {
+          const weekStart = new Date(week.date_start);
+          weekStart.setHours(12, 0, 0, 0);
+          for (const day of (week.training_days ?? []) as any[]) {
+            if (day.day_number > newScheduledDays.length) continue;
+            const offset = newScheduledDays[day.day_number - 1];
+            const newDate = new Date(weekStart);
+            newDate.setDate(newDate.getDate() + offset);
+            const newDateStr = newDate.toISOString().split("T")[0];
+            if (day.day_date !== newDateStr) {
+              await supabase.from("training_days").update({ day_date: newDateStr }).eq("id", day.id);
+            }
+          }
+        }
+      }
+    }
+
     setEditing(false);
     setOpen(false);
     setSaving(false);
@@ -595,12 +623,11 @@ function ScheduleSection({ clientId, isClientView, onScheduleChange }: {
                 ))}
               </div>
 
-              {/* Orari — slot picker con disponibilità (solo client view) o select (coach) */}
+              {/* Orari — slot picker visivo con disponibilità (uguale per coach e cliente, regole diverse) */}
               {editDays.length > 0 && (
                 loadingAvail ? (
                   <div className="text-xs text-gray-400 text-center py-2">Carico disponibilità...</div>
-                ) : isClientView ? (
-                  /* Slot picker visivo con disponibilità */
+                ) : (
                   <div className="space-y-4">
                     {editDays.map(day => (
                       <div key={day}>
@@ -619,32 +646,40 @@ function ScheduleSection({ clientId, isClientView, onScheduleChange }: {
                                 const full = slotFull(day, time);
                                 const selected = editSchedule[day] === time;
                                 const spotsLeft = MAX_PER_SLOT - count;
+                                // Cliente: slot pieno → bloccato. Coach: cliccabile ma warning rosso
+                                const blocked = full && !selected && isClientView;
                                 return (
                                   <button
                                     key={time}
-                                    disabled={full && !selected}
-                                    onClick={() => !full && setTime(day, time)}
-                                    className={`relative text-xs px-2.5 py-1.5 rounded-xl font-medium transition-all border ${
+                                    disabled={blocked}
+                                    onClick={() => { if (!blocked) setTime(day, time); }}
+                                    className={`text-xs px-2.5 py-1.5 rounded-xl font-medium transition-all border ${
                                       selected
                                         ? "border-transparent font-bold shadow-sm"
-                                        : full
+                                        : blocked
                                         ? "border-gray-100 dark:border-gray-700 text-gray-300 dark:text-gray-600 cursor-not-allowed bg-gray-50 dark:bg-gray-800/50"
+                                        : full && !isClientView
+                                        ? "border-red-200 dark:border-red-800 text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20"
                                         : spotsLeft === 1
-                                        ? "border-orange-200 dark:border-orange-800 text-orange-600 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-900/20"
+                                        ? "border-orange-200 dark:border-orange-800 text-orange-500 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-900/20"
                                         : "border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
                                     }`}
                                     style={selected ? { backgroundColor: "#D4E600", color: "#111", borderColor: "transparent" } : {}}
                                   >
                                     {time}
-                                    {/* Badge posti rimasti */}
+                                    {/* Coach: slot pieno → ⚠ con conteggio */}
+                                    {!selected && full && !isClientView && (
+                                      <span className="ml-1 text-[9px] font-bold text-red-400">⚠ {count}/{MAX_PER_SLOT}</span>
+                                    )}
+                                    {/* Cliente: slot pieno → ✕ */}
+                                    {!selected && blocked && (
+                                      <span className="ml-1 text-[9px] text-gray-300">✕</span>
+                                    )}
+                                    {/* Quasi pieno */}
                                     {!selected && !full && spotsLeft <= 2 && (
                                       <span className={`ml-1 text-[9px] font-bold ${spotsLeft === 1 ? "text-orange-500" : "text-gray-400"}`}>
                                         {spotsLeft === 1 ? "1 posto" : `${spotsLeft}`}
                                       </span>
-                                    )}
-                                    {/* Slot pieno */}
-                                    {full && (
-                                      <span className="ml-1 text-[9px] text-gray-300">✕</span>
                                     )}
                                   </button>
                                 );
@@ -655,26 +690,11 @@ function ScheduleSection({ clientId, isClientView, onScheduleChange }: {
                       </div>
                     ))}
                     <p className="text-[10px] text-gray-400 dark:text-gray-500">
-                      Gli slot con ✕ sono al completo · <span className="text-orange-400">1 posto</span> = ultimo disponibile
+                      {isClientView
+                        ? <>Slot con ✕ = al completo · <span className="text-orange-400">1 posto</span> = ultimo disponibile</>
+                        : <>Slot in <span className="text-red-400">rosso ⚠</span> = al completo (puoi comunque assegnarlo)</>
+                      }
                     </p>
-                  </div>
-                ) : (
-                  /* Coach: select classico senza restrizioni */
-                  <div className="space-y-1.5">
-                    {editDays.map(day => (
-                      <div key={day} className="flex items-center gap-3">
-                        <span className="text-xs font-semibold text-gray-500 w-8">{DAY_NAMES_SHORT[day]}</span>
-                        <select className="input text-sm w-24 py-1.5" value={editSchedule[day]}
-                          onChange={e => setTime(day, e.target.value)}>
-                          <optgroup label="Mattina">
-                            {TIME_SLOTS_MORNING.map(t => <option key={t} value={t}>{t}</option>)}
-                          </optgroup>
-                          <optgroup label="Pomeriggio">
-                            {TIME_SLOTS_AFTERNOON.map(t => <option key={t} value={t}>{t}</option>)}
-                          </optgroup>
-                        </select>
-                      </div>
-                    ))}
                   </div>
                 )
               )}
@@ -1067,7 +1087,7 @@ export default function ClientPage() {
 
         {/* Orari abituali */}
         <ScheduleSection clientId={clientId} isClientView={isClientView} onScheduleChange={setCalendarSchedule} />
-        {isClientView && <ClientCalendarCard clientId={clientId} scheduleOverride={calendarSchedule} />}
+        <ClientCalendarCard clientId={clientId} scheduleOverride={calendarSchedule} />
 
         {/* Performance / Massimali */}
         <PerformanceSection clientId={clientId} isClientView={isClientView} />
