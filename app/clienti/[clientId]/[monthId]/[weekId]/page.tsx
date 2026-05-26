@@ -226,22 +226,55 @@ export default function WeekPage() {
       return { day, sections: secs ?? [] };
     }));
 
+    const WKLABELS: Record<string, string> = { amrap: "AMRAP", emom: "EMOM", fortime: "FOR TIME", cardioliss: "CARDIO LISS" };
+
     const exRow = (ex: any) => {
       const parts: string[] = [];
       if (ex.sets && ex.reps) parts.push(`${ex.sets} × ${ex.reps}`);
       else if (ex.reps) parts.push(ex.reps);
       if (ex.load && ex.load !== "-") parts.push(ex.load);
       if (ex.rest_time) parts.push(`⏱ ${ex.rest_time}`);
-      // rimuovi tag interni: #cardio# [amrap] ecc.
-      const cleanNotes = (ex.notes ?? "")
-        .replace(/^#\w+#\s*/, "")
-        .replace(/^\[.*?\]\s*/, "")
-        .trim();
+      const cleanNotes = (ex.notes ?? "").replace(/^#\w+#\s*/, "").replace(/^\[.*?\]\s*/, "").trim();
       return `<tr>
         <td style="padding:5px 10px;font-weight:600;color:#111">${ex.name}</td>
         <td style="padding:5px 10px;color:#444;white-space:nowrap">${parts.join(" · ") || "—"}</td>
         <td style="padding:5px 10px;color:#888;font-size:11px">${cleanNotes}</td>
       </tr>`;
+    };
+
+    const workoutBlocksHtml = (s: any) => {
+      const subtypes: string[] = (s.section_subtype ?? "").split("+").filter(Boolean);
+      const capTimes: string[] = (s.cap_time ?? "").split("+");
+      const blockInfo: Record<string, { label: string; cap?: string; rounds?: string }> = {};
+      subtypes.forEach((sub: string, i: number) => {
+        blockInfo[sub] = { label: WKLABELS[sub] ?? sub.toUpperCase(), cap: capTimes[i] || undefined };
+      });
+      // Rounds fortime
+      (s.exercises ?? []).forEach((ex: any) => {
+        const tag = (ex.notes ?? "").match(/^#(\w+)#/)?.[1];
+        if (tag === "fortime" && ex.sets && blockInfo["fortime"] && !blockInfo["fortime"].rounds)
+          blockInfo["fortime"].rounds = ex.sets;
+      });
+      // Raggruppa per tag
+      const groups: Record<string, any[]> = {};
+      const groupOrder: string[] = [];
+      (s.exercises ?? []).forEach((ex: any) => {
+        const tag = (ex.notes ?? "").match(/^#(\w+)#/)?.[1] ?? "";
+        if (!groups[tag]) { groups[tag] = []; groupOrder.push(tag); }
+        groups[tag].push(ex);
+      });
+      return groupOrder.map(tag => {
+        const info = blockInfo[tag];
+        const parts = [info?.label ?? tag.toUpperCase()];
+        if (info?.cap) parts.push(`${info.cap} min`);
+        if (tag === "fortime" && info?.rounds) parts.push(`${info.rounds} rounds`);
+        return `<div style="margin-bottom:12px">
+          <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#EA580C;margin-bottom:4px">${parts.join(" · ")}</div>
+          <table style="width:100%;border-collapse:collapse;background:#f9f9f9;border-radius:6px;overflow:hidden">
+            <tbody>${groups[tag].map(exRow).join("")}</tbody>
+          </table>
+        </div>`;
+      }).join("");
     };
 
     const daysHtml = allDayData.map(({ day, sections }) => {
@@ -258,15 +291,21 @@ export default function WeekPage() {
         ? resolvedDateObj.toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long" })
         : null;
 
-      const sectionsHtml = filled.map((s: any) => `
+      const sectionsHtml = filled.map((s: any) => {
+        const isWk = s.section_type === "workout";
+        const innerHtml = isWk
+          ? workoutBlocksHtml(s)
+          : `<table style="width:100%;border-collapse:collapse;background:#f9f9f9;border-radius:6px;overflow:hidden">
+              <tbody>${(s.exercises ?? []).map(exRow).join("")}</tbody>
+             </table>`;
+        return `
         <div style="margin-bottom:16px">
           <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#8a9a00;margin-bottom:6px">
             ${sectionLabels[s.section_type] ?? s.section_type}
           </div>
-          <table style="width:100%;border-collapse:collapse;background:#f9f9f9;border-radius:6px;overflow:hidden">
-            <tbody>${(s.exercises ?? []).map(exRow).join("")}</tbody>
-          </table>
-        </div>`).join("");
+          ${innerHtml}
+        </div>`;
+      }).join("");
 
       return `
         <div style="margin-bottom:36px;page-break-inside:avoid">

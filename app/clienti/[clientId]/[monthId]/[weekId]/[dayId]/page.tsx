@@ -3634,11 +3634,12 @@ export default function DayPage() {
       warmup: "Warm Up", strength: "Forza", accessories: "Accessori",
       core: "Core Training", workout: "Workout",
     };
+    const WKLABELS: Record<string, string> = { amrap: "AMRAP", emom: "EMOM", fortime: "FOR TIME", cardioliss: "CARDIO LISS" };
     const filled = sectionOrder
       .map(t => sections.find(s => s.section_type === t))
       .filter(s => s && (s.exercises?.length ?? 0) > 0) as WorkoutSection[];
 
-    const rowsHtml = (exs: Exercise[]) => exs.map(ex => {
+    const exRow = (ex: Exercise) => {
       const parts: string[] = [];
       if (ex.sets && ex.reps) parts.push(`${ex.sets} × ${ex.reps}`);
       else if (ex.reps) parts.push(ex.reps);
@@ -3650,17 +3651,63 @@ export default function DayPage() {
         <td style="padding:6px 10px;color:#444;white-space:nowrap">${parts.join(" · ") || "—"}</td>
         <td style="padding:6px 10px;color:#888;font-size:12px">${cleanNotes ?? ""}</td>
       </tr>`;
-    }).join("");
+    };
 
-    const sectionsHtml = filled.map(s => `
+    const workoutBlocksHtml = (s: WorkoutSection) => {
+      const subtypes = s.section_subtype?.split("+") ?? [];
+      const capTimes = s.cap_time?.split("+") ?? [];
+      // Mappa tag → info blocco
+      const blockInfo: Record<string, { label: string; cap?: string; rounds?: string }> = {};
+      subtypes.forEach((sub, i) => {
+        blockInfo[sub] = { label: WKLABELS[sub] ?? sub.toUpperCase(), cap: capTimes[i] || undefined };
+      });
+      // Rounds fortime dal primo esercizio con sets
+      (s.exercises ?? []).forEach(ex => {
+        const m = (ex.notes ?? "").match(/^#(\w+)#/);
+        if (m?.[1] === "fortime" && ex.sets && !blockInfo["fortime"]?.rounds) {
+          if (blockInfo["fortime"]) blockInfo["fortime"].rounds = ex.sets;
+        }
+      });
+      // Raggruppa esercizi per tag preservando ordine
+      const groups: Record<string, Exercise[]> = {};
+      const groupOrder: string[] = [];
+      (s.exercises ?? []).forEach(ex => {
+        const tag = (ex.notes ?? "").match(/^#(\w+)#/)?.[1] ?? "";
+        if (!groups[tag]) { groups[tag] = []; groupOrder.push(tag); }
+        groups[tag].push(ex);
+      });
+      return groupOrder.map(tag => {
+        const info = blockInfo[tag];
+        const parts = [info?.label ?? tag.toUpperCase()];
+        if (info?.cap) parts.push(`${info.cap} min`);
+        if (tag === "fortime" && info?.rounds) parts.push(`${info.rounds} rounds`);
+        return `
+          <div style="margin-bottom:14px">
+            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#EA580C;margin-bottom:5px">
+              ${parts.join(" · ")}
+            </div>
+            <table style="width:100%;border-collapse:collapse;background:#f9f9f9;border-radius:6px;overflow:hidden">
+              <tbody>${groups[tag].map(exRow).join("")}</tbody>
+            </table>
+          </div>`;
+      }).join("");
+    };
+
+    const sectionsHtml = filled.map(s => {
+      const isWk = s.section_type === "workout";
+      const innerHtml = isWk
+        ? workoutBlocksHtml(s)
+        : `<table style="width:100%;border-collapse:collapse;background:#f9f9f9;border-radius:8px;overflow:hidden">
+            <tbody>${(s.exercises ?? []).map(exRow).join("")}</tbody>
+           </table>`;
+      return `
       <div style="margin-bottom:24px">
         <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#8a9a00;margin-bottom:8px">
           ${sectionLabels[s.section_type]}
         </div>
-        <table style="width:100%;border-collapse:collapse;background:#f9f9f9;border-radius:8px;overflow:hidden">
-          <tbody>${rowsHtml(s.exercises ?? [])}</tbody>
-        </table>
-      </div>`).join("");
+        ${innerHtml}
+      </div>`;
+    }).join("");
 
     const html = `<!DOCTYPE html><html><head>
       <meta charset="utf-8"/>
