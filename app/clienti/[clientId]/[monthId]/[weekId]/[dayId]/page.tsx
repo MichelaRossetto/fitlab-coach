@@ -1315,6 +1315,13 @@ function SectionBlock({ section, lib, editingExId, maxes, onToggleEdit, onUpdate
         return subtypes.map((s, i) => {
           const label = WORKOUT_SUBTYPE_LABELS[s as WorkoutSubtype] ?? s;
           const cap = caps[i];
+          if (s === "fortime") {
+            const rounds = roundsBySubtype["fortime"];
+            const parts = [label];
+            if (rounds) parts.push(`${rounds} rounds`);
+            if (cap) parts.push(`cap ${cap} min`);
+            return parts.join(" · ");
+          }
           return cap ? `${label} · ${cap} min` : label;
         }).join("  +  ");
       })()
