@@ -17,7 +17,11 @@ export async function GET(req: NextRequest) {
     .order("day_of_week");
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json(data);
+  const normalized = (data ?? []).map((r: { day_of_week: number; time: string }) => ({
+    day_of_week: r.day_of_week,
+    time: r.time.slice(0, 5),
+  }));
+  return NextResponse.json(normalized);
 }
 
 export async function POST(req: NextRequest) {

@@ -19,7 +19,8 @@ export async function GET(req: NextRequest) {
 
   const counts: Record<string, number> = {};
   (data ?? []).forEach((row: { day_of_week: number; time: string }) => {
-    const key = `${row.day_of_week}:${row.time}`;
+    const normalizedTime = row.time.slice(0, 5); // "18:00:00" → "18:00"
+    const key = `${row.day_of_week}:${normalizedTime}`;
     counts[key] = (counts[key] ?? 0) + 1;
   });
 

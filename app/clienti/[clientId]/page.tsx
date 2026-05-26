@@ -32,14 +32,24 @@ function timeToMin(t: string) {
 }
 
 // ─── Client Calendar Card ─────────────────────────────────────
-function ClientCalendarCard({ clientId, scheduleOverride }: {
+function ClientCalendarCard({ clientId, scheduleOverride, coachView }: {
   clientId: string;
   scheduleOverride?: Record<number, string> | null;
+  coachView?: boolean;
 }) {
   const [schedule, setSchedule] = useState<Record<number, string>>({});
   const [weekStart, setWeekStart] = useState<Date>(() => getMonday(new Date()));
+  const [open, setOpen] = useState(false);
+  // Coach: lista sessioni per editing date
+  const [sessionList, setSessionList] = useState<{ dayId: string; label: string; dateStr: string | null; weekLabel: string; weekDateStart: string | null }[]>([]);
+  const [showEditSessions, setShowEditSessions] = useState(false);
+  const [reschedulingDayId, setReschedulingDayId] = useState<string | null>(null);
+  const [rescheduleDate, setRescheduleDate] = useState("");
+  const [rescheduleTime, setRescheduleTime] = useState("");
+  const [allSlotCounts, setAllSlotCounts] = useState<Record<string, number>>({});
+  const [rescheduleSaving, setRescheduleSaving] = useState(false);
 
-  // Fetch iniziale
+  // Fetch schedule
   useEffect(() => {
     fetch(`/api/client-schedule?client_id=${clientId}`)
       .then(r => r.json())
@@ -50,16 +60,105 @@ function ClientCalendarCard({ clientId, scheduleOverride }: {
       });
   }, [clientId]);
 
-  // Aggiornamento in tempo reale quando la ScheduleSection salva
   useEffect(() => {
     if (scheduleOverride != null) setSchedule(scheduleOverride);
   }, [scheduleOverride]);
 
+  // Fetch lista sessioni per editing (coach + client)
+  const loadSessionList = useCallback(async () => {
+    const schedDays = Object.keys(schedule).map(Number).sort((a: number, b: number) => a - b);
+
+    // Step 1: prendi tutte le settimane del cliente (via training_months)
+    const { data: weeks, error: weeksErr } = await supabase
+      .from("training_weeks")
+      .select("id, date_start, week_number, month_id, training_months!inner(client_id, label)")
+      .eq("training_months.client_id", clientId);
+
+    if (weeksErr || !weeks || weeks.length === 0) return;
+
+    // Step 2: prendi tutti i training_days di quelle settimane
+    const weekIds = (weeks as any[]).map((w: any) => w.id);
+    const { data: days, error: daysErr } = await supabase
+      .from("training_days")
+      .select("id, day_number, day_date, label, status, week_id")
+      .in("week_id", weekIds)
+      .order("day_number");
+
+    if (daysErr || !days) return;
+
+    // Mappa weekId → info settimana
+    const weekMap: Record<string, any> = {};
+    for (const w of weeks as any[]) weekMap[w.id] = w;
+
+    const list: { dayId: string; label: string; dateStr: string | null; weekLabel: string; weekDateStart: string | null }[] = [];
+    for (const day of days as any[]) {
+      const week = weekMap[day.week_id];
+      if (!week) continue;
+      const monthLabel = (week["training_months"] as any)?.label ?? "";
+
+      let dateStr: string | null = day.day_date ?? null;
+      if (!dateStr && week.date_start && schedDays.length > 0 && day.day_number <= schedDays.length) {
+        const ws = new Date(week.date_start); ws.setHours(12, 0, 0, 0);
+        ws.setDate(ws.getDate() + schedDays[day.day_number - 1]);
+        dateStr = ws.toISOString().split("T")[0];
+      }
+      list.push({
+        dayId: day.id,
+        label: day.label,
+        dateStr,
+        weekLabel: `${monthLabel} · Sett. ${week.week_number}`,
+        weekDateStart: week.date_start ?? null,
+      });
+    }
+
+    list.sort((a, b) => {
+      if (!a.dateStr && !b.dateStr) return 0;
+      if (!a.dateStr) return 1;
+      if (!b.dateStr) return -1;
+      return a.dateStr.localeCompare(b.dateStr);
+    });
+    setSessionList(list);
+  }, [coachView, clientId, schedule]);
+
+  useEffect(() => {
+    if (open) loadSessionList();
+  }, [open, loadSessionList]);
+
+  const checkRescheduleSlot = async (newDate: string) => {
+    setRescheduleDate(newDate);
+    setRescheduleTime("");
+    setAllSlotCounts({});
+    if (!newDate) return;
+    const res = await window.fetch(`/api/slot-availability?exclude_client=${clientId}`);
+    const counts: Record<string, number> = await res.json();
+    // DEBUG — rimuovere dopo
+    const d = new Date(newDate + "T12:00:00");
+    const jsDay = d.getDay();
+    const ourDow = jsDay === 0 ? 6 : jsDay - 1;
+    console.log("Date:", newDate, "jsDay:", jsDay, "ourDow:", ourDow);
+    console.log("AllCounts:", counts);
+    console.log("Key 18:00:", `${ourDow}:18:00`, "→", counts[`${ourDow}:18:00`]);
+    setAllSlotCounts(counts);
+  };
+
+  const handleConfirmReschedule = async () => {
+    if (!reschedulingDayId || !rescheduleDate || !rescheduleTime) return;
+    setRescheduleSaving(true);
+    // Salva data + orario (aggiorna client_schedule per quel giorno se cambia)
+    await supabase.from("training_days").update({ day_date: rescheduleDate }).eq("id", reschedulingDayId);
+    setSessionList(prev => prev.map(s => s.dayId === reschedulingDayId ? { ...s, dateStr: rescheduleDate } : s));
+    resetReschedule();
+    setRescheduleSaving(false);
+  };
+
+  const cancelReschedule = () => { setReschedulingDayId(null); setRescheduleDate(""); setRescheduleTime(""); setAllSlotCounts({}); };
+
   const weekDays = Array.from({ length: 5 }, (_, i) => {
-    const d = new Date(weekStart);
-    d.setDate(d.getDate() + i);
-    return d;
+    const d = new Date(weekStart); d.setDate(d.getDate() + i); return d;
   });
+
+  const localDateStr = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
   const isToday = (d: Date) => {
     const t = new Date();
@@ -73,10 +172,8 @@ function ClientCalendarCard({ clientId, scheduleOverride }: {
     return `${s.getDate()} ${CAL_MONTH_SHORT[s.getMonth()]} – ${e.getDate()} ${CAL_MONTH_SHORT[e.getMonth()]} ${e.getFullYear()}`;
   })();
 
-  // Controlla se il cliente si allena in un determinato slot (±60min)
   const hasTraining = (day: number, slot: string) => {
-    const t = schedule[day];
-    if (!t) return false;
+    const t = schedule[day]; if (!t) return false;
     const T = timeToMin(t), H = timeToMin(slot);
     return T >= H && T < H + 60;
   };
@@ -88,9 +185,7 @@ function ClientCalendarCard({ clientId, scheduleOverride }: {
         {active && (
           <div className="flex flex-col items-center gap-0.5">
             <div className="w-2 h-2 rounded-full" style={{ backgroundColor: "#C0D738" }} />
-            <span className="text-[9px] font-bold tabular-nums" style={{ color: "#C0D738" }}>
-              {schedule[day]}
-            </span>
+            <span className="text-[9px] font-bold tabular-nums" style={{ color: "#C0D738" }}>{schedule[day]}</span>
           </div>
         )}
       </div>
@@ -100,9 +195,10 @@ function ClientCalendarCard({ clientId, scheduleOverride }: {
   const todayMonday = getMonday(new Date());
   const isFuture = weekStart.getTime() > todayMonday.getTime();
   const isPast   = weekStart.getTime() < todayMonday.getTime();
-  const prevWeek = () => setWeekStart(d => { const n = new Date(d); n.setDate(n.getDate() - 7); return n; });
-  const nextWeek = () => setWeekStart(d => { const n = new Date(d); n.setDate(n.getDate() + 7); return n; });
-  const goToday  = () => setWeekStart(getMonday(new Date()));
+  const resetReschedule = () => { setReschedulingDayId(null); setRescheduleDate(""); setRescheduleTime(""); setAllSlotCounts({}); };
+  const prevWeek = () => { resetReschedule(); setShowEditSessions(false); setWeekStart(d => { const n = new Date(d); n.setDate(n.getDate() - 7); return n; }); };
+  const nextWeek = () => { resetReschedule(); setShowEditSessions(false); setWeekStart(d => { const n = new Date(d); n.setDate(n.getDate() + 7); return n; }); };
+  const goToday  = () => { resetReschedule(); setShowEditSessions(false); setWeekStart(getMonday(new Date())); };
 
   const backBtn = (
     <button onClick={goToday}
@@ -113,9 +209,7 @@ function ClientCalendarCard({ clientId, scheduleOverride }: {
 
   const SlotSection = ({ slots, label }: { slots: string[]; label: string }) => (
     <div className={label === "Mattina" ? "border-b border-gray-700" : ""}>
-      <div className="px-3 py-1 text-[10px] font-semibold text-gray-400 uppercase tracking-wide bg-gray-800/50">
-        {label}
-      </div>
+      <div className="px-3 py-1 text-[10px] font-semibold text-gray-400 uppercase tracking-wide bg-gray-800/50">{label}</div>
       {slots.map(slot => (
         <div key={slot} className="grid grid-cols-[48px_repeat(5,1fr)] border-b border-gray-700/50 last:border-0">
           <div className="p-2 text-[11px] text-gray-500 flex items-center justify-end pr-3 font-mono">{slot}</div>
@@ -125,15 +219,10 @@ function ClientCalendarCard({ clientId, scheduleOverride }: {
     </div>
   );
 
-  const [open, setOpen] = useState(false);
-
   return (
     <div className="card overflow-hidden">
-      {/* Titolo collassabile */}
-      <button
-        onClick={() => setOpen(o => !o)}
-        className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-700/50 transition-colors"
-      >
+      <button onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-700/50 transition-colors">
         <span className="font-semibold text-sm text-gray-200">Calendario</span>
         <svg className={`text-gray-400 transition-transform ${open ? "rotate-180" : ""}`}
           width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -143,11 +232,9 @@ function ClientCalendarCard({ clientId, scheduleOverride }: {
 
       {open && (
         <>
-          {/* Header navigazione settimana */}
           <div className="flex items-center justify-between px-3 py-2 border-t border-b border-gray-700 bg-gray-800">
             <div className="flex items-center gap-2 min-w-[110px]">
-              <button onClick={prevWeek}
-                className="p-1 rounded-lg hover:bg-gray-700 text-gray-400 transition-colors">
+              <button onClick={prevWeek} className="p-1 rounded-lg hover:bg-gray-700 text-gray-400 transition-colors">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 18l-6-6 6-6"/></svg>
               </button>
               {isFuture && backBtn}
@@ -155,18 +242,161 @@ function ClientCalendarCard({ clientId, scheduleOverride }: {
             <span className="text-sm font-semibold text-gray-200">{weekLabel}</span>
             <div className="flex items-center gap-2 justify-end min-w-[110px]">
               {isPast && backBtn}
-              <button onClick={nextWeek}
-                className="p-1 rounded-lg hover:bg-gray-700 text-gray-400 transition-colors">
+              <button onClick={nextWeek} className="p-1 rounded-lg hover:bg-gray-700 text-gray-400 transition-colors">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 18l6-6-6-6"/></svg>
               </button>
             </div>
+          </div>
+
+          {/* Bottone modifica orari + pannello sessioni settimana corrente */}
+          <div className="border-t border-gray-700">
+            <button
+              onClick={() => { setShowEditSessions(s => !s); resetReschedule(); }}
+              className="w-full flex items-center justify-between px-3 py-2.5 hover:bg-gray-700/40 transition-colors"
+            >
+              <div className="flex items-center gap-2 text-[11px] font-medium text-gray-400">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
+                  <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                </svg>
+                Modifica orari settimana
+              </div>
+              <svg className={`text-gray-500 transition-transform ${showEditSessions ? "rotate-180" : ""}`}
+                width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M6 9l6 6 6-6"/>
+              </svg>
+            </button>
+
+            {showEditSessions && (() => {
+              const ws = localDateStr(weekDays[0]);
+              const we = localDateStr(weekDays[4]);
+              // Fix Day 3: includi sessioni con data nella settimana OR senza data ma con weekDateStart nella settimana
+              const weekSessions = sessionList.filter(s => {
+                if (s.dateStr) return s.dateStr >= ws && s.dateStr <= we;
+                if (s.weekDateStart) return s.weekDateStart >= ws && s.weekDateStart <= we;
+                return false;
+              });
+              const today = new Date(); today.setHours(0, 0, 0, 0);
+
+              return (
+                <div className="border-t border-gray-700/50">
+                  {weekSessions.length === 0 ? (
+                    <div className="px-3 py-3 text-[11px] text-gray-500 italic text-center">
+                      Nessun allenamento in questa settimana
+                    </div>
+                  ) : weekSessions.map(session => {
+                    const sessionDate = session.dateStr ? new Date(session.dateStr) : null;
+                    const diffDays = sessionDate ? Math.floor((sessionDate.getTime() - today.getTime()) / 86400000) : 99;
+                    const clientBlocked = !coachView && diffDays < 2;
+                    const isRescheduling = reschedulingDayId === session.dayId;
+
+                    return (
+                      <div key={session.dayId} className="border-b border-gray-700/50 last:border-0">
+                        {/* Riga principale */}
+                        <div className="flex items-center justify-between px-3 py-2.5 gap-2">
+                          <div className="min-w-0 flex-1">
+                            <div className="text-xs font-medium text-gray-200 truncate">{session.label}</div>
+                            <div className="text-[10px] text-gray-500">
+                              {session.dateStr
+                                ? new Date(session.dateStr).toLocaleDateString("it-IT", { weekday: "long", day: "2-digit", month: "2-digit" })
+                                : "data non impostata"}
+                            </div>
+                          </div>
+                          {clientBlocked ? (
+                            <span className="text-[10px] text-gray-600 italic shrink-0">entro 2 giorni</span>
+                          ) : isRescheduling ? (
+                            <button onClick={cancelReschedule} className="text-[10px] text-gray-500 hover:text-gray-300 shrink-0">Annulla</button>
+                          ) : (
+                            <button
+                              onClick={() => { setReschedulingDayId(session.dayId); checkRescheduleSlot(session.dateStr ?? ""); }}
+                              className="text-[11px] font-medium px-2.5 py-1 rounded-lg border border-gray-600 text-gray-400 hover:bg-gray-700 hover:text-gray-200 transition-colors shrink-0"
+                            >
+                              Sposta
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Pannello spostamento */}
+                        {isRescheduling && (() => {
+                          const newJsDay = rescheduleDate ? new Date(rescheduleDate + "T12:00:00").getDay() : null;
+                          const newOurDow = newJsDay !== null ? (newJsDay === 0 ? 6 : newJsDay - 1) : null;
+                          const MAX_SLOTS = 5;
+                          const allSlots = [...MORNING_SLOTS, ...AFTERNOON_SLOTS];
+                          const slotsFull = rescheduleTime
+                            ? (allSlotCounts[`${newOurDow}:${rescheduleTime}`] ?? 0) >= MAX_SLOTS && !coachView
+                            : false;
+                          return (
+                            <div className="px-3 pb-3 space-y-3">
+                              <div>
+                                <label className="text-[10px] text-gray-400 block mb-1">Nuova data</label>
+                                <input
+                                  type="date"
+                                  autoFocus
+                                  value={rescheduleDate}
+                                  min={coachView ? undefined : localDateStr((() => { const d = new Date(); d.setDate(d.getDate() + 2); return d; })())}
+                                  className="w-full text-xs border border-gray-600 rounded-lg px-2 py-1.5 bg-gray-900 text-gray-200"
+                                  onChange={e => checkRescheduleSlot(e.target.value)}
+                                />
+                              </div>
+
+                              {rescheduleDate && newOurDow !== null && (
+                                <div>
+                                  <label className="text-[10px] text-gray-400 block mb-1.5">Scegli orario</label>
+                                  <div className="grid grid-cols-4 gap-1">
+                                    {allSlots.map(slot => {
+                                      const count = allSlotCounts[`${newOurDow}:${slot}`] ?? 0;
+                                      const full = count >= MAX_SLOTS;
+                                      const selected = rescheduleTime === slot;
+                                      const blocked = full && !coachView;
+                                      return (
+                                        <button
+                                          key={slot}
+                                          disabled={blocked}
+                                          onClick={() => setRescheduleTime(selected ? "" : slot)}
+                                          className="relative py-1.5 rounded-lg text-[10px] font-bold transition-all"
+                                          style={selected
+                                            ? { backgroundColor: "#D4E600", color: "#111" }
+                                            : blocked
+                                              ? { backgroundColor: "#1f2937", color: "#4b5563" }
+                                              : { backgroundColor: "#374151", color: full ? "#f87171" : count >= MAX_SLOTS - 1 ? "#fb923c" : "#d1d5db" }
+                                          }
+                                        >
+                                          {slot}
+                                          <span className="block text-[8px] opacity-70">{count}/{MAX_SLOTS}</span>
+                                          {full && coachView && (
+                                            <span className="absolute -top-1 -right-1 text-[7px] bg-red-500 text-white rounded-full px-0.5">!</span>
+                                          )}
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              )}
+
+                              <button
+                                onClick={handleConfirmReschedule}
+                                disabled={!rescheduleDate || !rescheduleTime || rescheduleSaving || slotsFull}
+                                className="w-full py-1.5 rounded-lg text-xs font-bold transition-all disabled:opacity-40"
+                                style={{ backgroundColor: "#D4E600", color: "#111" }}
+                              >
+                                {rescheduleSaving ? "Salvo..." : "Conferma spostamento"}
+                              </button>
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
           </div>
 
           {/* Intestazione giorni */}
           <div className="grid grid-cols-[48px_repeat(5,1fr)] border-b border-gray-700 bg-gray-800">
             <div className="p-2" />
             {weekDays.map((date, i) => (
-              <div key={i} className={`p-2 text-center border-l border-gray-700 ${isToday(date) ? "bg-yellow-900/20" : ""}`}>
+              <div key={i} className={`border-l border-gray-700 text-center p-2 ${isToday(date) ? "bg-yellow-900/20" : ""}`}>
                 <div className="text-[10px] text-gray-400 font-medium">{CAL_DAY_LABELS[i]}</div>
                 <div className={`text-sm font-bold mt-0.5 ${isToday(date) ? "text-yellow-400" : "text-gray-200"}`}>
                   {date.getDate()}
@@ -1087,7 +1317,7 @@ export default function ClientPage() {
 
         {/* Orari abituali */}
         <ScheduleSection clientId={clientId} isClientView={isClientView} onScheduleChange={setCalendarSchedule} />
-        <ClientCalendarCard clientId={clientId} scheduleOverride={calendarSchedule} />
+        <ClientCalendarCard clientId={clientId} scheduleOverride={calendarSchedule} coachView={!isClientView} />
 
         {/* Performance / Massimali */}
         <PerformanceSection clientId={clientId} isClientView={isClientView} />

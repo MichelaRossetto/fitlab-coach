@@ -114,7 +114,6 @@ export default function WeekPage() {
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [editingLabelId, setEditingLabelId] = useState<string | null>(null);
   const [editingLabelText, setEditingLabelText] = useState("");
-  const [editingDateId, setEditingDateId] = useState<string | null>(null);
   const [scheduledDays, setScheduledDays] = useState<number[]>([]);
 
   const handleEditDates = async () => {
@@ -178,28 +177,6 @@ export default function WeekPage() {
     setDays(prev => prev.map(d => d.id === day.id ? { ...d, status } : d));
   };
 
-  const [dateEditError, setDateEditError] = useState<string | null>(null);
-
-  const handleSetDayDate = async (dayId: string, newDate: string) => {
-    await supabase.from("training_days").update({ day_date: newDate || null }).eq("id", dayId);
-    setDays(prev => prev.map(d => d.id === dayId ? { ...d, day_date: newDate || null } : d));
-    setEditingDateId(null);
-    setDateEditError(null);
-  };
-
-  const startEditDate = (day: TrainingDay, currentDate: Date | null) => {
-    setDateEditError(null);
-    // Regola 2 giorni per il cliente
-    if (isClientView && currentDate) {
-      const today = new Date(); today.setHours(0, 0, 0, 0);
-      const diffDays = Math.floor((currentDate.getTime() - today.getTime()) / 86400000);
-      if (diffDays < 2) {
-        setDateEditError(day.id);
-        return;
-      }
-    }
-    setEditingDateId(day.id);
-  };
 
   // Calcola la data del giorno dalla data di inizio settimana + giorni abituali del cliente
   const getCalculatedDate = (dayNumber: number): Date | null => {
@@ -623,37 +600,10 @@ export default function WeekPage() {
                           </div>
                         )}
 
-                        {/* Data giorno — cliccabile per tutti */}
-                        {editingDateId === day.id ? (
-                          <div onClick={e => e.stopPropagation()} className="mt-1">
-                            <input
-                              type="date"
-                              autoFocus
-                              defaultValue={day.day_date ?? resolvedDate?.toISOString().split("T")[0] ?? ""}
-                              className="text-xs border border-gray-200 dark:border-gray-600 rounded-lg px-2 py-0.5 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200"
-                              onChange={e => handleSetDayDate(day.id, e.target.value)}
-                              onBlur={e => handleSetDayDate(day.id, e.target.value)}
-                            />
-                          </div>
-                        ) : dateEditError === day.id ? (
-                          <div onClick={e => e.stopPropagation()} className="mt-1">
-                            <p className="text-[10px] text-red-400 leading-tight">
-                              Modifica non consentita: sessione tra meno di 2 giorni.
-                            </p>
-                            <button
-                              className="text-[10px] text-gray-400 underline mt-0.5"
-                              onClick={e => { e.stopPropagation(); setDateEditError(null); }}
-                            >
-                              Chiudi
-                            </button>
-                          </div>
-                        ) : (
-                          <div
-                            className="text-xs text-gray-400 mt-0.5 capitalize cursor-pointer hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
-                            onClick={e => { e.stopPropagation(); startEditDate(day, resolvedDate); }}
-                            title="Clicca per modificare la data"
-                          >
-                            {dateLabel ?? <span className="text-gray-300 dark:text-gray-600 italic">+ data</span>}
+                        {/* Data giorno */}
+                        {dateLabel && (
+                          <div className="text-xs text-gray-400 mt-0.5 capitalize">
+                            {dateLabel}
                           </div>
                         )}
                         {day.notes && (
