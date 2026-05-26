@@ -178,10 +178,27 @@ export default function WeekPage() {
     setDays(prev => prev.map(d => d.id === day.id ? { ...d, status } : d));
   };
 
+  const [dateEditError, setDateEditError] = useState<string | null>(null);
+
   const handleSetDayDate = async (dayId: string, newDate: string) => {
     await supabase.from("training_days").update({ day_date: newDate || null }).eq("id", dayId);
     setDays(prev => prev.map(d => d.id === dayId ? { ...d, day_date: newDate || null } : d));
     setEditingDateId(null);
+    setDateEditError(null);
+  };
+
+  const startEditDate = (day: TrainingDay, currentDate: Date | null) => {
+    setDateEditError(null);
+    // Regola 2 giorni per il cliente
+    if (isClientView && currentDate) {
+      const today = new Date(); today.setHours(0, 0, 0, 0);
+      const diffDays = Math.floor((currentDate.getTime() - today.getTime()) / 86400000);
+      if (diffDays < 2) {
+        setDateEditError(day.id);
+        return;
+      }
+    }
+    setEditingDateId(day.id);
   };
 
   // Calcola la data del giorno dalla data di inizio settimana + giorni abituali del cliente
@@ -606,8 +623,8 @@ export default function WeekPage() {
                           </div>
                         )}
 
-                        {/* Data giorno — cliccabile per coach, solo lettura per cliente */}
-                        {editingDateId === day.id && !isClientView ? (
+                        {/* Data giorno — cliccabile per tutti */}
+                        {editingDateId === day.id ? (
                           <div onClick={e => e.stopPropagation()} className="mt-1">
                             <input
                               type="date"
@@ -618,15 +635,25 @@ export default function WeekPage() {
                               onBlur={e => handleSetDayDate(day.id, e.target.value)}
                             />
                           </div>
+                        ) : dateEditError === day.id ? (
+                          <div onClick={e => e.stopPropagation()} className="mt-1">
+                            <p className="text-[10px] text-red-400 leading-tight">
+                              Modifica non consentita: sessione tra meno di 2 giorni.
+                            </p>
+                            <button
+                              className="text-[10px] text-gray-400 underline mt-0.5"
+                              onClick={e => { e.stopPropagation(); setDateEditError(null); }}
+                            >
+                              Chiudi
+                            </button>
+                          </div>
                         ) : (
                           <div
-                            className={`text-xs text-gray-400 mt-0.5 capitalize ${!isClientView ? "cursor-pointer hover:text-gray-600 dark:hover:text-gray-300 transition-colors" : ""}`}
-                            onClick={e => { if (!isClientView) { e.stopPropagation(); setEditingDateId(day.id); } }}
-                            title={!isClientView ? "Clicca per modificare la data" : undefined}
+                            className="text-xs text-gray-400 mt-0.5 capitalize cursor-pointer hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+                            onClick={e => { e.stopPropagation(); startEditDate(day, resolvedDate); }}
+                            title="Clicca per modificare la data"
                           >
-                            {dateLabel ?? (
-                              !isClientView && <span className="text-gray-300 dark:text-gray-600 italic">+ data</span>
-                            )}
+                            {dateLabel ?? <span className="text-gray-300 dark:text-gray-600 italic">+ data</span>}
                           </div>
                         )}
                         {day.notes && (
