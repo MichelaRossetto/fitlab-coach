@@ -2446,7 +2446,7 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, maxes, onSave, onCan
       if (existing) {
         return { ...prev, workout: { blocks: prev.workout.blocks.filter(b => b.subtype !== subtype) } };
       }
-      if (prev.workout.blocks.length >= 3) return prev; // max 3
+      if (prev.workout.blocks.length >= 4) return prev; // max 4
       const isLiss = subtype === "cardioliss";
       const specific = getLibNames(lib, "WORKOUT", WORKOUT_LIB_SUB[subtype]);
       // Cardio LISS: cerca esercizi con "liss" nel nome in tutta la libreria (non solo sottocategoria)
@@ -2951,11 +2951,11 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, maxes, onSave, onCan
       <div className="space-y-4">
         {/* Multi-select pill buttons (max 2) */}
         <div>
-          <p className="text-[10px] text-gray-400 mb-1.5 uppercase tracking-wide">Seleziona tipo (max 3, nessuno = niente workout)</p>
+          <p className="text-[10px] text-gray-400 mb-1.5 uppercase tracking-wide">Seleziona tipo (nessuno = niente workout)</p>
           <div className="flex gap-1.5 flex-wrap">
             {(["amrap", "emom", "fortime", "cardioliss"] as WorkoutSubtype[]).map(t => {
               const isActive = activeSubtypes.includes(t);
-              const isDisabled = !isActive && activeSubtypes.length >= 3;
+              const isDisabled = !isActive && activeSubtypes.length >= 4;
               return (
                 <button
                   key={t}
