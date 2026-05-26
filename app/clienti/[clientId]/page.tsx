@@ -420,6 +420,7 @@ function NewMonthForm({ clientId, existingMonths, lastWeekAny, subscriptionEnd, 
 
 // ─── Schedule Section ─────────────────────────────────────────
 const DAY_ABBREV = ["L", "M", "M", "G", "V"];
+const MAX_PER_SLOT = 5;
 
 function ScheduleSection({ clientId, isClientView, onScheduleChange }: {
   clientId: string;
@@ -431,7 +432,10 @@ function ScheduleSection({ clientId, isClientView, onScheduleChange }: {
   const [schedule, setSchedule] = useState<Record<number, string>>({});
   const [editSchedule, setEditSchedule] = useState<Record<number, string>>({});
   const [loadingS, setLoadingS] = useState(true);
+  const [loadingAvail, setLoadingAvail] = useState(false);
+  const [availability, setAvailability] = useState<Record<string, number>>({});
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
 
   useEffect(() => {
     const load = async () => {
@@ -445,8 +449,21 @@ function ScheduleSection({ clientId, isClientView, onScheduleChange }: {
     load();
   }, [clientId]);
 
-  const startEdit = () => { setEditSchedule({ ...schedule }); setEditing(true); };
-  const cancelEdit = () => { setEditing(false); };
+  const startEdit = async () => {
+    setEditSchedule({ ...schedule });
+    setSaveError("");
+    setEditing(true);
+    // Se vista cliente → carica disponibilità slot dalla coach
+    if (isClientView) {
+      setLoadingAvail(true);
+      const res = await fetch(`/api/slot-availability?exclude_client=${clientId}`);
+      const data = await res.json();
+      setAvailability(data ?? {});
+      setLoadingAvail(false);
+    }
+  };
+
+  const cancelEdit = () => { setEditing(false); setSaveError(""); };
 
   const toggleDay = (day: number) =>
     setEditSchedule(prev => {
@@ -457,7 +474,31 @@ function ScheduleSection({ clientId, isClientView, onScheduleChange }: {
   const setTime = (day: number, time: string) =>
     setEditSchedule(prev => ({ ...prev, [day]: time }));
 
+  const slotCount = (dow: number, time: string) => availability[`${dow}:${time}`] ?? 0;
+  const slotFull  = (dow: number, time: string) => slotCount(dow, time) >= MAX_PER_SLOT;
+
   const handleSave = async () => {
+    setSaveError("");
+
+    // ── Regola 2 giorni (solo vista cliente) ──────────────────
+    if (isClientView && Object.keys(schedule).length > 0) {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const jsDay = today.getDay(); // 0=Dom
+      const ourDay = jsDay === 0 ? 6 : jsDay - 1; // 0=Lun…6=Dom
+
+      for (const dow of Object.keys(schedule).map(Number)) {
+        let daysUntil = dow - ourDay;
+        if (daysUntil < 0) daysUntil += 7;
+        if (daysUntil < 2) {
+          setSaveError(
+            `Non puoi modificare l'orario: la prossima sessione è tra meno di 2 giorni.\nContatta la coach per cambi urgenti.`
+          );
+          return;
+        }
+      }
+    }
+
     setSaving(true);
     const rows = Object.entries(editSchedule).map(([day, time]) => ({
       client_id: clientId, day_of_week: Number(day), time,
@@ -488,9 +529,7 @@ function ScheduleSection({ clientId, isClientView, onScheduleChange }: {
         className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
       >
         <span className="font-semibold text-sm text-gray-700 dark:text-gray-200">Orari abituali</span>
-
         <div className="flex items-center gap-2">
-          {/* Pallini giorni — visibili solo da chiuso */}
           {!open && selectedDays.length > 0 && (
             <div className="flex items-center gap-1">
               {selectedDays.map((d, idx) => (
@@ -520,8 +559,7 @@ function ScheduleSection({ clientId, isClientView, onScheduleChange }: {
               {selectedDays.length > 0 ? (
                 <div className="flex flex-col gap-0">
                   {selectedDays.map((day, idx) => (
-                    <div
-                      key={day}
+                    <div key={day}
                       className={`flex items-center justify-between py-2 ${idx < selectedDays.length - 1 ? "border-b border-gray-50 dark:border-gray-700/50" : ""}`}
                     >
                       <span className="text-sm text-gray-500 dark:text-gray-400">{DAY_NAMES_SHORT[day]}</span>
@@ -533,55 +571,119 @@ function ScheduleSection({ clientId, isClientView, onScheduleChange }: {
                 <p className="text-sm text-gray-400 py-1">Nessun orario impostato</p>
               )}
               <div className="mt-2 text-right">
-                <button
-                  onClick={startEdit}
-                  className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 underline underline-offset-2 transition-colors"
-                >
+                <button onClick={startEdit}
+                  className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 underline underline-offset-2 transition-colors">
                   modifica orari
                 </button>
               </div>
             </div>
           ) : (
             /* Vista modifica */
-            <div className="px-4 py-3 space-y-3">
+            <div className="px-4 py-3 space-y-4">
+
               {/* Chip giorni */}
               <div className="flex gap-1.5">
                 {DAY_NAMES_SHORT.map((name, i) => (
-                  <button
-                    key={i}
-                    onClick={() => toggleDay(i)}
+                  <button key={i} onClick={() => toggleDay(i)}
                     className="flex-1 py-1.5 rounded-xl text-xs font-bold transition-all"
-                    style={
-                      editSchedule[i] !== undefined
-                        ? { backgroundColor: "#D4E600", color: "#111" }
-                        : { backgroundColor: "#f3f4f6", color: "#9ca3af" }
-                    }
-                  >
+                    style={editSchedule[i] !== undefined
+                      ? { backgroundColor: "#D4E600", color: "#111" }
+                      : { backgroundColor: "#f3f4f6", color: "#9ca3af" }
+                    }>
                     {name}
                   </button>
                 ))}
               </div>
 
-              {/* Orari */}
+              {/* Orari — slot picker con disponibilità (solo client view) o select (coach) */}
               {editDays.length > 0 && (
-                <div className="space-y-1.5">
-                  {editDays.map(day => (
-                    <div key={day} className="flex items-center gap-3">
-                      <span className="text-xs font-semibold text-gray-500 w-8">{DAY_NAMES_SHORT[day]}</span>
-                      <select
-                        className="input text-sm w-24 py-1.5"
-                        value={editSchedule[day]}
-                        onChange={e => setTime(day, e.target.value)}
-                      >
-                        <optgroup label="Mattina">
-                          {TIME_SLOTS_MORNING.map(t => <option key={t} value={t}>{t}</option>)}
-                        </optgroup>
-                        <optgroup label="Pomeriggio">
-                          {TIME_SLOTS_AFTERNOON.map(t => <option key={t} value={t}>{t}</option>)}
-                        </optgroup>
-                      </select>
-                    </div>
-                  ))}
+                loadingAvail ? (
+                  <div className="text-xs text-gray-400 text-center py-2">Carico disponibilità...</div>
+                ) : isClientView ? (
+                  /* Slot picker visivo con disponibilità */
+                  <div className="space-y-4">
+                    {editDays.map(day => (
+                      <div key={day}>
+                        <div className="text-xs font-bold text-gray-500 dark:text-gray-400 mb-2 uppercase tracking-wide">
+                          {DAY_NAMES_SHORT[day]}
+                        </div>
+                        {[
+                          { label: "Mattina", slots: TIME_SLOTS_MORNING },
+                          { label: "Pomeriggio", slots: TIME_SLOTS_AFTERNOON },
+                        ].map(({ label, slots }) => (
+                          <div key={label} className="mb-3">
+                            <div className="text-[10px] text-gray-400 mb-1.5 uppercase tracking-widest">{label}</div>
+                            <div className="flex flex-wrap gap-1.5">
+                              {slots.map(time => {
+                                const count = slotCount(day, time);
+                                const full = slotFull(day, time);
+                                const selected = editSchedule[day] === time;
+                                const spotsLeft = MAX_PER_SLOT - count;
+                                return (
+                                  <button
+                                    key={time}
+                                    disabled={full && !selected}
+                                    onClick={() => !full && setTime(day, time)}
+                                    className={`relative text-xs px-2.5 py-1.5 rounded-xl font-medium transition-all border ${
+                                      selected
+                                        ? "border-transparent font-bold shadow-sm"
+                                        : full
+                                        ? "border-gray-100 dark:border-gray-700 text-gray-300 dark:text-gray-600 cursor-not-allowed bg-gray-50 dark:bg-gray-800/50"
+                                        : spotsLeft === 1
+                                        ? "border-orange-200 dark:border-orange-800 text-orange-600 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-900/20"
+                                        : "border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
+                                    }`}
+                                    style={selected ? { backgroundColor: "#D4E600", color: "#111", borderColor: "transparent" } : {}}
+                                  >
+                                    {time}
+                                    {/* Badge posti rimasti */}
+                                    {!selected && !full && spotsLeft <= 2 && (
+                                      <span className={`ml-1 text-[9px] font-bold ${spotsLeft === 1 ? "text-orange-500" : "text-gray-400"}`}>
+                                        {spotsLeft === 1 ? "1 posto" : `${spotsLeft}`}
+                                      </span>
+                                    )}
+                                    {/* Slot pieno */}
+                                    {full && (
+                                      <span className="ml-1 text-[9px] text-gray-300">✕</span>
+                                    )}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ))}
+                    <p className="text-[10px] text-gray-400 dark:text-gray-500">
+                      Gli slot con ✕ sono al completo · <span className="text-orange-400">1 posto</span> = ultimo disponibile
+                    </p>
+                  </div>
+                ) : (
+                  /* Coach: select classico senza restrizioni */
+                  <div className="space-y-1.5">
+                    {editDays.map(day => (
+                      <div key={day} className="flex items-center gap-3">
+                        <span className="text-xs font-semibold text-gray-500 w-8">{DAY_NAMES_SHORT[day]}</span>
+                        <select className="input text-sm w-24 py-1.5" value={editSchedule[day]}
+                          onChange={e => setTime(day, e.target.value)}>
+                          <optgroup label="Mattina">
+                            {TIME_SLOTS_MORNING.map(t => <option key={t} value={t}>{t}</option>)}
+                          </optgroup>
+                          <optgroup label="Pomeriggio">
+                            {TIME_SLOTS_AFTERNOON.map(t => <option key={t} value={t}>{t}</option>)}
+                          </optgroup>
+                        </select>
+                      </div>
+                    ))}
+                  </div>
+                )
+              )}
+
+              {/* Errore 2 giorni */}
+              {saveError && (
+                <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl px-4 py-3">
+                  <p className="text-sm text-red-600 dark:text-red-400 font-medium">⚠️ Modifica non consentita</p>
+                  <p className="text-xs text-red-500 dark:text-red-400 mt-0.5 whitespace-pre-line">{saveError}</p>
                 </div>
               )}
 
