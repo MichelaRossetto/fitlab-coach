@@ -5,7 +5,7 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import {
   TrainingDay, WorkoutSection, Exercise, ExerciseLibrary,
-  SectionType, SECTION_LABELS, SECTION_ORDER,
+  SectionType, SECTION_LABELS, SECTION_ORDER, DayStatus,
   WorkoutSubtype, WORKOUT_SUBTYPE_LABELS, LOAD_OPTIONS,
   ALL_PERFORMANCE_EXERCISES,
   EXERCISE_PARENT_MAP,
@@ -1272,9 +1272,10 @@ interface SectionBlockProps {
   onSaveEx: (sectionId: string, ex: Exercise) => void;
   onAddEx: (sectionId: string) => void;
   onClearSection: (sectionId: string) => void;
+  readOnly?: boolean;
 }
 
-function SectionBlock({ section, lib, editingExId, maxes, onToggleEdit, onUpdateEx, onDeleteEx, onSaveEx, onAddEx, onClearSection }: SectionBlockProps) {
+function SectionBlock({ section, lib, editingExId, maxes, onToggleEdit, onUpdateEx, onDeleteEx, onSaveEx, onAddEx, onClearSection, readOnly }: SectionBlockProps) {
   const [confirmClear, setConfirmClear] = useState(false);
   const libSuggestions: string[] = (() => {
     switch (section.section_type) {
@@ -1338,20 +1339,22 @@ function SectionBlock({ section, lib, editingExId, maxes, onToggleEdit, onUpdate
           )}
           <span className="text-xs text-gray-400">{exercises.length} es.</span>
         </div>
-        <button
-          onClick={() => onAddEx(section.id)}
-          className="flex items-center gap-1 text-xs font-medium px-2.5 py-1.5 rounded-lg transition-colors flex-shrink-0"
-          style={{ backgroundColor: color + "15", color }}
-        >
-          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M12 5v14M5 12h14"/></svg>
-          Aggiungi esercizi per categoria
-        </button>
+        {!readOnly && (
+          <button
+            onClick={() => onAddEx(section.id)}
+            className="flex items-center gap-1 text-xs font-medium px-2.5 py-1.5 rounded-lg transition-colors flex-shrink-0"
+            style={{ backgroundColor: color + "15", color }}
+          >
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M12 5v14M5 12h14"/></svg>
+            Aggiungi esercizi per categoria
+          </button>
+        )}
       </div>
 
       {/* Exercises */}
       {exercises.length === 0 ? (
         <div className="px-4 py-5 text-center text-sm text-gray-400">
-          Nessun esercizio — clicca Aggiungi esercizi per categoria
+          {readOnly ? "Nessun esercizio" : "Nessun esercizio — clicca Aggiungi esercizi per categoria"}
         </div>
       ) : (() => {
         const exercisesWithGroups = exercises.map(ex => {
@@ -1386,8 +1389,8 @@ function SectionBlock({ section, lib, editingExId, maxes, onToggleEdit, onUpdate
                     </div>
                   )}
                   <div
-                    onClick={() => !editingExId && onToggleEdit(ex.id)}
-                    className={editingExId === ex.id ? "" : "cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"}
+                    onClick={() => !readOnly && !editingExId && onToggleEdit(ex.id)}
+                    className={!readOnly && editingExId !== ex.id ? "cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors" : ""}
                   >
                     <ExerciseRow
                       exercise={{ ...ex, notes: ex._cleanNotes }}
@@ -1413,7 +1416,7 @@ function SectionBlock({ section, lib, editingExId, maxes, onToggleEdit, onUpdate
             })}
 
             {/* Clear section */}
-            <div className="px-4 py-2 border-t border-gray-100 dark:border-gray-700">
+            {!readOnly && <div className="px-4 py-2 border-t border-gray-100 dark:border-gray-700">
               {confirmClear ? (
                 <div className="flex items-center gap-3">
                   <span className="text-xs text-gray-500 dark:text-gray-400 flex-1">Cancellare tutti gli esercizi?</span>
@@ -1435,7 +1438,7 @@ function SectionBlock({ section, lib, editingExId, maxes, onToggleEdit, onUpdate
                   Cancella tutti gli esercizi
                 </button>
               )}
-            </div>
+            </div>}
           </>
         );
       })()}
@@ -3185,6 +3188,9 @@ export default function DayPage() {
   const [sections, setSections] = useState<WorkoutSection[]>([]);
   const [clientName, setClientName] = useState("");
   const [weekLabel, setWeekLabel] = useState("");
+  const [weekDateStart, setWeekDateStart] = useState<string | null>(null);
+  const [scheduledDays, setScheduledDays] = useState<number[]>([]);
+  const [isClientView, setIsClientView] = useState(false);
   const [loading, setLoading] = useState(true);
   const [editingExId, setEditingExId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -3201,10 +3207,11 @@ export default function DayPage() {
 
   // Load exercise library + client maxes once
   useEffect(() => {
-    supabase.from("client_maxes").select("exercise_name, weight_kg").eq("client_id", clientId)
-      .then(({ data }) => {
+    fetch(`/api/client-maxes?client_id=${clientId}`)
+      .then(r => r.json())
+      .then((data: { exercise_name: string; weight_kg: number | null }[]) => {
         const map: Record<string, number> = {};
-        (data ?? []).forEach((r: { exercise_name: string; weight_kg: number | null }) => {
+        (data ?? []).forEach(r => {
           if (r.weight_kg != null) map[r.exercise_name] = r.weight_kg;
         });
         setMaxes(map);
@@ -3237,14 +3244,27 @@ export default function DayPage() {
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
-    const [{ data: d }, { data: c }, { data: w }] = await Promise.all([
+    const [{ data: d }, { data: c }, { data: w }, { data: userData }, schedRes] = await Promise.all([
       supabase.from("training_days").select("*").eq("id", dayId).single(),
-      supabase.from("clients").select("name, surname").eq("id", clientId).single(),
-      supabase.from("training_weeks").select("week_number").eq("id", weekId).single(),
+      supabase.from("clients").select("name, surname, email").eq("id", clientId).single(),
+      supabase.from("training_weeks").select("week_number, date_start").eq("id", weekId).single(),
+      supabase.auth.getUser(),
+      fetch(`/api/client-schedule?client_id=${clientId}`),
     ]);
     setDay(d);
-    if (c) setClientName(`${c.name} ${c.surname}`);
-    if (w) setWeekLabel(`Sett. ${w.week_number}`);
+    if (c) {
+      setClientName(`${c.name} ${c.surname}`);
+      if (c.email === userData.user?.email) {
+        setIsClientView(true);
+        document.documentElement.classList.add("dark");
+      }
+    }
+    if (w) {
+      setWeekLabel(`Sett. ${w.week_number}`);
+      setWeekDateStart(w.date_start ?? null);
+    }
+    const schedData = schedRes.ok ? await schedRes.json() : [];
+    setScheduledDays((schedData ?? []).map((r: any) => r.day_of_week).sort((a: number, b: number) => a - b));
 
     // Fetch sections + exercises
     const { data: secs } = await supabase
@@ -3365,6 +3385,13 @@ export default function DayPage() {
       : s
     ));
     setEditingExId(null);
+  };
+
+  const handleSetStatus = async (status: DayStatus) => {
+    if (!day) return;
+    const newStatus = day.status === status ? "pending" : status;
+    await supabase.from("training_days").update({ status: newStatus }).eq("id", day.id);
+    setDay(prev => prev ? { ...prev, status: newStatus } : prev);
   };
 
   const handleClearAll = async () => {
@@ -3580,6 +3607,86 @@ export default function DayPage() {
 
   const totalExercises = sections.reduce((acc, s) => acc + (s.exercises?.length ?? 0), 0);
 
+  const formatDayDate = (d: Date | null) => {
+    if (!d) return null;
+    return d.toLocaleDateString("it-IT", { weekday: "short", day: "numeric", month: "long", year: "numeric" });
+  };
+
+  const resolvedDayDate = (() => {
+    if (day?.day_date) return new Date(day.day_date);
+    if (weekDateStart && scheduledDays.length > 0 && day) {
+      const idx = day.day_number - 1;
+      if (idx < scheduledDays.length) {
+        const start = new Date(weekDateStart);
+        start.setHours(12, 0, 0, 0);
+        start.setDate(start.getDate() + scheduledDays[idx]);
+        return start;
+      }
+    }
+    return null;
+  })();
+
+  const dayDateLabel = formatDayDate(resolvedDayDate);
+
+  const handlePrintPDF = () => {
+    const sectionOrder: SectionType[] = ["warmup", "strength", "accessories", "core", "workout"];
+    const sectionLabels: Record<SectionType, string> = {
+      warmup: "Warm Up", strength: "Forza", accessories: "Accessori",
+      core: "Core Training", workout: "Workout",
+    };
+    const filled = sectionOrder
+      .map(t => sections.find(s => s.section_type === t))
+      .filter(s => s && (s.exercises?.length ?? 0) > 0) as WorkoutSection[];
+
+    const rowsHtml = (exs: Exercise[]) => exs.map(ex => {
+      const parts: string[] = [];
+      if (ex.sets && ex.reps) parts.push(`${ex.sets} × ${ex.reps}`);
+      else if (ex.reps) parts.push(ex.reps);
+      if (ex.load && ex.load !== "-") parts.push(ex.load);
+      if (ex.rest_time) parts.push(`⏱ ${ex.rest_time}`);
+      const { cleanNotes } = parseExerciseGroup(ex.notes);
+      return `<tr>
+        <td style="padding:6px 10px;font-weight:600;color:#111">${ex.name}</td>
+        <td style="padding:6px 10px;color:#444;white-space:nowrap">${parts.join(" · ") || "—"}</td>
+        <td style="padding:6px 10px;color:#888;font-size:12px">${cleanNotes ?? ""}</td>
+      </tr>`;
+    }).join("");
+
+    const sectionsHtml = filled.map(s => `
+      <div style="margin-bottom:24px">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#8a9a00;margin-bottom:8px">
+          ${sectionLabels[s.section_type]}
+        </div>
+        <table style="width:100%;border-collapse:collapse;background:#f9f9f9;border-radius:8px;overflow:hidden">
+          <tbody>${rowsHtml(s.exercises ?? [])}</tbody>
+        </table>
+      </div>`).join("");
+
+    const html = `<!DOCTYPE html><html><head>
+      <meta charset="utf-8"/>
+      <title>${day!.label} — ${clientName}</title>
+      <style>
+        body { font-family: -apple-system, sans-serif; padding: 32px; color: #111; max-width: 700px; margin: 0 auto; }
+        h1 { font-size: 22px; margin: 0 0 4px; }
+        p  { font-size: 13px; color: #666; margin: 0 0 24px; }
+        tr:nth-child(even) { background: #f0f0f0; }
+        td { border: none; }
+        @media print { body { padding: 16px; } }
+      </style>
+    </head><body>
+      <h1>${day!.label}</h1>
+      <p>${clientName} · ${weekLabel}${dayDateLabel ? ` · ${dayDateLabel}` : ""}</p>
+      ${sectionsHtml}
+    </body></html>`;
+
+    const w = window.open("", "_blank");
+    if (!w) return;
+    w.document.write(html);
+    w.document.close();
+    w.focus();
+    setTimeout(() => { w.print(); }, 300);
+  };
+
   if (loading) return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
       <Header backHref={`/clienti/${clientId}/${monthId}/${weekId}`} title="Caricamento..." />
@@ -3603,16 +3710,31 @@ export default function DayPage() {
       <Header
         backHref={`/clienti/${clientId}/${monthId}/${weekId}`}
         title={day.label}
-        subtitle={`${clientName} · ${weekLabel}`}
+        subtitle={`${clientName} · ${weekLabel}${dayDateLabel ? ` · ${dayDateLabel}` : ""}`}
+        clientView={isClientView}
         right={
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => setShowBulkAdd(true)}
-              className="btn-primary text-xs py-1.5 px-3 flex items-center gap-1"
-            >
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 5v14M5 12h14"/></svg>
-              Precompila giornata
-            </button>
+            {!isClientView && (
+              <button
+                onClick={() => setShowBulkAdd(true)}
+                className="btn-primary text-xs py-1.5 px-3 flex items-center gap-1"
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 5v14M5 12h14"/></svg>
+                Precompila giornata
+              </button>
+            )}
+            {totalExercises > 0 && (
+              <button
+                onClick={handlePrintPDF}
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors p-1"
+                title="Stampa / Salva PDF"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/>
+                  <rect x="6" y="14" width="12" height="8"/>
+                </svg>
+              </button>
+            )}
             {saving
               ? <span className="text-xs text-amber-600 font-medium animate-pulse">Salvo...</span>
               : <span className="text-xs text-green-600 font-medium">{totalExercises} es.</span>
@@ -3622,7 +3744,7 @@ export default function DayPage() {
       />
 
       <main className="max-w-2xl mx-auto px-4 py-5 space-y-4">
-        {totalExercises > 0 && !editingExId && (
+        {!isClientView && totalExercises > 0 && !editingExId && (
           <div className="flex items-center gap-2 bg-blue-50 border border-blue-100 rounded-xl px-3 py-2 dark:bg-blue-900/20 dark:border-blue-900/30">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#3B82F6" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
             <span className="text-xs text-blue-600 dark:text-blue-400">Tocca un esercizio per modificarlo</span>
@@ -3648,11 +3770,12 @@ export default function DayPage() {
             onSaveEx={handleSaveExercise}
             onAddEx={handleAddExercise}
             onClearSection={handleClearSection}
+            readOnly={isClientView}
           />
         ))}
 
         {/* Cancella tutto il giorno */}
-        {totalExercises > 0 && (
+        {!isClientView && totalExercises > 0 && (
           <div className="pb-2 text-center">
             {confirmClearAll ? (
               <div ref={clearAllRef} className="card p-4 text-center space-y-3">
@@ -3672,6 +3795,38 @@ export default function DayPage() {
                 Cancella tutti gli esercizi del giorno
               </button>
             )}
+          </div>
+        )}
+
+        {/* Status buttons — visibili sempre (coach e cliente) */}
+        {day && (
+          <div className="flex flex-col items-center gap-2 mt-5 mb-2">
+            {/* Bottone principale — Completa */}
+            <button
+              onClick={() => handleSetStatus("done")}
+              className={`w-full py-4 rounded-2xl font-bold text-base flex items-center justify-center gap-2.5 transition-all shadow-sm active:scale-[0.98] ${
+                day.status === "done"
+                  ? "bg-green-500 text-white shadow-green-200 dark:shadow-green-900"
+                  : "bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:bg-green-50 dark:hover:bg-green-900/30 hover:text-green-600"
+              }`}
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <polyline points="20 6 9 17 4 12"/>
+              </svg>
+              {day.status === "done" ? "Giornata completata ✓" : "Completa giornata"}
+            </button>
+
+            {/* Bottone secondario — Salta */}
+            <button
+              onClick={() => handleSetStatus("skip")}
+              className={`text-xs font-medium px-4 py-1.5 rounded-full transition-all ${
+                day.status === "skip"
+                  ? "bg-orange-100 dark:bg-orange-900/30 text-orange-500"
+                  : "text-gray-400 dark:text-gray-600 hover:text-orange-400 dark:hover:text-orange-400"
+              }`}
+            >
+              {day.status === "skip" ? "✕ Saltata" : "Salta giornata"}
+            </button>
           </div>
         )}
 

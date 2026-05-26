@@ -121,7 +121,10 @@ export default function MonthPage() {
     if (c) {
       setClientName(`${c.name} ${c.surname}`);
       setSubscriptionEnd(c.subscription_end ?? null);
-      setIsClientView(c.email === userData.user?.email);
+      if (c.email === userData.user?.email) {
+        setIsClientView(true);
+        document.documentElement.classList.add("dark");
+      }
     }
 
     // Ultima settimana con data_end tra tutti i mesi del cliente
@@ -171,6 +174,7 @@ export default function MonthPage() {
         backHref={`/clienti/${clientId}`}
         title={month.label}
         subtitle={clientName}
+        clientView={isClientView}
         right={!isClientView ? (
           <button onClick={() => setShowNewWeek(true)} className="btn-primary text-xs py-1.5 px-3 flex items-center gap-1">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 5v14M5 12h14"/></svg>

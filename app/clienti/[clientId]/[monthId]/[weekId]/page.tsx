@@ -142,7 +142,10 @@ export default function WeekPage() {
     if (m) setMonthLabel(m.label);
     if (c) {
       setClientName(`${c.name} ${c.surname}`);
-      setIsClientView(c.email === userData.user?.email);
+      if (c.email === userData.user?.email) {
+        setIsClientView(true);
+        document.documentElement.classList.add("dark");
+      }
     }
     setScheduledDays(sched?.map((s: any) => s.day_of_week) ?? []);
     setLoading(false);
@@ -200,6 +203,111 @@ export default function WeekPage() {
     ? new Date(d).toLocaleDateString("it-IT", { weekday: "long", day: "2-digit", month: "2-digit" })
     : null;
 
+  const [showWeekCalendar, setShowWeekCalendar] = useState(false);
+  const [printing, setPrinting] = useState(false);
+
+  const handlePrintWeek = async () => {
+    if (days.length === 0) return;
+    setPrinting(true);
+
+    const sectionOrder = ["warmup", "strength", "accessories", "core", "workout"];
+    const sectionLabels: Record<string, string> = {
+      warmup: "Warm Up", strength: "Forza", accessories: "Accessori",
+      core: "Core Training", workout: "Workout",
+    };
+
+    // Fetch sezioni + esercizi per ogni giorno in parallelo
+    const allDayData = await Promise.all(days.map(async day => {
+      const { data: secs } = await supabase
+        .from("workout_sections")
+        .select("*, exercises(*)")
+        .eq("day_id", day.id)
+        .order("order_index");
+      return { day, sections: secs ?? [] };
+    }));
+
+    const exRow = (ex: any) => {
+      const parts: string[] = [];
+      if (ex.sets && ex.reps) parts.push(`${ex.sets} × ${ex.reps}`);
+      else if (ex.reps) parts.push(ex.reps);
+      if (ex.load && ex.load !== "-") parts.push(ex.load);
+      if (ex.rest_time) parts.push(`⏱ ${ex.rest_time}`);
+      // rimuovi tag interni: #cardio# [amrap] ecc.
+      const cleanNotes = (ex.notes ?? "")
+        .replace(/^#\w+#\s*/, "")
+        .replace(/^\[.*?\]\s*/, "")
+        .trim();
+      return `<tr>
+        <td style="padding:5px 10px;font-weight:600;color:#111">${ex.name}</td>
+        <td style="padding:5px 10px;color:#444;white-space:nowrap">${parts.join(" · ") || "—"}</td>
+        <td style="padding:5px 10px;color:#888;font-size:11px">${cleanNotes}</td>
+      </tr>`;
+    };
+
+    const daysHtml = allDayData.map(({ day, sections }) => {
+      const filled = sectionOrder
+        .map(t => (sections as any[]).find((s: any) => s.section_type === t))
+        .filter(s => s && (s.exercises?.length ?? 0) > 0);
+
+      if (filled.length === 0) return "";
+
+      const resolvedDateObj = day.day_date
+        ? new Date(day.day_date)
+        : getCalculatedDate(day.day_number);
+      const resolvedDate = resolvedDateObj
+        ? resolvedDateObj.toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long" })
+        : null;
+
+      const sectionsHtml = filled.map((s: any) => `
+        <div style="margin-bottom:16px">
+          <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#8a9a00;margin-bottom:6px">
+            ${sectionLabels[s.section_type] ?? s.section_type}
+          </div>
+          <table style="width:100%;border-collapse:collapse;background:#f9f9f9;border-radius:6px;overflow:hidden">
+            <tbody>${(s.exercises ?? []).map(exRow).join("")}</tbody>
+          </table>
+        </div>`).join("");
+
+      return `
+        <div style="margin-bottom:36px;page-break-inside:avoid">
+          <div style="display:flex;align-items:baseline;gap:12px;margin-bottom:12px;border-bottom:2px solid #D4E600;padding-bottom:6px">
+            <span style="font-size:18px;font-weight:800;color:#111">${day.label}</span>
+            ${resolvedDate ? `<span style="font-size:12px;color:#666;text-transform:capitalize">${resolvedDate}</span>` : ""}
+          </div>
+          ${sectionsHtml}
+        </div>`;
+    }).join("");
+
+    const weekRange = week?.date_start
+      ? `${formatDate(week.date_start)}${week.date_end ? ` — ${formatDate(week.date_end)}` : ""}`
+      : `Settimana ${week?.week_number}`;
+
+    const html = `<!DOCTYPE html><html><head>
+      <meta charset="utf-8"/>
+      <title>Settimana ${week?.week_number} — ${clientName}</title>
+      <style>
+        body { font-family: -apple-system, sans-serif; padding: 32px; color: #111; max-width: 720px; margin: 0 auto; }
+        h1 { font-size: 22px; margin: 0 0 4px; }
+        p  { font-size: 13px; color: #666; margin: 0 0 28px; text-transform: capitalize; }
+        tr:nth-child(even) { background: #efefef; }
+        td { border: none; }
+        @media print { body { padding: 16px; } }
+      </style>
+    </head><body>
+      <h1>${clientName} · Settimana ${week?.week_number}</h1>
+      <p>${weekRange}</p>
+      ${daysHtml}
+    </body></html>`;
+
+    setPrinting(false);
+    const w = window.open("", "_blank");
+    if (!w) return;
+    w.document.write(html);
+    w.document.close();
+    w.focus();
+    setTimeout(() => { w.print(); }, 300);
+  };
+
   if (loading) return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
       <Header backHref={`/clienti/${clientId}/${monthId}`} title="Caricamento..." />
@@ -224,18 +332,43 @@ export default function WeekPage() {
         backHref={`/clienti/${clientId}/${monthId}`}
         title={`Settimana ${week.week_number}`}
         subtitle={`${clientName} · ${monthLabel}`}
-        right={!isClientView ? (
-          <button onClick={() => setShowNewDay(true)} className="btn-primary text-xs py-1.5 px-3 flex items-center gap-1">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 5v14M5 12h14"/></svg>
-            Giorno
-          </button>
-        ) : undefined}
+        clientView={isClientView}
+        right={
+          <div className="flex items-center gap-2">
+            {days.length > 0 && (
+              <button
+                onClick={handlePrintWeek}
+                disabled={printing}
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors p-1 disabled:opacity-50"
+                title="Stampa / Salva PDF settimana"
+              >
+                {printing
+                  ? <svg className="animate-spin" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" strokeDasharray="32" strokeDashoffset="12"/></svg>
+                  : <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/>
+                      <rect x="6" y="14" width="12" height="8"/>
+                    </svg>
+                }
+              </button>
+            )}
+            {!isClientView && (
+              <button onClick={() => setShowNewDay(true)} className="btn-primary text-xs py-1.5 px-3 flex items-center gap-1">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 5v14M5 12h14"/></svg>
+                Giorno
+              </button>
+            )}
+          </div>
+        }
       />
 
       <main className="max-w-2xl mx-auto px-4 py-5 space-y-5">
         {/* Week info */}
-        <div className="card p-4">
-          <div className="flex items-center justify-between">
+        <div className="card overflow-hidden">
+          {/* Header cliccabile */}
+          <button
+            className="w-full p-4 flex items-center justify-between text-left hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
+            onClick={() => week.date_start && setShowWeekCalendar(v => !v)}
+          >
             <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
               {week.date_start
@@ -243,16 +376,95 @@ export default function WeekPage() {
                 : <span className="text-gray-400 dark:text-gray-500">Nessuna data</span>
               }
             </div>
-            {!isClientView && (
-              <button
-                onClick={() => { setEditDateStart(week.date_start ?? ""); setEditDateEnd(week.date_end ?? ""); setShowEditDates(true); }}
-                className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 underline underline-offset-2 transition-colors"
-              >
-                modifica
-              </button>
-            )}
-          </div>
-          {week.notes && <p className="text-sm text-gray-500 italic mt-2 dark:text-gray-400">{week.notes}</p>}
+            <div className="flex items-center gap-3">
+              {!isClientView && (
+                <button
+                  onClick={e => { e.stopPropagation(); setEditDateStart(week.date_start ?? ""); setEditDateEnd(week.date_end ?? ""); setShowEditDates(true); }}
+                  className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 underline underline-offset-2 transition-colors"
+                >
+                  modifica
+                </button>
+              )}
+              {week.date_start && (
+                <svg
+                  className={`text-gray-400 transition-transform duration-200 ${showWeekCalendar ? "rotate-180" : ""}`}
+                  width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+                >
+                  <path d="M6 9l6 6 6-6"/>
+                </svg>
+              )}
+            </div>
+          </button>
+
+          {/* Mini calendario settimanale */}
+          {showWeekCalendar && week.date_start && (() => {
+            const startDate = new Date(week.date_start);
+            startDate.setHours(12, 0, 0, 0);
+            // Genera tutti i giorni da lunedì a venerdì (o domenica se c'è data_end)
+            const endDate = week.date_end ? new Date(week.date_end) : new Date(startDate);
+            endDate.setHours(12, 0, 0, 0);
+            const dayNames = ["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"];
+            const calDays: Date[] = [];
+            const cur = new Date(startDate);
+            while (cur <= endDate) {
+              calDays.push(new Date(cur));
+              cur.setDate(cur.getDate() + 1);
+            }
+            // Map date → training day
+            const dayByDate: Record<string, TrainingDay> = {};
+            days.forEach(d => {
+              const resolved = d.day_date ? new Date(d.day_date) : getCalculatedDate(d.day_number);
+              if (resolved) {
+                resolved.setHours(12, 0, 0, 0);
+                dayByDate[resolved.toISOString().split("T")[0]] = d;
+              }
+            });
+            const today = new Date(); today.setHours(0, 0, 0, 0);
+            return (
+              <div className="border-t border-gray-100 dark:border-gray-700/50 px-4 pb-4 pt-3">
+                <div className="flex gap-2">
+                  {calDays.map(date => {
+                    const key = date.toISOString().split("T")[0];
+                    const td = dayByDate[key];
+                    const isToday = date.getTime() === today.getTime();
+                    const dotW = date.getDay() === 0 ? 6 : date.getDay() - 1; // 0=Lun
+                    const status = td ? getEffectiveStatus(td) : null;
+                    return (
+                      <div
+                        key={key}
+                        className={`flex-1 flex flex-col items-center gap-1 py-2 rounded-xl transition-colors ${
+                          td ? "cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/60" : ""
+                        } ${isToday ? "ring-1 ring-inset ring-[#D4E600]" : ""}`}
+                        onClick={() => { if (td) router.push(`/clienti/${clientId}/${monthId}/${weekId}/${td.id}`); }}
+                      >
+                        <span className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase">{dayNames[dotW]}</span>
+                        <span className={`text-sm font-bold ${isToday ? "text-[#D4E600]" : "text-gray-700 dark:text-gray-200"}`}>
+                          {date.getDate()}
+                        </span>
+                        {/* Indicatore */}
+                        {td ? (
+                          <div
+                            className="w-5 h-5 rounded-full flex items-center justify-center text-[10px]"
+                            style={
+                              status === "done" ? { backgroundColor: "#22c55e", color: "white" } :
+                              status === "skip" ? { backgroundColor: "#fb923c", color: "white" } :
+                              { backgroundColor: "#D4E600", color: "#111" }
+                            }
+                          >
+                            {status === "done" ? "✓" : status === "skip" ? "✕" : td.day_number}
+                          </div>
+                        ) : (
+                          <div className="w-5 h-5" />
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })()}
+
+          {week.notes && <p className="text-sm text-gray-500 italic px-4 pb-4 dark:text-gray-400">{week.notes}</p>}
         </div>
 
         {/* Days */}
@@ -288,10 +500,14 @@ export default function WeekPage() {
                     {/* Main row */}
                     <div className="flex items-center gap-3.5 px-4 pt-4 pb-3">
                       <div
-                        className="w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm flex-shrink-0 hover:opacity-80 transition-opacity"
-                        style={{ backgroundColor: "#111", color: "#D4E600" }}
+                        className="w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm flex-shrink-0 transition-colors"
+                        style={
+                          currentStatus === "done" ? { backgroundColor: "#22c55e", color: "#fff" } :
+                          currentStatus === "skip" ? { backgroundColor: "#fb923c", color: "#fff" } :
+                          { backgroundColor: "#111", color: "#D4E600" }
+                        }
                       >
-                        D{day.day_number}
+                        {currentStatus === "done" ? "✓" : currentStatus === "skip" ? "✕" : `D${day.day_number}`}
                       </div>
 
                       <div className="flex-1 min-w-0">

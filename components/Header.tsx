@@ -8,9 +8,10 @@ interface HeaderProps {
   title?: string;
   subtitle?: string;
   right?: React.ReactNode;
+  clientView?: boolean;
 }
 
-export function Header({ backHref, title, subtitle, right }: HeaderProps) {
+export function Header({ backHref, title, subtitle, right, clientView }: HeaderProps) {
   const router = useRouter();
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -28,30 +29,32 @@ export function Header({ backHref, title, subtitle, right }: HeaderProps) {
               <span className="text-gray-900 dark:text-white">LAB</span>
             </span>
           </Link>
-          <div className="flex items-center gap-3">
-            <span className="text-xs text-gray-400 font-medium">Michela · Coach</span>
-            <Link
-              href="/esercizi"
-              className="text-gray-300 hover:text-gray-500 transition-colors"
-              title="Libreria esercizi"
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
-                <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
-              </svg>
-            </Link>
-            <button
-              onClick={handleLogout}
-              className="text-xs text-gray-300 hover:text-gray-500 transition-colors"
-              title="Esci"
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
-                <polyline points="16 17 21 12 16 7"/>
-                <line x1="21" y1="12" x2="9" y2="12"/>
-              </svg>
-            </button>
-          </div>
+          {!clientView && (
+            <div className="flex items-center gap-3">
+              <span className="text-xs text-gray-400 font-medium">Michela · Coach</span>
+              <Link
+                href="/esercizi"
+                className="text-gray-300 hover:text-gray-500 transition-colors"
+                title="Libreria esercizi"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
+                  <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+                </svg>
+              </Link>
+              <button
+                onClick={handleLogout}
+                className="text-xs text-gray-300 hover:text-gray-500 transition-colors"
+                title="Esci"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+                  <polyline points="16 17 21 12 16 7"/>
+                  <line x1="21" y1="12" x2="9" y2="12"/>
+                </svg>
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Sub-header with back + title */}

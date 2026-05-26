@@ -12,6 +12,177 @@ import { Header } from "@/components/Header";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Modal } from "@/components/Modal";
 
+// ─── Helpers calendario ──────────────────────────────────────
+const CAL_DAY_LABELS  = ["Lun", "Mar", "Mer", "Gio", "Ven"];
+const CAL_MONTH_SHORT = ["Gen","Feb","Mar","Apr","Mag","Giu","Lug","Ago","Set","Ott","Nov","Dic"];
+const MORNING_SLOTS   = ["08:00","09:00","10:00","11:00","12:00","13:00"];
+const AFTERNOON_SLOTS = ["16:00","17:00","18:00","19:00"];
+
+function getMonday(date: Date): Date {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  const day = d.getDay();
+  d.setDate(d.getDate() + (day === 0 ? -6 : 1 - day));
+  return d;
+}
+
+function timeToMin(t: string) {
+  const [h, m] = t.split(":").map(Number);
+  return h * 60 + m;
+}
+
+// ─── Client Calendar Card ─────────────────────────────────────
+function ClientCalendarCard({ clientId, scheduleOverride }: {
+  clientId: string;
+  scheduleOverride?: Record<number, string> | null;
+}) {
+  const [schedule, setSchedule] = useState<Record<number, string>>({});
+  const [weekStart, setWeekStart] = useState<Date>(() => getMonday(new Date()));
+
+  // Fetch iniziale
+  useEffect(() => {
+    fetch(`/api/client-schedule?client_id=${clientId}`)
+      .then(r => r.json())
+      .then((data: { day_of_week: number; time: string }[]) => {
+        const map: Record<number, string> = {};
+        (data ?? []).forEach(r => { map[r.day_of_week] = r.time; });
+        setSchedule(map);
+      });
+  }, [clientId]);
+
+  // Aggiornamento in tempo reale quando la ScheduleSection salva
+  useEffect(() => {
+    if (scheduleOverride != null) setSchedule(scheduleOverride);
+  }, [scheduleOverride]);
+
+  const weekDays = Array.from({ length: 5 }, (_, i) => {
+    const d = new Date(weekStart);
+    d.setDate(d.getDate() + i);
+    return d;
+  });
+
+  const isToday = (d: Date) => {
+    const t = new Date();
+    return d.getDate() === t.getDate() && d.getMonth() === t.getMonth() && d.getFullYear() === t.getFullYear();
+  };
+
+  const weekLabel = (() => {
+    const s = weekDays[0], e = weekDays[4];
+    if (s.getMonth() === e.getMonth())
+      return `${s.getDate()}–${e.getDate()} ${CAL_MONTH_SHORT[s.getMonth()]} ${s.getFullYear()}`;
+    return `${s.getDate()} ${CAL_MONTH_SHORT[s.getMonth()]} – ${e.getDate()} ${CAL_MONTH_SHORT[e.getMonth()]} ${e.getFullYear()}`;
+  })();
+
+  // Controlla se il cliente si allena in un determinato slot (±60min)
+  const hasTraining = (day: number, slot: string) => {
+    const t = schedule[day];
+    if (!t) return false;
+    const T = timeToMin(t), H = timeToMin(slot);
+    return T >= H && T < H + 60;
+  };
+
+  const TrainingCell = ({ day, slot }: { day: number; slot: string }) => {
+    const active = hasTraining(day, slot);
+    return (
+      <div className="border-l border-gray-700 flex items-center justify-center min-h-[34px] px-1">
+        {active && (
+          <div className="flex flex-col items-center gap-0.5">
+            <div className="w-2 h-2 rounded-full" style={{ backgroundColor: "#C0D738" }} />
+            <span className="text-[9px] font-bold tabular-nums" style={{ color: "#C0D738" }}>
+              {schedule[day]}
+            </span>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const todayMonday = getMonday(new Date());
+  const isFuture = weekStart.getTime() > todayMonday.getTime();
+  const isPast   = weekStart.getTime() < todayMonday.getTime();
+  const prevWeek = () => setWeekStart(d => { const n = new Date(d); n.setDate(n.getDate() - 7); return n; });
+  const nextWeek = () => setWeekStart(d => { const n = new Date(d); n.setDate(n.getDate() + 7); return n; });
+  const goToday  = () => setWeekStart(getMonday(new Date()));
+
+  const backBtn = (
+    <button onClick={goToday}
+      className="text-[10px] font-medium px-2 py-0.5 rounded-full border border-gray-600 text-gray-400 hover:bg-gray-700 transition-colors whitespace-nowrap">
+      {isFuture ? "← settimana corrente" : "settimana corrente →"}
+    </button>
+  );
+
+  const SlotSection = ({ slots, label }: { slots: string[]; label: string }) => (
+    <div className={label === "Mattina" ? "border-b border-gray-700" : ""}>
+      <div className="px-3 py-1 text-[10px] font-semibold text-gray-400 uppercase tracking-wide bg-gray-800/50">
+        {label}
+      </div>
+      {slots.map(slot => (
+        <div key={slot} className="grid grid-cols-[48px_repeat(5,1fr)] border-b border-gray-700/50 last:border-0">
+          <div className="p-2 text-[11px] text-gray-500 flex items-center justify-end pr-3 font-mono">{slot}</div>
+          {[0,1,2,3,4].map(day => <TrainingCell key={day} day={day} slot={slot} />)}
+        </div>
+      ))}
+    </div>
+  );
+
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="card overflow-hidden">
+      {/* Titolo collassabile */}
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-700/50 transition-colors"
+      >
+        <span className="font-semibold text-sm text-gray-200">Calendario</span>
+        <svg className={`text-gray-400 transition-transform ${open ? "rotate-180" : ""}`}
+          width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M6 9l6 6 6-6"/>
+        </svg>
+      </button>
+
+      {open && (
+        <>
+          {/* Header navigazione settimana */}
+          <div className="flex items-center justify-between px-3 py-2 border-t border-b border-gray-700 bg-gray-800">
+            <div className="flex items-center gap-2 min-w-[110px]">
+              <button onClick={prevWeek}
+                className="p-1 rounded-lg hover:bg-gray-700 text-gray-400 transition-colors">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 18l-6-6 6-6"/></svg>
+              </button>
+              {isFuture && backBtn}
+            </div>
+            <span className="text-sm font-semibold text-gray-200">{weekLabel}</span>
+            <div className="flex items-center gap-2 justify-end min-w-[110px]">
+              {isPast && backBtn}
+              <button onClick={nextWeek}
+                className="p-1 rounded-lg hover:bg-gray-700 text-gray-400 transition-colors">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 18l6-6-6-6"/></svg>
+              </button>
+            </div>
+          </div>
+
+          {/* Intestazione giorni */}
+          <div className="grid grid-cols-[48px_repeat(5,1fr)] border-b border-gray-700 bg-gray-800">
+            <div className="p-2" />
+            {weekDays.map((date, i) => (
+              <div key={i} className={`p-2 text-center border-l border-gray-700 ${isToday(date) ? "bg-yellow-900/20" : ""}`}>
+                <div className="text-[10px] text-gray-400 font-medium">{CAL_DAY_LABELS[i]}</div>
+                <div className={`text-sm font-bold mt-0.5 ${isToday(date) ? "text-yellow-400" : "text-gray-200"}`}>
+                  {date.getDate()}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <SlotSection slots={MORNING_SLOTS}   label="Mattina" />
+          <SlotSection slots={AFTERNOON_SLOTS} label="Pomeriggio" />
+        </>
+      )}
+    </div>
+  );
+}
+
 // ─── Edit Client Form ────────────────────────────────────────
 function EditClientForm({ client, onSuccess, onCancel }: {
   client: Client; onSuccess: () => void; onCancel: () => void;
@@ -250,7 +421,11 @@ function NewMonthForm({ clientId, existingMonths, lastWeekAny, subscriptionEnd, 
 // ─── Schedule Section ─────────────────────────────────────────
 const DAY_ABBREV = ["L", "M", "M", "G", "V"];
 
-function ScheduleSection({ clientId, isClientView }: { clientId: string; isClientView: boolean }) {
+function ScheduleSection({ clientId, isClientView, onScheduleChange }: {
+  clientId: string;
+  isClientView: boolean;
+  onScheduleChange?: (s: Record<number, string>) => void;
+}) {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [schedule, setSchedule] = useState<Record<number, string>>({});
@@ -260,11 +435,8 @@ function ScheduleSection({ clientId, isClientView }: { clientId: string; isClien
 
   useEffect(() => {
     const load = async () => {
-      const { data } = await supabase
-        .from("client_schedule")
-        .select("*")
-        .eq("client_id", clientId)
-        .order("day_of_week");
+      const res = await fetch(`/api/client-schedule?client_id=${clientId}`);
+      const data = await res.json();
       const map: Record<number, string> = {};
       (data ?? []).forEach((r: any) => { map[r.day_of_week] = r.time; });
       setSchedule(map);
@@ -287,16 +459,17 @@ function ScheduleSection({ clientId, isClientView }: { clientId: string; isClien
 
   const handleSave = async () => {
     setSaving(true);
-    const { error: delErr } = await supabase.from("client_schedule").delete().eq("client_id", clientId);
-    if (delErr) console.error("Schedule delete error:", delErr);
     const rows = Object.entries(editSchedule).map(([day, time]) => ({
       client_id: clientId, day_of_week: Number(day), time,
     }));
-    if (rows.length > 0) {
-      const { error: insErr } = await supabase.from("client_schedule").insert(rows);
-      if (insErr) console.error("Schedule insert error:", insErr);
-    }
-    setSchedule({ ...editSchedule });
+    await fetch("/api/client-schedule", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ client_id: clientId, rows }),
+    });
+    const saved = { ...editSchedule };
+    setSchedule(saved);
+    onScheduleChange?.(saved);
     setEditing(false);
     setOpen(false);
     setSaving(false);
@@ -359,16 +532,14 @@ function ScheduleSection({ clientId, isClientView }: { clientId: string; isClien
               ) : (
                 <p className="text-sm text-gray-400 py-1">Nessun orario impostato</p>
               )}
-              {!isClientView && (
-                <div className="mt-2 text-right">
-                  <button
-                    onClick={startEdit}
-                    className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 underline underline-offset-2 transition-colors"
-                  >
-                    modifica orari
-                  </button>
-                </div>
-              )}
+              <div className="mt-2 text-right">
+                <button
+                  onClick={startEdit}
+                  className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 underline underline-offset-2 transition-colors"
+                >
+                  modifica orari
+                </button>
+              </div>
             </div>
           ) : (
             /* Vista modifica */
@@ -440,10 +611,8 @@ function PerformanceSection({ clientId, isClientView }: { clientId: string; isCl
 
   useEffect(() => {
     const load = async () => {
-      const { data } = await supabase
-        .from("client_maxes")
-        .select("*")
-        .eq("client_id", clientId);
+      const res = await fetch(`/api/client-maxes?client_id=${clientId}`);
+      const data = await res.json();
       const map: Record<string, string> = {};
       (data ?? []).forEach((r: ClientMax) => {
         if (r.weight_kg != null) map[r.exercise_name] = String(r.weight_kg);
@@ -465,16 +634,11 @@ function PerformanceSection({ clientId, isClientView }: { clientId: string; isCl
         recorded_at: new Date().toISOString().split("T")[0],
       }));
     const cleared = Object.entries(editMaxes).filter(([, v]) => v === "").map(([k]) => k);
-    if (cleared.length > 0) {
-      const { error: delErr } = await supabase.from("client_maxes").delete()
-        .eq("client_id", clientId).in("exercise_name", cleared);
-      if (delErr) console.error("Maxes delete error:", delErr);
-    }
-    if (rows.length > 0) {
-      const { error: upsErr } = await supabase.from("client_maxes")
-        .upsert(rows, { onConflict: "client_id,exercise_name" });
-      if (upsErr) console.error("Maxes upsert error:", upsErr);
-    }
+    await fetch("/api/client-maxes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ client_id: clientId, rows, cleared }),
+    });
     const newMaxes = { ...editMaxes };
     cleared.forEach(k => delete newMaxes[k]);
     setMaxes(newMaxes);
@@ -533,12 +697,10 @@ function PerformanceSection({ clientId, isClientView }: { clientId: string; isCl
                   </div>
                 </div>
               ))}
-              {!isClientView && (
-                <button onClick={() => { setEditMaxes({ ...maxes }); setEditing(true); }}
-                  className="btn-secondary w-full text-sm">
-                  Modifica massimali
-                </button>
-              )}
+              <button onClick={() => { setEditMaxes({ ...maxes }); setEditing(true); }}
+                className="btn-secondary w-full text-sm">
+                Modifica massimali
+              </button>
             </>
           ) : (
             <>
@@ -593,6 +755,8 @@ export default function ClientPage() {
   const [lastWeekAny, setLastWeekAny] = useState<TrainingWeek | null>(null);
   const [loading, setLoading] = useState(true);
   const [isClientView, setIsClientView] = useState(false);
+  const [calendarSchedule, setCalendarSchedule] = useState<Record<number, string> | null>(null);
+  const [nextWorkout, setNextWorkout] = useState<{ url: string; date: Date; label: string; isToday: boolean } | null>(null);
   const [showEdit, setShowEdit] = useState(false);
   const [showNewMonth, setShowNewMonth] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
@@ -609,9 +773,10 @@ export default function ClientPage() {
     setClient(c);
     setMonths(m ?? []);
 
-    // Se l'utente loggato è il cliente stesso → vista sola lettura
+    // Se l'utente loggato è il cliente stesso → vista sola lettura + dark mode forzata
     if (c && userData.user?.email === c.email) {
       setIsClientView(true);
+      document.documentElement.classList.add("dark");
     }
 
     const { data: allWeeks } = await supabase
@@ -622,6 +787,60 @@ export default function ClientPage() {
       .order("date_end", { ascending: false })
       .limit(1);
     setLastWeekAny(allWeeks?.[0] ?? null);
+
+    // ─── Trova il prossimo allenamento (oggi o il primo futuro non saltato) ───
+    const monthIds = (m ?? []).map(mo => mo.id);
+    if (monthIds.length > 0) {
+      // Fetch schedule
+      const schedRes = await window.fetch(`/api/client-schedule?client_id=${clientId}`);
+      const schedData = await schedRes.json();
+      const scheduledDays: number[] = (schedData ?? []).map((r: any) => r.day_of_week);
+
+      // Fetch tutte le settimane con i loro giorni
+      const { data: weeksData } = await supabase
+        .from("training_weeks")
+        .select("id, date_start, month_id, training_days(id, day_number, day_date, status, label)")
+        .in("month_id", monthIds)
+        .not("date_start", "is", null)
+        .order("date_start");
+
+      if (weeksData) {
+        const today = new Date(); today.setHours(0, 0, 0, 0);
+        let best: { date: Date; url: string; label: string; isToday: boolean } | null = null;
+
+        for (const week of weeksData as any[]) {
+          const weekStart = new Date(week.date_start);
+          weekStart.setHours(12, 0, 0, 0);
+          const days = [...(week.training_days ?? [])].sort((a: any, b: any) => a.day_number - b.day_number);
+
+          for (const day of days as any[]) {
+            if (day.status === "skip") continue;
+
+            let dayDate: Date | null = null;
+            if (day.day_date) {
+              dayDate = new Date(day.day_date);
+              dayDate.setHours(0, 0, 0, 0);
+            } else if (scheduledDays.length > 0 && day.day_number <= scheduledDays.length) {
+              dayDate = new Date(weekStart);
+              dayDate.setDate(dayDate.getDate() + scheduledDays[day.day_number - 1]);
+              dayDate.setHours(0, 0, 0, 0);
+            }
+
+            if (!dayDate || dayDate < today) continue;
+
+            if (!best || dayDate < best.date) {
+              best = {
+                date: dayDate,
+                url: `/clienti/${clientId}/${week.month_id}/${week.id}/${day.id}`,
+                label: day.label,
+                isToday: dayDate.getTime() === today.getTime(),
+              };
+            }
+          }
+        }
+        setNextWorkout(best);
+      }
+    }
 
     setLoading(false);
   }, [clientId]);
@@ -661,6 +880,7 @@ export default function ClientPage() {
         backHref={isClientView ? undefined : "/"}
         title={`${client.name} ${client.surname}`}
         subtitle={isClientView ? "Il tuo piano" : "Profilo cliente"}
+        clientView={isClientView}
         right={
           !isClientView ? (
             <button onClick={() => setShowEdit(true)} className="btn-secondary text-xs py-1.5 px-3">
@@ -705,8 +925,47 @@ export default function ClientPage() {
           </div>
         </div>
 
+        {/* ─── Bottone allenamento del giorno ─── */}
+        {nextWorkout && (() => {
+          const dateLabel = nextWorkout.date.toLocaleDateString("it-IT", {
+            weekday: "long", day: "numeric", month: "long",
+          });
+          return (
+            <button
+              onClick={() => router.push(nextWorkout.url)}
+              className="w-full rounded-2xl overflow-hidden transition-all active:scale-[0.98] shadow-sm hover:shadow-md group"
+              style={{ backgroundColor: "#D4E600" }}
+            >
+              <div className="flex items-center gap-4 px-5 py-4">
+                {/* Icona */}
+                <div className="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0"
+                  style={{ backgroundColor: "rgba(0,0,0,0.12)" }}>
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#111" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+                  </svg>
+                </div>
+                {/* Testi */}
+                <div className="flex-1 text-left min-w-0">
+                  <div className="font-bold text-base text-gray-900 leading-tight">
+                    {nextWorkout.isToday ? "Allenamento di oggi" : "Prossimo allenamento"}
+                  </div>
+                  <div className="text-sm font-medium text-gray-700 mt-0.5 capitalize truncate">
+                    {nextWorkout.label} · {dateLabel}
+                  </div>
+                </div>
+                {/* Freccia */}
+                <svg className="flex-shrink-0 text-gray-700 group-hover:translate-x-0.5 transition-transform"
+                  width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <path d="M9 18l6-6-6-6"/>
+                </svg>
+              </div>
+            </button>
+          );
+        })()}
+
         {/* Orari abituali */}
-        <ScheduleSection clientId={clientId} isClientView={isClientView} />
+        <ScheduleSection clientId={clientId} isClientView={isClientView} onScheduleChange={setCalendarSchedule} />
+        {isClientView && <ClientCalendarCard clientId={clientId} scheduleOverride={calendarSchedule} />}
 
         {/* Performance / Massimali */}
         <PerformanceSection clientId={clientId} isClientView={isClientView} />
