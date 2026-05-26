@@ -114,6 +114,7 @@ export default function WeekPage() {
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [editingLabelId, setEditingLabelId] = useState<string | null>(null);
   const [editingLabelText, setEditingLabelText] = useState("");
+  const [editingDateId, setEditingDateId] = useState<string | null>(null);
   const [scheduledDays, setScheduledDays] = useState<number[]>([]);
 
   const handleEditDates = async () => {
@@ -175,6 +176,12 @@ export default function WeekPage() {
   const handleSetStatus = async (day: TrainingDay, status: DayStatus) => {
     await supabase.from("training_days").update({ status }).eq("id", day.id);
     setDays(prev => prev.map(d => d.id === day.id ? { ...d, status } : d));
+  };
+
+  const handleSetDayDate = async (dayId: string, newDate: string) => {
+    await supabase.from("training_days").update({ day_date: newDate || null }).eq("id", dayId);
+    setDays(prev => prev.map(d => d.id === dayId ? { ...d, day_date: newDate || null } : d));
+    setEditingDateId(null);
   };
 
   // Calcola la data del giorno dalla data di inizio settimana + giorni abituali del cliente
@@ -599,8 +606,28 @@ export default function WeekPage() {
                           </div>
                         )}
 
-                        {dateLabel && (
-                          <div className="text-xs text-gray-400 mt-0.5 capitalize">{dateLabel}</div>
+                        {/* Data giorno — cliccabile per coach, solo lettura per cliente */}
+                        {editingDateId === day.id && !isClientView ? (
+                          <div onClick={e => e.stopPropagation()} className="mt-1">
+                            <input
+                              type="date"
+                              autoFocus
+                              defaultValue={day.day_date ?? resolvedDate?.toISOString().split("T")[0] ?? ""}
+                              className="text-xs border border-gray-200 dark:border-gray-600 rounded-lg px-2 py-0.5 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200"
+                              onChange={e => handleSetDayDate(day.id, e.target.value)}
+                              onBlur={e => handleSetDayDate(day.id, e.target.value)}
+                            />
+                          </div>
+                        ) : (
+                          <div
+                            className={`text-xs text-gray-400 mt-0.5 capitalize ${!isClientView ? "cursor-pointer hover:text-gray-600 dark:hover:text-gray-300 transition-colors" : ""}`}
+                            onClick={e => { if (!isClientView) { e.stopPropagation(); setEditingDateId(day.id); } }}
+                            title={!isClientView ? "Clicca per modificare la data" : undefined}
+                          >
+                            {dateLabel ?? (
+                              !isClientView && <span className="text-gray-300 dark:text-gray-600 italic">+ data</span>
+                            )}
+                          </div>
                         )}
                         {day.notes && (
                           <div className="text-xs text-gray-400 mt-0.5 italic">{day.notes}</div>
