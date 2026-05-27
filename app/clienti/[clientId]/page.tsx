@@ -90,7 +90,7 @@ function ClientCalendarCard({ clientId, scheduleOverride, coachView }: {
     const weekMap: Record<string, any> = {};
     for (const w of weeks as any[]) weekMap[w.id] = w;
 
-    const list: { dayId: string; label: string; dateStr: string | null; weekLabel: string; weekDateStart: string | null }[] = [];
+    const list: { dayId: string; label: string; dateStr: string | null; dayTime: string | null; weekLabel: string; weekDateStart: string | null }[] = [];
     for (const day of days as any[]) {
       const week = weekMap[day.week_id];
       if (!week) continue;
@@ -303,12 +303,31 @@ function ClientCalendarCard({ clientId, scheduleOverride, coachView }: {
             {showEditSessions && (() => {
               const ws = localDateStr(weekDays[0]);
               const we = localDateStr(weekDays[4]);
-              // Fix Day 3: includi sessioni con data nella settimana OR senza data ma con weekDateStart nella settimana
-              const weekSessions = sessionList.filter(s => {
+
+              // Sessioni effettive (training_days) in questa settimana
+              const actualSessions = sessionList.filter(s => {
                 if (s.dateStr) return s.dateStr >= ws && s.dateStr <= we;
                 if (s.weekDateStart) return s.weekDateStart >= ws && s.weekDateStart <= we;
                 return false;
               });
+              const actualDateSet = new Set(actualSessions.map(s => s.dateStr).filter(Boolean));
+
+              // Sessioni "virtuali" dal piano ricorrente per giorni non coperti da training_days
+              type DisplaySession = { dayId: string; label: string; dateStr: string | null; dayTime: string | null; weekLabel: string; weekDateStart: string | null; isVirtual: boolean };
+              const virtualItems: DisplaySession[] = [];
+              Object.keys(schedule).map(Number).sort((a, b) => a - b).forEach(dow => {
+                if (dow < 0 || dow > 4) return;
+                const ds = localDateStr(weekDays[dow]);
+                if (!actualDateSet.has(ds)) {
+                  virtualItems.push({ dayId: `virtual-${dow}`, label: CAL_DAY_LABELS[dow], dateStr: ds, dayTime: null, weekLabel: "", weekDateStart: null, isVirtual: true });
+                }
+              });
+
+              const weekSessions: DisplaySession[] = [
+                ...actualSessions.map(s => ({ ...s, isVirtual: false })),
+                ...virtualItems,
+              ].sort((a, b) => (a.dateStr ?? "").localeCompare(b.dateStr ?? ""));
+
               const today = new Date(); today.setHours(0, 0, 0, 0);
 
               return (
@@ -318,7 +337,7 @@ function ClientCalendarCard({ clientId, scheduleOverride, coachView }: {
                       Nessun allenamento in questa settimana
                     </div>
                   ) : weekSessions.map(session => {
-                    const sessionDate = session.dateStr ? new Date(session.dateStr) : null;
+                    const sessionDate = session.dateStr ? new Date(session.dateStr + "T12:00:00") : null;
                     const diffDays = sessionDate ? Math.floor((sessionDate.getTime() - today.getTime()) / 86400000) : 99;
                     const clientBlocked = !coachView && diffDays < 2;
                     const isRescheduling = reschedulingDayId === session.dayId;
@@ -331,11 +350,14 @@ function ClientCalendarCard({ clientId, scheduleOverride, coachView }: {
                             <div className="text-xs font-medium text-gray-200 truncate">{session.label}</div>
                             <div className="text-[10px] text-gray-500">
                               {session.dateStr
-                                ? new Date(session.dateStr).toLocaleDateString("it-IT", { weekday: "long", day: "2-digit", month: "2-digit" })
+                                ? new Date(session.dateStr + "T12:00:00").toLocaleDateString("it-IT", { weekday: "long", day: "2-digit", month: "2-digit" })
                                 : "data non impostata"}
+                              {session.isVirtual && <span className="ml-1 text-gray-600">(ricorrente)</span>}
                             </div>
                           </div>
-                          {clientBlocked ? (
+                          {session.isVirtual ? (
+                            <span className="text-[10px] text-gray-600 italic shrink-0">no programma</span>
+                          ) : clientBlocked ? (
                             <span className="text-[10px] text-gray-600 italic shrink-0">entro 2 giorni</span>
                           ) : isRescheduling ? (
                             <button onClick={cancelReschedule} className="text-[10px] text-gray-500 hover:text-gray-300 shrink-0">Annulla</button>
@@ -349,8 +371,8 @@ function ClientCalendarCard({ clientId, scheduleOverride, coachView }: {
                           )}
                         </div>
 
-                        {/* Pannello spostamento */}
-                        {isRescheduling && (() => {
+                        {/* Pannello spostamento (solo sessioni reali) */}
+                        {!session.isVirtual && isRescheduling && (() => {
                           const newJsDay = rescheduleDate ? new Date(rescheduleDate + "T12:00:00").getDay() : null;
                           const newOurDow = newJsDay !== null ? (newJsDay === 0 ? 6 : newJsDay - 1) : null;
                           const MAX_SLOTS = 5;
