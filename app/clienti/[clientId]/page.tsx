@@ -361,38 +361,16 @@ function ClientCalendarCard({ clientId, scheduleOverride, coachView }: {
             {showEditSessions && (() => {
               const ws = localDateStr(weekDays[0]);
               const we = localDateStr(weekDays[4]);
-              const schedDows = Object.keys(schedule).map(Number).sort((a, b) => a - b).filter(d => d >= 0 && d <= 4);
 
-              // Costruisci lista sempre dall'orario ricorrente, con lookup flessibile del training_day
-              type DisplaySession = { key: string; dow: number; dayNum: number; dateStr: string; dayId: string | null; label: string; dayTime: string | null };
-              const recurringDisplay: DisplaySession[] = schedDows.map((dow, idx) => {
-                const dayNum = idx + 1;
-                const dateStr = localDateStr(weekDays[dow]);
-
-                // Lookup 1: match diretto per day_date
-                let actual = sessionList.find(s => s.dateStr === dateStr);
-                // Lookup 2: match per weekDateStart + day_number (sessioni senza day_date)
-                if (!actual) actual = sessionList.find(s =>
-                  s.weekDateStart && s.weekDateStart >= ws && s.weekDateStart <= we && s.dayNumber === dayNum
-                );
-                return { key: `dow-${dow}`, dow, dayNum, dateStr, dayId: actual?.dayId ?? null, label: actual?.label ?? `${CAL_DAY_LABELS[dow]}`, dayTime: actual?.dayTime ?? null };
-              });
-
-              // Sessioni spostate IN questa settimana da fuori (dateStr in range, dow non ricorrente)
-              const movedIn: DisplaySession[] = sessionList
+              // Sessioni effettive di questa settimana (per day_date o per weekDateStart)
+              const weekSessions = sessionList
                 .filter(s => {
-                  if (!s.dateStr || s.dateStr < ws || s.dateStr > we) return false;
-                  const jsD = new Date(s.dateStr + "T12:00:00").getDay();
-                  const ourDow = jsD === 0 ? 6 : jsD - 1;
-                  return !schedDows.includes(ourDow);
+                  if (s.dateStr) return s.dateStr >= ws && s.dateStr <= we;
+                  if (s.weekDateStart) return s.weekDateStart >= ws && s.weekDateStart <= we;
+                  return false;
                 })
-                .map(s => {
-                  const jsD = new Date(s.dateStr! + "T12:00:00").getDay();
-                  const ourDow = jsD === 0 ? 6 : jsD - 1;
-                  return { key: s.dayId, dow: ourDow, dayNum: s.dayNumber, dateStr: s.dateStr!, dayId: s.dayId, label: s.label, dayTime: s.dayTime };
-                });
+                .sort((a, b) => (a.dateStr ?? a.weekDateStart ?? "").localeCompare(b.dateStr ?? b.weekDateStart ?? ""));
 
-              const weekSessions = [...recurringDisplay, ...movedIn].sort((a, b) => a.dateStr.localeCompare(b.dateStr));
               const today = new Date(); today.setHours(0, 0, 0, 0);
 
               return (
@@ -402,19 +380,22 @@ function ClientCalendarCard({ clientId, scheduleOverride, coachView }: {
                       Nessun allenamento in questa settimana
                     </div>
                   ) : weekSessions.map(session => {
-                    const sessionDate = new Date(session.dateStr + "T12:00:00");
-                    const diffDays = Math.floor((sessionDate.getTime() - today.getTime()) / 86400000);
+                    const dateForDiff = session.dateStr ?? session.weekDateStart;
+                    const sessionDate = dateForDiff ? new Date(dateForDiff + "T12:00:00") : null;
+                    const diffDays = sessionDate ? Math.floor((sessionDate.getTime() - today.getTime()) / 86400000) : 99;
                     const clientBlocked = !coachView && diffDays < 2;
-                    const isRescheduling = !!reschedulingDayId && (reschedulingDayId === session.dayId || reschedulingDayId === `virtual-${session.dow}`);
+                    const isRescheduling = !!reschedulingDayId && reschedulingDayId === session.dayId;
 
                     return (
-                      <div key={session.key} className="border-b border-gray-700/50 last:border-0">
+                      <div key={session.dayId} className="border-b border-gray-700/50 last:border-0">
                         {/* Riga principale */}
                         <div className="flex items-center justify-between px-3 py-2.5 gap-2">
                           <div className="min-w-0 flex-1">
                             <div className="text-xs font-medium text-gray-200 truncate">{session.label}</div>
                             <div className="text-[10px] text-gray-500">
-                              {new Date(session.dateStr + "T12:00:00").toLocaleDateString("it-IT", { weekday: "long", day: "2-digit", month: "2-digit" })}
+                              {session.dateStr
+                                ? new Date(session.dateStr + "T12:00:00").toLocaleDateString("it-IT", { weekday: "long", day: "2-digit", month: "2-digit" })
+                                : "data non impostata"}
                             </div>
                           </div>
                           {clientBlocked ? (
@@ -424,15 +405,9 @@ function ClientCalendarCard({ clientId, scheduleOverride, coachView }: {
                           ) : (
                             <button
                               onClick={() => {
-                                // Se abbiamo un dayId reale, usalo; altrimenti marca come virtual
-                                if (session.dayId) {
-                                  setReschedulingDayId(session.dayId);
-                                  setReschedulingDow(null);
-                                } else {
-                                  setReschedulingDayId(`virtual-${session.dow}`);
-                                  setReschedulingDow(session.dow);
-                                }
-                                checkRescheduleSlot(session.dateStr);
+                                setReschedulingDayId(session.dayId);
+                                setReschedulingDow(null);
+                                checkRescheduleSlot(session.dateStr ?? "");
                               }}
                               className="text-[11px] font-medium px-2.5 py-1 rounded-lg border border-gray-600 text-gray-400 hover:bg-gray-700 hover:text-gray-200 transition-colors shrink-0"
                             >
