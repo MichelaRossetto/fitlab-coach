@@ -104,6 +104,7 @@ interface ExerciseRowProps {
   onDelete: (id: string) => void;
   onSave: (id: string) => void;
   onToggleEdit: (id: string) => void;
+  readOnly?: boolean;
 }
 
 const TOOL_SUFFIXES = ["Bar", "DB", "KB", "MB", "SB"] as const;
@@ -114,7 +115,7 @@ function parseLoadAndTool(load: string): { rawLoad: string; tool: string } {
   return { rawLoad: load, tool: "" };
 }
 
-function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, lib, editing, noteTag, exerciseNumber, maxes, onUpdate, onDelete, onSave, onToggleEdit }: ExerciseRowProps) {
+function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, lib, editing, noteTag, exerciseNumber, maxes, onUpdate, onDelete, onSave, onToggleEdit, readOnly }: ExerciseRowProps) {
   // Detect cardio warmup: reps contiene "min"/"cal" oppure l'esercizio è rep-based senza load
   const isCardioWarmup = sectionType === "warmup" && !exercise.sets && !exercise.load;
   // Detect mobilità warmup: has sets + reps but no load
@@ -537,7 +538,7 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
 
   const chips: React.ReactNode[] = [];
 
-  const DeleteBtn = () => (
+  const DeleteBtn = () => readOnly ? null : (
     <button
       onClick={e => { e.stopPropagation(); onDelete(exercise.id); }}
       className="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded-full text-gray-300 hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
@@ -640,7 +641,7 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
     );
   }
 
-  const DeleteBtnInline = () => (
+  const DeleteBtnInline = () => readOnly ? null : (
     <button
       onClick={e => { e.stopPropagation(); onDelete(exercise.id); }}
       className="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded-full text-gray-300 hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors ml-auto"
@@ -664,7 +665,7 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
   const hasRealLoad = !!(exercise.load && exercise.load !== "-");
 
   return (
-    <div className="px-4 py-3 border-b border-gray-100 last:border-0 dark:border-gray-700">
+    <div id={`ex-${exercise.name.toLowerCase().replace(/\s+/g, "-")}`} className="px-4 py-3 border-b border-gray-100 last:border-0 dark:border-gray-700">
       <div className="flex items-start gap-3">
         <div className="w-1.5 h-1.5 rounded-full bg-gray-300 mt-2 flex-shrink-0" />
         <div className="flex-1 min-w-0">
@@ -1420,6 +1421,7 @@ function SectionBlock({ section, lib, editingExId, maxes, onToggleEdit, onUpdate
                         if (found) onSaveEx(section.id, found);
                       }}
                       onToggleEdit={onToggleEdit}
+                      readOnly={readOnly}
                     />
                   </div>
                 </React.Fragment>
@@ -1510,7 +1512,7 @@ function nameImpliesTool(name: string, toolKey: string): boolean {
   const t = toolKey.toUpperCase();
   if (t === "DB") return n.includes("manubri") || n.includes("manubrio") || /\bdb\b/.test(n);
   if (t === "KB") return /\bkb\b/.test(n) || n.includes("kettlebell");
-  if (t === "BAR") return n.includes("bilanciere") || /\bbar\b/.test(n) || n.includes("barbell");
+  if (t === "BAR") return n.includes("bilanciere") || /\bbar\b/.test(n) || n.includes("barbell") || n.includes("landmine");
   if (t === "SB") return n.includes("slam ball") || /\bsb\b/.test(n);
   if (t === "MB") return n.includes("med ball") || n.includes("medicine") || n.includes("medicinale") || /\bmb\b/.test(n);
   return false;
@@ -2192,6 +2194,27 @@ function resolveMaxKey(exerciseName: string): string | null {
   return null;
 }
 
+function MassimaleLink({ exerciseKey, exerciseName, label }: { exerciseKey: string; exerciseName: string; label?: string }) {
+  const params = useParams();
+  const clientId = params.clientId as string;
+  const isDerived = exerciseName.toLowerCase() !== exerciseKey.toLowerCase();
+  const returnTo = typeof window !== "undefined"
+    ? `${window.location.pathname}#ex-${exerciseName.toLowerCase().replace(/\s+/g, "-")}`
+    : "";
+  return (
+    <Link
+      href={`/clienti/${clientId}?returnTo=${encodeURIComponent(returnTo)}#massimali-${encodeURIComponent(exerciseKey)}`}
+      className="text-[11px] text-lime-600 dark:text-lime-400 underline underline-offset-2 hover:text-lime-500 italic"
+      onClick={e => e.stopPropagation()}
+    >
+      {label ? label : isDerived
+        ? <>Inserisci massimale <strong>{exerciseKey}</strong> <span className="opacity-70">(usato per {exerciseName})</span></>
+        : <>Inserisci massimale per <strong>{exerciseKey}</strong></>
+      }
+    </Link>
+  );
+}
+
 function OneRMHint({ exerciseName, load, maxes }: {
   exerciseName: string;
   load: string;
@@ -2209,7 +2232,7 @@ function OneRMHint({ exerciseName, load, maxes }: {
         return (
           <div className="flex items-center gap-1 px-0.5 mt-0.5">
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4m0 4h.01"/></svg>
-            <span className="text-[11px] text-gray-400 italic">Massimale non inserito per {key}</span>
+            <MassimaleLink exerciseKey={key} exerciseName={exerciseName} />
           </div>
         );
       }
@@ -2217,6 +2240,7 @@ function OneRMHint({ exerciseName, load, maxes }: {
         <div className="flex items-center gap-1.5 px-0.5 mt-0.5">
           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#C0D738" strokeWidth="2.5"><path d="M6 4v16M18 4v16M3 8h4m10 0h4M3 16h4m10 0h4M7 12h10"/></svg>
           <span className="text-[11px] text-gray-400">{key} max <strong className="text-gray-500 dark:text-gray-300">{max} kg</strong> — imposta % per calcolare il carico</span>
+          <span className="text-[11px] text-gray-500">(<MassimaleLink exerciseKey={key} exerciseName={exerciseName} label="aggiorna" />)</span>
         </div>
       );
     }
@@ -2230,7 +2254,7 @@ function OneRMHint({ exerciseName, load, maxes }: {
       return (
         <div className="flex items-center gap-1 px-0.5 mt-0.5">
           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4m0 4h.01"/></svg>
-          <span className="text-[11px] text-gray-400 italic">Massimale non inserito per {key}</span>
+          <MassimaleLink exerciseKey={key} exerciseName={exerciseName} />
         </div>
       );
     }
@@ -2240,6 +2264,7 @@ function OneRMHint({ exerciseName, load, maxes }: {
         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#C0D738" strokeWidth="2.5"><path d="M6 4v16M18 4v16M3 8h4m10 0h4M3 16h4m10 0h4M7 12h10"/></svg>
         <span className="text-[11px] text-gray-400">{key} max <strong className="text-gray-500 dark:text-gray-300">{max} kg</strong> →</span>
         <span className="text-[11px] font-bold" style={{ color: "#C0D738" }}>≈ {kgs.join(" → ")} kg</span>
+        <span className="text-[11px] text-gray-500">(<MassimaleLink exerciseKey={key} exerciseName={exerciseName} label="aggiorna" />)</span>
       </div>
     );
   }
@@ -2252,13 +2277,14 @@ function OneRMHint({ exerciseName, load, maxes }: {
         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#C0D738" strokeWidth="2.5"><path d="M6 4v16M18 4v16M3 8h4m10 0h4M3 16h4m10 0h4M7 12h10"/></svg>
         <span className="text-[11px] text-gray-400">{key} max <strong className="text-gray-500 dark:text-gray-300">{max} kg</strong> →</span>
         <span className="text-[11px] font-bold" style={{ color: "#C0D738" }}>≈ {kg} kg</span>
+        <span className="text-[11px] text-gray-500">(<MassimaleLink exerciseKey={key} exerciseName={exerciseName} label="aggiorna" />)</span>
       </div>
     );
   }
   return (
     <div className="flex items-center gap-1 px-0.5 mt-0.5">
       <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4m0 4h.01"/></svg>
-      <span className="text-[11px] text-gray-400 italic">Massimale non inserito per {key}</span>
+      <MassimaleLink exerciseKey={key} exerciseName={exerciseName} />
     </div>
   );
 }
@@ -3230,8 +3256,7 @@ export default function DayPage() {
   const [maxes, setMaxes] = useState<Record<string, number>>({});
   const [addModalSection, setAddModalSection] = useState<WorkoutSection | null>(null);
 
-  // Load exercise library + client maxes once
-  useEffect(() => {
+  const fetchMaxes = useCallback(() => {
     fetch(`/api/client-maxes?client_id=${clientId}`)
       .then(r => r.json())
       .then((data: { exercise_name: string; weight_kg: number | null }[]) => {
@@ -3242,6 +3267,14 @@ export default function DayPage() {
         setMaxes(map);
       });
   }, [clientId]);
+
+  // Load client maxes on mount + refresh when user returns from another page
+  useEffect(() => { fetchMaxes(); }, [fetchMaxes]);
+  useEffect(() => {
+    const onVisible = () => { if (document.visibilityState === "visible") fetchMaxes(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [fetchMaxes]);
 
   useEffect(() => {
     const load = async () => {
@@ -3664,17 +3697,81 @@ export default function DayPage() {
       .map(t => sections.find(s => s.section_type === t))
       .filter(s => s && (s.exercises?.length ?? 0) > 0) as WorkoutSection[];
 
+    const resolveMax = (exName: string): number | null => {
+      const name = exName.trim().toLowerCase();
+      const direct = ALL_PERFORMANCE_EXERCISES.find(e => e.toLowerCase() === name);
+      if (direct && maxes[direct] != null) return maxes[direct];
+      const childKey = Object.keys(EXERCISE_PARENT_MAP).find(k => k.toLowerCase() === name);
+      if (childKey) {
+        const parent = EXERCISE_PARENT_MAP[childKey];
+        if (maxes[parent] != null) return maxes[parent];
+      }
+      return null;
+    };
+
+    const formatSingleLoad = (load: string, exName: string): string => {
+      const t = load.trim();
+      if (!t || t === "-") return "";
+      if (t.includes("%")) {
+        const pct = parseFloat(t);
+        const max = isNaN(pct) ? null : resolveMax(exName);
+        if (max != null) {
+          const kg = Math.round((pct / 100) * max * 2) / 2;
+          return `${t} (≈ ${kg} kg)`;
+        }
+        const nm = exName.trim().toLowerCase();
+        const isPerf = ALL_PERFORMANCE_EXERCISES.some(e => e.toLowerCase() === nm) ||
+          Object.keys(EXERCISE_PARENT_MAP).some(k => k.toLowerCase() === nm);
+        if (isPerf) return `${t} · massimale non inserito`;
+        return t;
+      }
+      if (/^\d/.test(t) && !/rpe/i.test(t)) {
+        const toolMatch = t.match(/\s+(DB|KB|MB|SB|Bar)$/i);
+        if (toolMatch) {
+          const toolKey = toolMatch[1].toUpperCase();
+          const numPart = t.slice(0, -toolMatch[0].length);
+          const implied = nameImpliesTool(exName, toolKey);
+          return implied ? `${numPart} KG` : `${numPart} KG (${toolKey})`;
+        }
+        return `${t} KG`;
+      }
+      return t;
+    };
+
+    const formatLoadPrint = (load: string, exName: string): string => {
+      if (!load || load === "-") return "";
+      if (load.includes("|")) {
+        return load.split("|").map(p => formatSingleLoad(p.trim(), exName)).filter(Boolean).join(" → ");
+      }
+      return formatSingleLoad(load, exName);
+    };
+
     const exRow = (ex: Exercise) => {
       const parts: string[] = [];
       if (ex.sets && ex.reps) parts.push(`${ex.sets} × ${ex.reps}`);
       else if (ex.reps) parts.push(ex.reps);
-      if (ex.load && ex.load !== "-") parts.push(ex.load);
-      if (ex.rest_time) parts.push(`⏱ ${ex.rest_time}`);
+      const fl = formatLoadPrint(ex.load ?? "", ex.name ?? "");
+      if (fl) parts.push(fl);
+      if (ex.rest_time) parts.push(`⏱ Rest ${ex.rest_time}`);
       const { cleanNotes } = parseExerciseGroup(ex.notes);
       return `<tr>
         <td style="padding:6px 10px;font-weight:600;color:#111">${ex.name}</td>
         <td style="padding:6px 10px;color:#444;white-space:nowrap">${parts.join(" · ") || "—"}</td>
         <td style="padding:6px 10px;color:#888;font-size:12px">${cleanNotes ?? ""}</td>
+      </tr>`;
+    };
+
+    const wkExRow = (ex: Exercise) => {
+      const reps = ex.reps ?? "";
+      const fl = formatLoadPrint(ex.load ?? "", ex.name ?? "");
+      const rest = ex.rest_time ? `⏱ Rest ${ex.rest_time}` : "";
+      const detail = [fl, rest].filter(Boolean).join(" · ");
+      const { cleanNotes } = parseExerciseGroup(ex.notes);
+      return `<tr>
+        <td style="padding:5px 8px;color:#888;font-weight:700;text-align:right;white-space:nowrap;width:32px">${reps}</td>
+        <td style="padding:5px 10px;font-weight:600;color:#111">${ex.name}</td>
+        <td style="padding:5px 10px;color:#444;white-space:nowrap">${detail}</td>
+        <td style="padding:5px 10px;color:#888;font-size:11px">${cleanNotes ?? ""}</td>
       </tr>`;
     };
 
@@ -3716,7 +3813,7 @@ export default function DayPage() {
               ${parts.join(" · ")}
             </div>
             <table style="width:100%;border-collapse:collapse;background:#f9f9f9;border-radius:6px;overflow:hidden">
-              <tbody>${groups[tag].map(exRow).join("")}</tbody>
+              <tbody>${groups[tag].map(wkExRow).join("")}</tbody>
             </table>
           </div>`;
       }).join("");

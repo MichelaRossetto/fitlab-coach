@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
@@ -12,65 +12,546 @@ import { Header } from "@/components/Header";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Modal } from "@/components/Modal";
 
-// ─── Helpers calendario ──────────────────────────────────────
-const CAL_DAY_LABELS  = ["Lun", "Mar", "Mer", "Gio", "Ven"];
-const CAL_MONTH_SHORT = ["Gen","Feb","Mar","Apr","Mag","Giu","Lug","Ago","Set","Ott","Nov","Dic"];
+// ─── Constants ────────────────────────────────────────────────
+const MAX_PER_SLOT = 5;
 const MORNING_SLOTS   = ["08:00","09:00","10:00","11:00","12:00","13:00"];
 const AFTERNOON_SLOTS = ["16:00","17:00","18:00","19:00"];
 
-function getMonday(date: Date): Date {
-  const d = new Date(date);
-  d.setHours(0, 0, 0, 0);
-  const day = d.getDay();
-  d.setDate(d.getDate() + (day === 0 ? -6 : 1 - day));
-  return d;
-}
-
-function timeToMin(t: string) {
-  const [h, m] = t.split(":").map(Number);
-  return h * 60 + m;
-}
-
-// ─── Client Calendar Card ─────────────────────────────────────
-function ClientCalendarCard({ clientId, scheduleOverride, coachView }: {
+// ─── Unified Profile Card ─────────────────────────────────────
+function UnifiedProfileCard({ client, clientId, isClientView, returnTo, onClientUpdated }: {
+  client: Client;
   clientId: string;
-  scheduleOverride?: Record<number, string> | null;
-  coachView?: boolean;
+  isClientView: boolean;
+  returnTo?: string;
+  onClientUpdated: () => void;
 }) {
+  const router = useRouter();
+  const [openSection, setOpenSection] = useState<"anagrafica" | "orari" | "massimali" | null>(null);
+  const [showEdit, setShowEdit] = useState(false);
+
+  // ── Schedule state ──
   const [schedule, setSchedule] = useState<Record<number, string>>({});
-  const [weekStart, setWeekStart] = useState<Date>(() => getMonday(new Date()));
+  const [editSchedule, setEditSchedule] = useState<Record<number, string>>({});
+  const [editingSchedule, setEditingSchedule] = useState(false);
+  const [loadingSchedule, setLoadingSchedule] = useState(true);
+  const [loadingAvail, setLoadingAvail] = useState(false);
+  const [availability, setAvailability] = useState<Record<string, number>>({});
+  const [savingSchedule, setSavingSchedule] = useState(false);
+  const [saveError, setSaveError] = useState("");
+
+  // ── Maxes state ──
+  const [maxes, setMaxes] = useState<Record<string, string>>({});
+  const [editMaxes, setEditMaxes] = useState<Record<string, string>>({});
+  const [editingMaxes, setEditingMaxes] = useState(false);
+  const [loadingMaxes, setLoadingMaxes] = useState(true);
+  const [savingMaxes, setSavingMaxes] = useState(false);
+  const [highlightExercise, setHighlightExercise] = useState<string | null>(null);
+  const autoEditRef = useRef(false);
+
+  // Load schedule
+  useEffect(() => {
+    window.fetch(`/api/client-schedule?client_id=${clientId}`)
+      .then(r => r.json())
+      .then((data: {day_of_week: number; time: string}[]) => {
+        const map: Record<number, string> = {};
+        (data ?? []).forEach(r => { map[r.day_of_week] = r.time; });
+        setSchedule(map);
+        setLoadingSchedule(false);
+      });
+  }, [clientId]);
+
+  // Load maxes
+  useEffect(() => {
+    const load = async () => {
+      const res = await window.fetch(`/api/client-maxes?client_id=${clientId}`);
+      const data = await res.json();
+      const map: Record<string, string> = {};
+      (data ?? []).forEach((r: ClientMax) => {
+        if (r.weight_kg != null) map[r.exercise_name] = String(r.weight_kg);
+      });
+      setMaxes(map);
+      setLoadingMaxes(false);
+      if (autoEditRef.current) {
+        setEditMaxes(map);
+        setEditingMaxes(true);
+        autoEditRef.current = false;
+      }
+    };
+    load();
+  }, [clientId]);
+
+  // Auto-open massimali from hash
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.location.hash.startsWith("#massimali")) {
+      setOpenSection("massimali");
+      autoEditRef.current = true;
+      const parts = window.location.hash.split("-");
+      if (parts.length > 1) {
+        const exName = decodeURIComponent(parts.slice(1).join("-"));
+        setHighlightExercise(exName);
+        setTimeout(() => {
+          const exId = `max-${exName.toLowerCase().replace(/\s+/g, "-")}`;
+          const el = document.getElementById(exId) ?? document.getElementById("massimali");
+          el?.scrollIntoView({ behavior: "smooth", block: "center" });
+        }, 350);
+      } else {
+        setTimeout(() => document.getElementById("massimali")?.scrollIntoView({ behavior: "smooth", block: "start" }), 150);
+      }
+    }
+  }, []);
+
+  // Schedule helpers
+  const slotCount = (dow: number, time: string) => availability[`${dow}:${time}`] ?? 0;
+  const slotFull  = (dow: number, time: string) => slotCount(dow, time) >= MAX_PER_SLOT;
+
+  const startEditSchedule = async () => {
+    setEditSchedule({ ...schedule });
+    setSaveError("");
+    setEditingSchedule(true);
+    setLoadingAvail(true);
+    const res = await window.fetch(`/api/slot-availability?exclude_client=${clientId}`);
+    const data = await res.json();
+    setAvailability(data ?? {});
+    setLoadingAvail(false);
+  };
+
+  const cancelEditSchedule = () => { setEditingSchedule(false); setSaveError(""); };
+
+  const toggleDay = (day: number) =>
+    setEditSchedule(prev => {
+      if (prev[day] !== undefined) { const n = { ...prev }; delete n[day]; return n; }
+      return { ...prev, [day]: "10:00" };
+    });
+
+  const setTime = (day: number, time: string) =>
+    setEditSchedule(prev => ({ ...prev, [day]: time }));
+
+  const handleSaveSchedule = async () => {
+    setSaveError("");
+    setSavingSchedule(true);
+    const rows = Object.entries(editSchedule).map(([day, time]) => ({
+      client_id: clientId, day_of_week: Number(day), time,
+    }));
+    await window.fetch("/api/client-schedule", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ client_id: clientId, rows }),
+    });
+    const saved = { ...editSchedule };
+    setSchedule(saved);
+
+    const newScheduledDays = Object.keys(saved).map(Number).sort((a, b) => a - b);
+    if (newScheduledDays.length > 0) {
+      const now2 = new Date(); now2.setHours(0, 0, 0, 0);
+      const todayStr2 = now2.toISOString().split("T")[0];
+      const { data: upWeeks } = await supabase
+        .from("training_weeks")
+        .select("id, date_start, month_id, training_days(id, day_number, day_date), training_months!inner(client_id)")
+        .eq("training_months.client_id", clientId)
+        .gte("date_start", todayStr2)
+        .not("date_start", "is", null);
+      if (upWeeks) {
+        for (const week of upWeeks as any[]) {
+          const weekStart = new Date(week.date_start);
+          weekStart.setHours(12, 0, 0, 0);
+          for (const day of (week.training_days ?? []) as any[]) {
+            if (day.day_number > newScheduledDays.length) continue;
+            const offset = newScheduledDays[day.day_number - 1];
+            const newDate = new Date(weekStart);
+            newDate.setDate(newDate.getDate() + offset);
+            const newDateStr = newDate.toISOString().split("T")[0];
+            if (day.day_date !== newDateStr) {
+              await supabase.from("training_days").update({ day_date: newDateStr }).eq("id", day.id);
+            }
+          }
+        }
+      }
+    }
+
+    setEditingSchedule(false);
+    setSavingSchedule(false);
+  };
+
+  // Maxes helpers
+  const handleSaveMaxes = async () => {
+    setSavingMaxes(true);
+    const rows = Object.entries(editMaxes)
+      .filter(([, v]) => v !== "" && !isNaN(Number(v)))
+      .map(([exercise_name, weight_kg]) => ({
+        client_id: clientId,
+        exercise_name,
+        weight_kg: Number(weight_kg),
+        recorded_at: new Date().toISOString().split("T")[0],
+      }));
+    const cleared = Object.entries(editMaxes).filter(([, v]) => v === "").map(([k]) => k);
+    await window.fetch("/api/client-maxes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ client_id: clientId, rows, cleared }),
+    });
+    const newMaxes = { ...editMaxes };
+    cleared.forEach(k => delete newMaxes[k]);
+    setMaxes(newMaxes);
+    setEditingMaxes(false);
+    setSavingMaxes(false);
+    if (returnTo) router.push(returnTo);
+  };
+
+  const editDays = Object.keys(editSchedule).map(Number).sort((a, b) => a - b);
+  const selectedDays = Object.keys(schedule).map(Number).sort((a, b) => a - b);
+  const setCount = Object.keys(maxes).length;
+  const allExercises = Object.values(PERFORMANCE_EXERCISES).flat();
+
+  return (
+    <div id="massimali" className="card overflow-hidden">
+      {/* ── Header (always visible) ── */}
+      <div className="px-4 py-4 flex items-start gap-4">
+        <div className="w-12 h-12 rounded-full flex items-center justify-center text-base font-bold flex-shrink-0"
+          style={{ backgroundColor: "#D4E600", color: "#111" }}>
+          {getInitials(client.name, client.surname)}
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100 truncate">
+              {client.name} {client.surname}
+            </h2>
+            {!isClientView && (
+              <button onClick={() => setShowEdit(true)} className="text-[11px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 shrink-0">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
+                  <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                </svg>
+              </button>
+            )}
+          </div>
+          <StatusBadge subscriptionEnd={client.subscription_end} isPaused={client.is_paused} />
+        </div>
+      </div>
+
+      {/* ── Sezione Anagrafica ── */}
+      <button
+        onClick={() => setOpenSection(s => s === "anagrafica" ? null : "anagrafica")}
+        className="w-full flex items-center justify-between px-4 py-2.5 border-t border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
+      >
+        <span className="text-xs font-semibold uppercase tracking-widest text-gray-400">Anagrafica</span>
+        <svg className={`text-gray-400 transition-transform ${openSection === "anagrafica" ? "rotate-180" : ""}`}
+          width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M6 9l6 6 6-6"/>
+        </svg>
+      </button>
+
+      {openSection === "anagrafica" && (
+        <div className="px-4 pb-4 space-y-2 border-t border-gray-100 dark:border-gray-700">
+          {client.email && (
+            <div className="flex items-center gap-1.5 pt-2 text-sm text-gray-500 dark:text-gray-400">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
+              {client.email}
+            </div>
+          )}
+          {client.phone && (
+            <div className="flex items-center gap-1.5 text-sm text-gray-500 dark:text-gray-400">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 13a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.6 2.18h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L7.91 9.91a16 16 0 0 0 6.18 6.18l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+              {client.phone}
+            </div>
+          )}
+          {client.notes && (
+            <p className="text-sm text-gray-400 italic">{client.notes}</p>
+          )}
+          {!client.email && !client.phone && !client.notes && (
+            <p className="pt-2 text-xs text-gray-400 italic">Nessun dato anagrafico</p>
+          )}
+        </div>
+      )}
+
+      {/* ── Sezione Orari (solo coach) ── */}
+      {!isClientView && (
+        <>
+          <button
+            onClick={() => {
+              setOpenSection(s => s === "orari" ? null : "orari");
+              if (editingSchedule) { setEditingSchedule(false); setSaveError(""); }
+            }}
+            className="w-full flex items-center justify-between px-4 py-2.5 border-t border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
+          >
+            <span className="text-xs font-semibold uppercase tracking-widest text-gray-400">Orari abituali</span>
+            <div className="flex items-center gap-2">
+              {selectedDays.length > 0 && openSection !== "orari" && (
+                <span className="text-[11px] text-gray-400">
+                  {selectedDays.map((d, i) => (
+                    <span key={d}>
+                      <span style={{ color: "#8a9a00" }}>{DAY_NAMES_SHORT[d]}</span>
+                      {i < selectedDays.length - 1 && <span className="text-gray-300 mx-0.5">·</span>}
+                    </span>
+                  ))}
+                </span>
+              )}
+              <svg className={`text-gray-400 transition-transform ${openSection === "orari" ? "rotate-180" : ""}`}
+                width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M6 9l6 6 6-6"/>
+              </svg>
+            </div>
+          </button>
+
+          {openSection === "orari" && !loadingSchedule && (
+            <div className="border-t border-gray-100 dark:border-gray-700">
+              {!editingSchedule ? (
+                <div className="px-4 py-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs text-gray-500 dark:text-gray-400">
+                      {selectedDays.length > 0
+                        ? selectedDays.map((d, i, arr) => (
+                            <span key={d}>
+                              <span className="font-medium" style={{ color: "#8a9a00" }}>{DAY_NAMES_SHORT[d]}</span>
+                              <span className="ml-1">{schedule[d]}</span>
+                              {i < arr.length - 1 && <span className="text-gray-300 mx-1.5">·</span>}
+                            </span>
+                          ))
+                        : <span className="italic text-gray-400">Nessun orario impostato</span>
+                      }
+                    </span>
+                    <button onClick={startEditSchedule} className="text-[11px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 underline underline-offset-2 shrink-0 ml-2">
+                      modifica
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="px-4 py-3 space-y-4">
+                  <div className="flex gap-1.5">
+                    {DAY_NAMES_SHORT.map((name, i) => (
+                      <button key={i} onClick={() => toggleDay(i)}
+                        className="flex-1 py-1.5 rounded-xl text-xs font-bold transition-all"
+                        style={editSchedule[i] !== undefined
+                          ? { backgroundColor: "#D4E600", color: "#111" }
+                          : { backgroundColor: "#f3f4f6", color: "#9ca3af" }
+                        }>
+                        {name}
+                      </button>
+                    ))}
+                  </div>
+
+                  {editDays.length > 0 && (
+                    loadingAvail ? (
+                      <div className="text-xs text-gray-400 text-center py-2">Carico disponibilità...</div>
+                    ) : (
+                      <div className="space-y-4">
+                        {editDays.map(day => (
+                          <div key={day}>
+                            <div className="text-xs font-bold text-gray-500 dark:text-gray-400 mb-2 uppercase tracking-wide">
+                              {DAY_NAMES_SHORT[day]}
+                            </div>
+                            {[
+                              { label: "Mattina", slots: TIME_SLOTS_MORNING },
+                              { label: "Pomeriggio", slots: TIME_SLOTS_AFTERNOON },
+                            ].map(({ label, slots }) => (
+                              <div key={label} className="mb-3">
+                                <div className="text-[10px] text-gray-400 mb-1.5 uppercase tracking-widest">{label}</div>
+                                <div className="flex flex-wrap gap-1.5">
+                                  {slots.map(time => {
+                                    const count = slotCount(day, time);
+                                    const full = slotFull(day, time);
+                                    const selected = editSchedule[day] === time;
+                                    const spotsLeft = MAX_PER_SLOT - count;
+                                    return (
+                                      <button
+                                        key={time}
+                                        onClick={() => setTime(day, time)}
+                                        className={`text-xs px-2.5 py-1.5 rounded-xl font-medium transition-all border ${
+                                          selected
+                                            ? "border-transparent font-bold shadow-sm"
+                                            : full
+                                            ? "border-red-200 dark:border-red-800 text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20"
+                                            : spotsLeft === 1
+                                            ? "border-orange-200 dark:border-orange-800 text-orange-500 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-900/20"
+                                            : "border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
+                                        }`}
+                                        style={selected ? { backgroundColor: "#D4E600", color: "#111", borderColor: "transparent" } : {}}
+                                      >
+                                        {time}
+                                        {!selected && full && (
+                                          <span className="ml-1 text-[9px] font-bold text-red-400">⚠ {count}/{MAX_PER_SLOT}</span>
+                                        )}
+                                        {!selected && !full && spotsLeft <= 2 && (
+                                          <span className={`ml-1 text-[9px] font-bold ${spotsLeft === 1 ? "text-orange-500" : "text-gray-400"}`}>
+                                            {spotsLeft === 1 ? "1 posto" : `${spotsLeft}`}
+                                          </span>
+                                        )}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ))}
+                        <p className="text-[10px] text-gray-400 dark:text-gray-500">
+                          Slot in <span className="text-red-400">rosso ⚠</span> = al completo (puoi comunque assegnarlo)
+                        </p>
+                      </div>
+                    )
+                  )}
+
+                  {saveError && (
+                    <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl px-4 py-3">
+                      <p className="text-sm text-red-600 dark:text-red-400 font-medium">⚠️ Errore</p>
+                      <p className="text-xs text-red-500 dark:text-red-400 mt-0.5 whitespace-pre-line">{saveError}</p>
+                    </div>
+                  )}
+
+                  <div className="flex gap-2 pt-1 pb-2">
+                    <button onClick={cancelEditSchedule} className="btn-secondary flex-1 text-sm">Annulla</button>
+                    <button onClick={handleSaveSchedule} className="btn-primary flex-1 text-sm" disabled={savingSchedule}>
+                      {savingSchedule ? "Salvo..." : "Salva"}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </>
+      )}
+
+      {/* ── Sezione Massimali ── */}
+      <button
+        onClick={() => {
+          setOpenSection(s => s === "massimali" ? null : "massimali");
+          if (editingMaxes) setEditingMaxes(false);
+        }}
+        className="w-full flex items-center justify-between px-4 py-2.5 border-t border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
+      >
+        <span className="text-xs font-semibold uppercase tracking-widest text-gray-400">Massimali</span>
+        <div className="flex items-center gap-2">
+          {setCount > 0 && (
+            <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400">
+              {setCount}/{allExercises.length}
+            </span>
+          )}
+          <svg className={`text-gray-400 transition-transform ${openSection === "massimali" ? "rotate-180" : ""}`}
+            width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M6 9l6 6 6-6"/>
+          </svg>
+        </div>
+      </button>
+
+      {openSection === "massimali" && !loadingMaxes && (
+        <div className="border-t border-gray-100 dark:border-gray-700 px-4 py-4 space-y-5">
+          {!editingMaxes ? (
+            <>
+              {Object.entries(PERFORMANCE_EXERCISES).map(([group, exercises]) => (
+                <div key={group}>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-2">{group}</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {exercises.map(ex => {
+                      const isHighlighted = highlightExercise && ex.toLowerCase() === highlightExercise.toLowerCase();
+                      return (
+                        <div key={ex} id={`max-${ex.toLowerCase().replace(/\s+/g, "-")}`} className={`flex items-center justify-between px-3 py-2 rounded-xl border ${
+                          isHighlighted
+                            ? "border-lime-400 dark:border-lime-500 bg-lime-50 dark:bg-lime-900/20 ring-1 ring-lime-400"
+                            : maxes[ex]
+                            ? "border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800"
+                            : "border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50"
+                        }`}>
+                          <span className={`text-xs font-medium truncate pr-2 ${isHighlighted ? "text-lime-700 dark:text-lime-300 font-bold" : maxes[ex] ? "text-gray-700 dark:text-gray-200" : "text-gray-400"}`}>{ex}</span>
+                          {maxes[ex]
+                            ? <span className="text-xs font-bold text-gray-900 dark:text-gray-100 flex-shrink-0">{maxes[ex]} kg</span>
+                            : <span className="text-xs text-gray-300 flex-shrink-0">—</span>
+                          }
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+              <button onClick={() => { setEditMaxes({ ...maxes }); setEditingMaxes(true); }}
+                className="btn-secondary w-full text-sm">
+                Modifica massimali
+              </button>
+            </>
+          ) : (
+            <>
+              {Object.entries(PERFORMANCE_EXERCISES).map(([group, exercises]) => (
+                <div key={group}>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-2">{group}</p>
+                  <div className="space-y-2">
+                    {exercises.map(ex => {
+                      const isHighlighted = highlightExercise && ex.toLowerCase() === highlightExercise.toLowerCase();
+                      return (
+                        <div key={ex} className={`flex items-center gap-3 px-2 py-1 rounded-xl transition-colors ${isHighlighted ? "bg-lime-50 dark:bg-lime-900/20 ring-1 ring-lime-400" : ""}`}>
+                          <span className={`text-sm flex-1 min-w-0 truncate ${isHighlighted ? "text-lime-700 dark:text-lime-300 font-bold" : "text-gray-600 dark:text-gray-300"}`}>{ex}</span>
+                          <div className="flex items-center gap-1.5 flex-shrink-0">
+                            <input
+                              type="number"
+                              step="0.5"
+                              min="0"
+                              max="500"
+                              placeholder="—"
+                              value={editMaxes[ex] ?? ""}
+                              onChange={e => setEditMaxes(p => ({ ...p, [ex]: e.target.value }))}
+                              className={`input w-20 text-center py-1.5 text-sm ${isHighlighted ? "border-lime-400 ring-1 ring-lime-400 focus:ring-lime-500" : ""}`}
+                              autoFocus={!!isHighlighted}
+                            />
+                            <span className="text-xs text-gray-400 w-5">kg</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+              <div className="flex gap-2 pt-1">
+                <button onClick={() => setEditingMaxes(false)} className="btn-secondary flex-1 text-sm">Annulla</button>
+                <button onClick={handleSaveMaxes} className="btn-primary flex-1 text-sm" disabled={savingMaxes}>
+                  {savingMaxes ? "Salvo..." : "Salva"}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Edit modal */}
+      <Modal open={showEdit} onClose={() => setShowEdit(false)} title="Modifica cliente">
+        <EditClientForm client={client} onSuccess={() => { setShowEdit(false); onClientUpdated(); }} onCancel={() => setShowEdit(false)} />
+      </Modal>
+    </div>
+  );
+}
+
+// ─── Upcoming Sessions Card ───────────────────────────────────
+function UpcomingSessionsCard({ clientId, isClientView }: {
+  clientId: string;
+  isClientView: boolean;
+}) {
+  const coachView = !isClientView;
   const [open, setOpen] = useState(false);
-  // Coach: lista sessioni per editing date
-  const [sessionList, setSessionList] = useState<{ dayId: string; dayNumber: number; weekId: string; label: string; dateStr: string | null; dayTime: string | null; weekLabel: string; weekDateStart: string | null }[]>([]);
-  const [showEditSessions, setShowEditSessions] = useState(false);
+  const [schedule, setSchedule] = useState<Record<number, string>>({});
+  const [loadingS, setLoadingS] = useState(true);
+  const [sessionList, setSessionList] = useState<{ dayId: string; dayNumber: number; weekId: string; monthId: string; label: string; dateStr: string | null; dayTime: string | null; weekLabel: string; weekDateStart: string | null }[]>([]);
   const [reschedulingDayId, setReschedulingDayId] = useState<string | null>(null);
-  const [reschedulingDow, setReschedulingDow] = useState<number | null>(null);
   const [rescheduleDate, setRescheduleDate] = useState("");
   const [rescheduleTime, setRescheduleTime] = useState("");
   const [allSlotCounts, setAllSlotCounts] = useState<Record<string, number>>({});
   const [rescheduleSaving, setRescheduleSaving] = useState(false);
   const [rescheduleError, setRescheduleError] = useState<string | null>(null);
 
-  // Fetch schedule
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const localDateStr = (d: Date) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+  const todayStr = localDateStr(today);
+
   useEffect(() => {
-    fetch(`/api/client-schedule?client_id=${clientId}`)
-      .then(r => r.json())
-      .then((data: { day_of_week: number; time: string }[]) => {
-        const map: Record<number, string> = {};
-        (data ?? []).forEach(r => { map[r.day_of_week] = r.time; });
-        setSchedule(map);
-      });
+    const load = async () => {
+      const res = await fetch(`/api/client-schedule?client_id=${clientId}`);
+      const data = await res.json();
+      const map: Record<number, string> = {};
+      (data ?? []).forEach((r: any) => { map[r.day_of_week] = r.time; });
+      setSchedule(map);
+      setLoadingS(false);
+    };
+    load();
   }, [clientId]);
 
-  useEffect(() => {
-    if (scheduleOverride != null) setSchedule(scheduleOverride);
-  }, [scheduleOverride]);
-
-  // Fetch lista sessioni per editing (coach + client)
   const loadSessionList = useCallback(async () => {
     const schedDays = Object.keys(schedule).map(Number).sort((a: number, b: number) => a - b);
 
-    // Step 1: prendi tutte le settimane del cliente (via training_months)
     const { data: weeks, error: weeksErr } = await supabase
       .from("training_weeks")
       .select("id, date_start, week_number, month_id, training_months!inner(client_id, label)")
@@ -78,7 +559,6 @@ function ClientCalendarCard({ clientId, scheduleOverride, coachView }: {
 
     if (weeksErr || !weeks || weeks.length === 0) return;
 
-    // Step 2: prendi tutti i training_days di quelle settimane
     const weekIds = (weeks as any[]).map((w: any) => w.id);
     const { data: days, error: daysErr } = await supabase
       .from("training_days")
@@ -88,11 +568,10 @@ function ClientCalendarCard({ clientId, scheduleOverride, coachView }: {
 
     if (daysErr || !days) return;
 
-    // Mappa weekId → info settimana
     const weekMap: Record<string, any> = {};
     for (const w of weeks as any[]) weekMap[w.id] = w;
 
-    const list: { dayId: string; dayNumber: number; weekId: string; label: string; dateStr: string | null; dayTime: string | null; weekLabel: string; weekDateStart: string | null }[] = [];
+    const list: { dayId: string; dayNumber: number; weekId: string; monthId: string; label: string; dateStr: string | null; dayTime: string | null; weekLabel: string; weekDateStart: string | null }[] = [];
     for (const day of days as any[]) {
       const week = weekMap[day.week_id];
       if (!week) continue;
@@ -108,6 +587,7 @@ function ClientCalendarCard({ clientId, scheduleOverride, coachView }: {
         dayId: day.id,
         dayNumber: day.day_number,
         weekId: day.week_id,
+        monthId: week.month_id,
         label: day.label,
         dateStr,
         dayTime: day.day_time ? day.day_time.slice(0, 5) : null,
@@ -123,11 +603,11 @@ function ClientCalendarCard({ clientId, scheduleOverride, coachView }: {
       return a.dateStr.localeCompare(b.dateStr);
     });
     setSessionList(list);
-  }, [coachView, clientId, schedule]);
+  }, [clientId, schedule]);
 
   useEffect(() => {
-    if (open) loadSessionList();
-  }, [open, loadSessionList]);
+    if (open && !loadingS) loadSessionList();
+  }, [open, loadSessionList, loadingS]);
 
   const checkRescheduleSlot = async (newDate: string) => {
     setRescheduleDate(newDate);
@@ -136,56 +616,18 @@ function ClientCalendarCard({ clientId, scheduleOverride, coachView }: {
     if (!newDate) return;
     const res = await window.fetch(`/api/slot-availability?exclude_client=${clientId}`);
     const counts: Record<string, number> = await res.json();
-    // DEBUG — rimuovere dopo
-    const d = new Date(newDate + "T12:00:00");
-    const jsDay = d.getDay();
-    const ourDow = jsDay === 0 ? 6 : jsDay - 1;
-    console.log("Date:", newDate, "jsDay:", jsDay, "ourDow:", ourDow);
-    console.log("AllCounts:", counts);
-    console.log("Key 18:00:", `${ourDow}:18:00`, "→", counts[`${ourDow}:18:00`]);
     setAllSlotCounts(counts);
   };
 
+  const resetReschedule = () => { setReschedulingDayId(null); setRescheduleDate(""); setRescheduleTime(""); setAllSlotCounts({}); setRescheduleError(null); };
+
   const handleConfirmReschedule = async () => {
-    if (!rescheduleDate || !rescheduleTime) return;
+    if (!rescheduleDate || !rescheduleTime || !reschedulingDayId) return;
     setRescheduleSaving(true);
     setRescheduleError(null);
 
-    let targetDayId: string | null = (reschedulingDayId && !reschedulingDayId.startsWith("virtual-"))
-      ? reschedulingDayId
-      : null;
+    const targetDayId = reschedulingDayId;
 
-    // Sessione virtuale (no training_day trovato per data): cerca per week + day_number
-    if (!targetDayId && reschedulingDow !== null) {
-      const schedDows = Object.keys(schedule).map(Number).sort((a: number, b: number) => a - b);
-      const dayNum = schedDows.indexOf(reschedulingDow) + 1;
-      const ws = localDateStr(weekDays[0]);
-      const we = localDateStr(weekDays[4]);
-
-      // 1. Cerca in sessionList per weekDateStart + day_number
-      const match = sessionList.find(s =>
-        s.weekDateStart && s.weekDateStart >= ws && s.weekDateStart <= we && s.dayNumber === dayNum
-      );
-      targetDayId = match?.dayId ?? null;
-
-      // 2. Fallback: query diretta al DB
-      if (!targetDayId) {
-        const weekIdsRaw = sessionList.filter(s => s.weekDateStart && s.weekDateStart >= ws && s.weekDateStart <= we).map(s => s.weekId);
-        const weekIds = weekIdsRaw.filter((id, i) => weekIdsRaw.indexOf(id) === i);
-        if (weekIds.length > 0) {
-          const { data } = await supabase.from("training_days").select("id").in("week_id", weekIds).eq("day_number", dayNum).maybeSingle();
-          targetDayId = data?.id ?? null;
-        }
-      }
-    }
-
-    if (!targetDayId) {
-      setRescheduleError("Allenamento non trovato nel programma — contatta la coach.");
-      setRescheduleSaving(false);
-      return;
-    }
-
-    // Prova ad aggiornare con day_time; fallback senza se la colonna non esiste
     let { error: updateErr } = await supabase
       .from("training_days")
       .update({ day_date: rescheduleDate, day_time: rescheduleTime })
@@ -205,322 +647,164 @@ function ClientCalendarCard({ clientId, scheduleOverride, coachView }: {
     }
 
     resetReschedule();
-    setShowEditSessions(false);
     await loadSessionList();
     setRescheduleSaving(false);
   };
 
-  const cancelReschedule = () => { setReschedulingDayId(null); setReschedulingDow(null); setRescheduleDate(""); setRescheduleTime(""); setAllSlotCounts({}); setRescheduleError(null); };
+  const selectedDays = Object.keys(schedule).map(Number).sort((a, b) => a - b);
 
-  const weekDays = Array.from({ length: 5 }, (_, i) => {
-    const d = new Date(weekStart); d.setDate(d.getDate() + i); return d;
-  });
+  const upcomingSessions = sessionList
+    .filter(s => s.dateStr && s.dateStr >= todayStr)
+    .slice(0, 6);
 
-  const localDateStr = (d: Date) =>
-    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-
-  const isToday = (d: Date) => {
-    const t = new Date();
-    return d.getDate() === t.getDate() && d.getMonth() === t.getMonth() && d.getFullYear() === t.getFullYear();
+  const getSessionTime = (s: typeof sessionList[0]) => {
+    if (s.dayTime) return s.dayTime;
+    if (!s.dateStr) return null;
+    const d = new Date(s.dateStr + "T12:00:00");
+    const jsDay = d.getDay();
+    const dow = jsDay === 0 ? 6 : jsDay - 1;
+    return schedule[dow] ?? null;
   };
 
-  const weekLabel = (() => {
-    const s = weekDays[0], e = weekDays[4];
-    if (s.getMonth() === e.getMonth())
-      return `${s.getDate()}–${e.getDate()} ${CAL_MONTH_SHORT[s.getMonth()]} ${s.getFullYear()}`;
-    return `${s.getDate()} ${CAL_MONTH_SHORT[s.getMonth()]} – ${e.getDate()} ${CAL_MONTH_SHORT[e.getMonth()]} ${e.getFullYear()}`;
-  })();
-
-  const hasTraining = (day: number, slot: string) => {
-    const t = schedule[day]; if (!t) return false;
-    const T = timeToMin(t), H = timeToMin(slot);
-    return T >= H && T < H + 60;
+  const formatSessionDate = (dateStr: string) => {
+    const d = new Date(dateStr + "T12:00:00");
+    const dow = d.getDay() === 0 ? 6 : d.getDay() - 1;
+    const ABBR = ["Lun","Mar","Mer","Gio","Ven","Sab","Dom"];
+    const MON = ["Gen","Feb","Mar","Apr","Mag","Giu","Lug","Ago","Set","Ott","Nov","Dic"];
+    return `${ABBR[dow]} ${d.getDate()} ${MON[d.getMonth()]}`;
   };
 
-  const TrainingCell = ({ day, slot }: { day: number; slot: string }) => {
-    const thisDayDate = localDateStr(weekDays[day]);
-    const ws = localDateStr(weekDays[0]);
-    const we = localDateStr(weekDays[4]);
-    const weekHasSessions = sessionList.some(s => s.dateStr && s.dateStr >= ws && s.dateStr <= we);
-
-    // Sessione effettiva su questo giorno (può avere dayTime override)
-    const sessionOnDay = sessionList.find(s => s.dateStr === thisDayDate);
-    const hasSessionOnThisDay = !!sessionOnDay;
-
-    // Se la sessione ha un dayTime esplicito, usa quello per decidere quale slot mostrare
-    const overrideTime = sessionOnDay?.dayTime ?? null;
-    const T = overrideTime ? timeToMin(overrideTime) : null;
-    const H = timeToMin(slot);
-    const isOverrideSlot = T !== null && T < H + 60 && T + 60 > H;
-
-    // Dot ricorrente: mostra se non c'è override oppure se l'override coincide con il ricorrente
-    const recurringActive = hasTraining(day, slot);
-    const showRecurring = recurringActive && (!weekHasSessions || (hasSessionOnThisDay && (overrideTime === null || isOverrideSlot)));
-
-    // Dot indaco: sessione spostata su giorno non ricorrente, oppure stessa giorno con orario diverso
-    const showMoved = hasSessionOnThisDay && !recurringActive && isOverrideSlot;
-    // Caso: stesso giorno ricorrente ma orario cambiato
-    const showMovedSameDay = hasSessionOnThisDay && recurringActive && overrideTime !== null && !hasTraining(day, slot) && isOverrideSlot;
-
-    const showDot = showMoved || showMovedSameDay;
-    const dotTime = overrideTime ?? schedule[day];
-
-    return (
-      <div className="border-l border-gray-700 flex items-center justify-center min-h-[34px] px-1">
-        {showRecurring && (
-          <div className="flex flex-col items-center gap-0.5">
-            <div className="w-2 h-2 rounded-full" style={{ backgroundColor: "#C0D738" }} />
-            <span className="text-[9px] font-bold tabular-nums" style={{ color: "#C0D738" }}>{dotTime}</span>
-          </div>
-        )}
-        {showDot && (
-          <div className="flex flex-col items-center gap-0.5">
-            <div className="w-2 h-2 rounded-full bg-indigo-400" />
-            <span className="text-[9px] font-bold text-indigo-400">{overrideTime}</span>
-          </div>
-        )}
-      </div>
-    );
-  };
-
-  const todayMonday = getMonday(new Date());
-  const isFuture = weekStart.getTime() > todayMonday.getTime();
-  const isPast   = weekStart.getTime() < todayMonday.getTime();
-  const resetReschedule = () => { setReschedulingDayId(null); setReschedulingDow(null); setRescheduleDate(""); setRescheduleTime(""); setAllSlotCounts({}); setRescheduleError(null); };
-  const prevWeek = () => { resetReschedule(); setShowEditSessions(false); setWeekStart(d => { const n = new Date(d); n.setDate(n.getDate() - 7); return n; }); };
-  const nextWeek = () => { resetReschedule(); setShowEditSessions(false); setWeekStart(d => { const n = new Date(d); n.setDate(n.getDate() + 7); return n; }); };
-  const goToday  = () => { resetReschedule(); setShowEditSessions(false); setWeekStart(getMonday(new Date())); };
-
-  const backBtn = (
-    <button onClick={goToday}
-      className="text-[10px] font-medium px-2 py-0.5 rounded-full border border-gray-600 text-gray-400 hover:bg-gray-700 transition-colors whitespace-nowrap">
-      {isFuture ? "← settimana corrente" : "settimana corrente →"}
-    </button>
-  );
-
-  const SlotSection = ({ slots, label }: { slots: string[]; label: string }) => (
-    <div className={label === "Mattina" ? "border-b border-gray-700" : ""}>
-      <div className="px-3 py-1 text-[10px] font-semibold text-gray-400 uppercase tracking-wide bg-gray-800/50">{label}</div>
-      {slots.map(slot => (
-        <div key={slot} className="grid grid-cols-[48px_repeat(5,1fr)] border-b border-gray-700/50 last:border-0">
-          <div className="p-2 text-[11px] text-gray-500 flex items-center justify-end pr-3 font-mono">{slot}</div>
-          {[0,1,2,3,4].map(day => <TrainingCell key={day} day={day} slot={slot} />)}
-        </div>
-      ))}
-    </div>
-  );
+  if (loadingS) return null;
 
   return (
     <div className="card overflow-hidden">
-      <button onClick={() => setOpen(o => !o)}
-        className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-700/50 transition-colors">
-        <span className="font-semibold text-sm text-gray-200">Calendario</span>
-        <svg className={`text-gray-400 transition-transform ${open ? "rotate-180" : ""}`}
-          width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+      >
+        <span className="font-semibold text-sm text-gray-700 dark:text-gray-200">Prossimi allenamenti</span>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+          className={`text-gray-400 transition-transform flex-shrink-0 ${open ? "rotate-180" : ""}`}>
           <path d="M6 9l6 6 6-6"/>
         </svg>
       </button>
 
       {open && (
-        <>
-          <div className="flex items-center justify-between px-3 py-2 border-t border-b border-gray-700 bg-gray-800">
-            <div className="flex items-center gap-2 min-w-[110px]">
-              <button onClick={prevWeek} className="p-1 rounded-lg hover:bg-gray-700 text-gray-400 transition-colors">
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 18l-6-6 6-6"/></svg>
-              </button>
-              {isFuture && backBtn}
-            </div>
-            <span className="text-sm font-semibold text-gray-200">{weekLabel}</span>
-            <div className="flex items-center gap-2 justify-end min-w-[110px]">
-              {isPast && backBtn}
-              <button onClick={nextWeek} className="p-1 rounded-lg hover:bg-gray-700 text-gray-400 transition-colors">
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 18l6-6-6-6"/></svg>
-              </button>
-            </div>
-          </div>
+        <div className="border-t border-gray-100 dark:border-gray-700">
+          {(
+            upcomingSessions.length === 0
+              ? <div className="px-4 py-5 text-sm text-gray-400 text-center italic">Nessun allenamento in programma</div>
+              : upcomingSessions.map(session => {
+                  const isRescheduling = reschedulingDayId === session.dayId;
+                  const diffDays = session.dateStr
+                    ? Math.floor((new Date(session.dateStr + "T12:00:00").getTime() - today.getTime()) / 86400000)
+                    : 99;
+                  const clientBlocked = !coachView && diffDays < 2;
+                  const time = getSessionTime(session);
+                  const isSessionToday = session.dateStr === todayStr;
 
-          {/* Bottone modifica orari + pannello sessioni settimana corrente */}
-          <div className="border-t border-gray-700">
-            <button
-              onClick={() => { setShowEditSessions(s => !s); resetReschedule(); }}
-              className="w-full flex items-center justify-between px-3 py-2.5 hover:bg-gray-700/40 transition-colors"
-            >
-              <div className="flex items-center gap-2 text-[11px] font-medium text-gray-400">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
-                  <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
-                </svg>
-                Modifica orari settimana
-              </div>
-              <svg className={`text-gray-500 transition-transform ${showEditSessions ? "rotate-180" : ""}`}
-                width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M6 9l6 6 6-6"/>
-              </svg>
-            </button>
-
-            {showEditSessions && (() => {
-              const ws = localDateStr(weekDays[0]);
-              const we = localDateStr(weekDays[4]);
-
-              // Sessioni effettive di questa settimana (per day_date o per weekDateStart)
-              const weekSessions = sessionList
-                .filter(s => {
-                  if (s.dateStr) return s.dateStr >= ws && s.dateStr <= we;
-                  if (s.weekDateStart) return s.weekDateStart >= ws && s.weekDateStart <= we;
-                  return false;
-                })
-                .sort((a, b) => (a.dateStr ?? a.weekDateStart ?? "").localeCompare(b.dateStr ?? b.weekDateStart ?? ""));
-
-              const today = new Date(); today.setHours(0, 0, 0, 0);
-
-              return (
-                <div className="border-t border-gray-700/50">
-                  {weekSessions.length === 0 ? (
-                    <div className="px-3 py-3 text-[11px] text-gray-500 italic text-center">
-                      Nessun allenamento in questa settimana
-                    </div>
-                  ) : weekSessions.map(session => {
-                    const dateForDiff = session.dateStr ?? session.weekDateStart;
-                    const sessionDate = dateForDiff ? new Date(dateForDiff + "T12:00:00") : null;
-                    const diffDays = sessionDate ? Math.floor((sessionDate.getTime() - today.getTime()) / 86400000) : 99;
-                    const clientBlocked = !coachView && diffDays < 2;
-                    const isRescheduling = !!reschedulingDayId && reschedulingDayId === session.dayId;
-
-                    return (
-                      <div key={session.dayId} className="border-b border-gray-700/50 last:border-0">
-                        {/* Riga principale */}
-                        <div className="flex items-center justify-between px-3 py-2.5 gap-2">
-                          <div className="min-w-0 flex-1">
-                            <div className="text-xs font-medium text-gray-200 truncate">{session.label}</div>
-                            <div className="text-[10px] text-gray-500">
-                              {session.dateStr
-                                ? new Date(session.dateStr + "T12:00:00").toLocaleDateString("it-IT", { weekday: "long", day: "2-digit", month: "2-digit" })
-                                : "data non impostata"}
-                            </div>
-                          </div>
-                          {clientBlocked ? (
-                            <span className="text-[10px] text-gray-600 italic shrink-0">entro 2 giorni</span>
-                          ) : isRescheduling ? (
-                            <button onClick={cancelReschedule} className="text-[10px] text-gray-500 hover:text-gray-300 shrink-0">Annulla</button>
-                          ) : (
-                            <button
-                              onClick={() => {
-                                setReschedulingDayId(session.dayId);
-                                setReschedulingDow(null);
-                                checkRescheduleSlot(session.dateStr ?? "");
-                              }}
-                              className="text-[11px] font-medium px-2.5 py-1 rounded-lg border border-gray-600 text-gray-400 hover:bg-gray-700 hover:text-gray-200 transition-colors shrink-0"
-                            >
-                              Sposta
-                            </button>
-                          )}
-                        </div>
-
-                        {/* Pannello spostamento */}
-                        {isRescheduling && (() => {
-                          const newJsDay = rescheduleDate ? new Date(rescheduleDate + "T12:00:00").getDay() : null;
-                          const newOurDow = newJsDay !== null ? (newJsDay === 0 ? 6 : newJsDay - 1) : null;
-                          const MAX_SLOTS = 5;
-                          const allSlots = [...MORNING_SLOTS, ...AFTERNOON_SLOTS];
-                          const slotsFull = rescheduleTime
-                            ? (allSlotCounts[`${newOurDow}:${rescheduleTime}`] ?? 0) >= MAX_SLOTS && !coachView
-                            : false;
-                          return (
-                            <div className="px-3 pb-3 space-y-3">
-                              <div>
-                                <label className="text-[10px] text-gray-400 block mb-1">Nuova data</label>
-                                <input
-                                  type="date"
-                                  autoFocus
-                                  value={rescheduleDate}
-                                  min={coachView ? undefined : localDateStr((() => { const d = new Date(); d.setDate(d.getDate() + 2); return d; })())}
-                                  className="w-full text-xs border border-gray-600 rounded-lg px-2 py-1.5 bg-gray-900 text-gray-200"
-                                  onChange={e => checkRescheduleSlot(e.target.value)}
-                                />
-                              </div>
-
-                              {rescheduleDate && newOurDow !== null && (
-                                <div>
-                                  <label className="text-[10px] text-gray-400 block mb-1.5">Scegli orario</label>
-                                  <div className="grid grid-cols-4 gap-1">
-                                    {allSlots.map(slot => {
-                                      const count = allSlotCounts[`${newOurDow}:${slot}`] ?? 0;
-                                      const full = count >= MAX_SLOTS;
-                                      const selected = rescheduleTime === slot;
-                                      const blocked = full && !coachView;
-                                      return (
-                                        <button
-                                          key={slot}
-                                          disabled={blocked}
-                                          onClick={() => setRescheduleTime(selected ? "" : slot)}
-                                          className="relative py-1.5 rounded-lg text-[10px] font-bold transition-all"
-                                          style={selected
-                                            ? { backgroundColor: "#D4E600", color: "#111" }
-                                            : blocked
-                                              ? { backgroundColor: "#1f2937", color: "#4b5563" }
-                                              : { backgroundColor: "#374151", color: full ? "#f87171" : count >= MAX_SLOTS - 1 ? "#fb923c" : "#d1d5db" }
-                                          }
-                                        >
-                                          {slot}
-                                          <span className="block text-[8px] opacity-70">{count}/{MAX_SLOTS}</span>
-                                          {full && coachView && (
-                                            <span className="absolute -top-1 -right-1 text-[7px] bg-red-500 text-white rounded-full px-0.5">!</span>
-                                          )}
-                                        </button>
-                                      );
-                                    })}
-                                  </div>
-                                </div>
-                              )}
-
-                              {rescheduleError && (
-                                <div className="text-[10px] text-red-400 text-center">{rescheduleError}</div>
-                              )}
-                              <button
-                                onClick={handleConfirmReschedule}
-                                disabled={!rescheduleDate || !rescheduleTime || rescheduleSaving || slotsFull}
-                                className="w-full py-1.5 rounded-lg text-xs font-bold transition-all disabled:opacity-40"
-                                style={{ backgroundColor: "#D4E600", color: "#111" }}
+                  const dayUrl = `/clienti/${clientId}/${session.monthId}/${session.weekId}/${session.dayId}`;
+                  return (
+                    <div key={session.dayId} className="border-b border-gray-100 dark:border-gray-700 last:border-0">
+                      <div className="flex items-center gap-3 px-4 py-3">
+                        <Link href={dayUrl} className={`text-xs font-semibold w-[90px] shrink-0 hover:underline ${isSessionToday ? "text-lime-500 dark:text-lime-400" : "text-gray-700 dark:text-gray-200"}`}>
+                          {session.dateStr ? formatSessionDate(session.dateStr) : "—"}
+                        </Link>
+                        <Link href={dayUrl} className="flex-1 text-xs text-gray-500 dark:text-gray-400 truncate hover:text-gray-700 dark:hover:text-gray-200 transition-colors">
+                          {session.label}
+                        </Link>
+                        {time && (
+                          <span className="text-[11px] font-bold tabular-nums text-gray-600 dark:text-gray-300 shrink-0 px-2 py-0.5 bg-gray-100 dark:bg-gray-700 rounded-full">
+                            {time}
+                          </span>
+                        )}
+                        {!clientBlocked && (
+                          isRescheduling
+                            ? <button onClick={resetReschedule} className="text-gray-400 hover:text-gray-600 shrink-0 text-xs">✕</button>
+                            : <button
+                                onClick={() => { setReschedulingDayId(session.dayId); checkRescheduleSlot(session.dateStr ?? ""); }}
+                                className="text-[11px] font-medium text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 shrink-0 px-2 py-0.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
                               >
-                                {rescheduleSaving ? "Salvo..." : "Conferma spostamento"}
+                                Sposta
                               </button>
-                            </div>
-                          );
-                        })()}
+                        )}
+                        {clientBlocked && (
+                          <span className="text-[10px] text-gray-400 italic shrink-0">entro 2gg</span>
+                        )}
                       </div>
-                    );
-                  })}
-                </div>
-              );
-            })()}
-          </div>
-
-          {/* Intestazione giorni */}
-          <div className="grid grid-cols-[48px_repeat(5,1fr)] border-b border-gray-700 bg-gray-800">
-            <div className="p-2" />
-            {weekDays.map((date, i) => {
-              const ds = localDateStr(date);
-              const hasMoved = sessionList.some(s => s.dateStr === ds && !schedule[i]);
-              const hasSession = sessionList.some(s => s.dateStr === ds);
-              return (
-                <div key={i} className={`border-l border-gray-700 text-center p-2 ${isToday(date) ? "bg-yellow-900/20" : ""}`}>
-                  <div className="text-[10px] text-gray-400 font-medium">{CAL_DAY_LABELS[i]}</div>
-                  <div className={`text-sm font-bold mt-0.5 ${isToday(date) ? "text-yellow-400" : "text-gray-200"}`}>
-                    {date.getDate()}
-                  </div>
-                  {hasSession && (
-                    <div className="w-1.5 h-1.5 rounded-full mx-auto mt-0.5"
-                      style={{ backgroundColor: schedule[i] ? "#C0D738" : "#818cf8" }}
-                      title={schedule[i] ? "Sessione ricorrente" : "Sessione spostata"} />
-                  )}
-                </div>
-              );
-            })}
-          </div>
-
-          <SlotSection slots={MORNING_SLOTS}   label="Mattina" />
-          <SlotSection slots={AFTERNOON_SLOTS} label="Pomeriggio" />
-        </>
+                      {isRescheduling && (() => {
+                        const newJsDay = rescheduleDate ? new Date(rescheduleDate + "T12:00:00").getDay() : null;
+                        const newOurDow = newJsDay !== null ? (newJsDay === 0 ? 6 : newJsDay - 1) : null;
+                        const MAX_SLOTS = 5;
+                        const allSlots = [...MORNING_SLOTS, ...AFTERNOON_SLOTS];
+                        const slotsFull = rescheduleTime
+                          ? (allSlotCounts[`${newOurDow}:${rescheduleTime}`] ?? 0) >= MAX_SLOTS && !coachView
+                          : false;
+                        return (
+                          <div className="px-4 pb-3 space-y-3">
+                            <div>
+                              <label className="text-[10px] text-gray-400 block mb-1">Nuova data</label>
+                              <input
+                                type="date"
+                                autoFocus
+                                value={rescheduleDate}
+                                min={coachView ? undefined : localDateStr((() => { const d = new Date(); d.setDate(d.getDate() + 2); return d; })())}
+                                className="w-full text-xs border border-gray-200 dark:border-gray-600 rounded-lg px-2 py-1.5 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 dark:[color-scheme:dark]"
+                                onChange={e => checkRescheduleSlot(e.target.value)}
+                              />
+                            </div>
+                            {rescheduleDate && newOurDow !== null && (
+                              <div>
+                                <label className="text-[10px] text-gray-400 block mb-1.5">Scegli orario</label>
+                                <div className="grid grid-cols-4 gap-1">
+                                  {allSlots.map(slot => {
+                                    const count = allSlotCounts[`${newOurDow}:${slot}`] ?? 0;
+                                    const full = count >= MAX_SLOTS;
+                                    const selected = rescheduleTime === slot;
+                                    const blocked = full && !coachView;
+                                    return (
+                                      <button
+                                        key={slot}
+                                        disabled={blocked}
+                                        onClick={() => setRescheduleTime(selected ? "" : slot)}
+                                        className="relative py-1.5 rounded-lg text-[10px] font-bold transition-all"
+                                        style={selected
+                                          ? { backgroundColor: "#D4E600", color: "#111" }
+                                          : blocked
+                                            ? { backgroundColor: "#1f2937", color: "#4b5563" }
+                                            : { backgroundColor: "#374151", color: full ? "#f87171" : count >= MAX_SLOTS - 1 ? "#fb923c" : "#d1d5db" }
+                                        }
+                                      >
+                                        {slot}
+                                        <span className="block text-[8px] opacity-70">{count}/{MAX_SLOTS}</span>
+                                        {full && coachView && (
+                                          <span className="absolute -top-1 -right-1 text-[7px] bg-red-500 text-white rounded-full px-0.5">!</span>
+                                        )}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )}
+                            {rescheduleError && (
+                              <div className="text-[10px] text-red-400 text-center">{rescheduleError}</div>
+                            )}
+                            <button
+                              onClick={handleConfirmReschedule}
+                              disabled={!rescheduleDate || !rescheduleTime || rescheduleSaving || slotsFull}
+                              className="w-full py-1.5 rounded-lg text-xs font-bold transition-all disabled:opacity-40"
+                              style={{ backgroundColor: "#D4E600", color: "#111" }}
+                            >
+                              {rescheduleSaving ? "Salvo..." : "Conferma spostamento"}
+                            </button>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  );
+                })
+          )}
+        </div>
       )}
     </div>
   );
@@ -761,468 +1045,19 @@ function NewMonthForm({ clientId, existingMonths, lastWeekAny, subscriptionEnd, 
   );
 }
 
-// ─── Schedule Section ─────────────────────────────────────────
-const DAY_ABBREV = ["L", "M", "M", "G", "V"];
-const MAX_PER_SLOT = 5;
-
-function ScheduleSection({ clientId, isClientView, onScheduleChange }: {
-  clientId: string;
-  isClientView: boolean;
-  onScheduleChange?: (s: Record<number, string>) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [editing, setEditing] = useState(false);
-  const [schedule, setSchedule] = useState<Record<number, string>>({});
-  const [editSchedule, setEditSchedule] = useState<Record<number, string>>({});
-  const [loadingS, setLoadingS] = useState(true);
-  const [loadingAvail, setLoadingAvail] = useState(false);
-  const [availability, setAvailability] = useState<Record<string, number>>({});
-  const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState("");
-
-  useEffect(() => {
-    const load = async () => {
-      const res = await fetch(`/api/client-schedule?client_id=${clientId}`);
-      const data = await res.json();
-      const map: Record<number, string> = {};
-      (data ?? []).forEach((r: any) => { map[r.day_of_week] = r.time; });
-      setSchedule(map);
-      setLoadingS(false);
-    };
-    load();
-  }, [clientId]);
-
-  const startEdit = async () => {
-    setEditSchedule({ ...schedule });
-    setSaveError("");
-    setEditing(true);
-    // Carica disponibilità slot per entrambe le viste
-    setLoadingAvail(true);
-    const res = await fetch(`/api/slot-availability?exclude_client=${clientId}`);
-    const data = await res.json();
-    setAvailability(data ?? {});
-    setLoadingAvail(false);
-  };
-
-  const cancelEdit = () => { setEditing(false); setSaveError(""); };
-
-  const toggleDay = (day: number) =>
-    setEditSchedule(prev => {
-      if (prev[day] !== undefined) { const n = { ...prev }; delete n[day]; return n; }
-      return { ...prev, [day]: "10:00" };
-    });
-
-  const setTime = (day: number, time: string) =>
-    setEditSchedule(prev => ({ ...prev, [day]: time }));
-
-  const slotCount = (dow: number, time: string) => availability[`${dow}:${time}`] ?? 0;
-  const slotFull  = (dow: number, time: string) => slotCount(dow, time) >= MAX_PER_SLOT;
-
-  const handleSave = async () => {
-    setSaveError("");
-
-    // ── Regola 2 giorni (solo vista cliente) ──────────────────
-    if (isClientView && Object.keys(schedule).length > 0) {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const jsDay = today.getDay(); // 0=Dom
-      const ourDay = jsDay === 0 ? 6 : jsDay - 1; // 0=Lun…6=Dom
-
-      for (const dow of Object.keys(schedule).map(Number)) {
-        let daysUntil = dow - ourDay;
-        if (daysUntil < 0) daysUntil += 7;
-        if (daysUntil < 2) {
-          setSaveError(
-            `Non puoi modificare l'orario: la prossima sessione è tra meno di 2 giorni.\nContatta la coach per cambi urgenti.`
-          );
-          return;
-        }
-      }
-    }
-
-    setSaving(true);
-    const rows = Object.entries(editSchedule).map(([day, time]) => ({
-      client_id: clientId, day_of_week: Number(day), time,
-    }));
-    await fetch("/api/client-schedule", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ client_id: clientId, rows }),
-    });
-    const saved = { ...editSchedule };
-    setSchedule(saved);
-    onScheduleChange?.(saved);
-
-    // ── Aggiorna day_date delle prossime training_days ─────────
-    const newScheduledDays = Object.keys(saved).map(Number).sort((a, b) => a - b);
-    if (newScheduledDays.length > 0) {
-      const today = new Date(); today.setHours(0, 0, 0, 0);
-      const todayStr = today.toISOString().split("T")[0];
-      const { data: upWeeks } = await supabase
-        .from("training_weeks")
-        .select("id, date_start, month_id, training_days(id, day_number, day_date), training_months!inner(client_id)")
-        .eq("training_months.client_id", clientId)
-        .gte("date_start", todayStr)
-        .not("date_start", "is", null);
-      if (upWeeks) {
-        for (const week of upWeeks as any[]) {
-          const weekStart = new Date(week.date_start);
-          weekStart.setHours(12, 0, 0, 0);
-          for (const day of (week.training_days ?? []) as any[]) {
-            if (day.day_number > newScheduledDays.length) continue;
-            const offset = newScheduledDays[day.day_number - 1];
-            const newDate = new Date(weekStart);
-            newDate.setDate(newDate.getDate() + offset);
-            const newDateStr = newDate.toISOString().split("T")[0];
-            if (day.day_date !== newDateStr) {
-              await supabase.from("training_days").update({ day_date: newDateStr }).eq("id", day.id);
-            }
-          }
-        }
-      }
-    }
-
-    setEditing(false);
-    setOpen(false);
-    setSaving(false);
-  };
-
-  const selectedDays = Object.keys(schedule).map(Number).sort((a, b) => a - b);
-  const editDays = Object.keys(editSchedule).map(Number).sort((a, b) => a - b);
-
-  if (loadingS) return null;
-
-  return (
-    <div className="card overflow-hidden">
-      {/* ── Header ── */}
-      <button
-        onClick={() => { setOpen(o => !o); if (editing) cancelEdit(); }}
-        className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-      >
-        <span className="font-semibold text-sm text-gray-700 dark:text-gray-200">Orari abituali</span>
-        <div className="flex items-center gap-2">
-          {!open && selectedDays.length > 0 && (
-            <div className="flex items-center gap-1">
-              {selectedDays.map((d, idx) => (
-                <span key={d}>
-                  <span className="text-xs font-bold" style={{ color: "#8a9a00" }}>{DAY_ABBREV[d]}</span>
-                  {idx < selectedDays.length - 1 && <span className="text-gray-300 text-xs mx-0.5">·</span>}
-                </span>
-              ))}
-              <span className="ml-1.5 text-[11px] text-gray-400 bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded-full">
-                {selectedDays.length}x
-              </span>
-            </div>
-          )}
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
-            className={`text-gray-400 transition-transform flex-shrink-0 ${open ? "rotate-180" : ""}`}>
-            <path d="M6 9l6 6 6-6"/>
-          </svg>
-        </div>
-      </button>
-
-      {/* ── Contenuto ── */}
-      {open && (
-        <div className="border-t border-gray-100 dark:border-gray-700">
-          {!editing ? (
-            /* Vista lettura */
-            <div className="px-4 py-3">
-              {selectedDays.length > 0 ? (
-                <div className="flex flex-col gap-0">
-                  {selectedDays.map((day, idx) => (
-                    <div key={day}
-                      className={`flex items-center justify-between py-2 ${idx < selectedDays.length - 1 ? "border-b border-gray-50 dark:border-gray-700/50" : ""}`}
-                    >
-                      <span className="text-sm text-gray-500 dark:text-gray-400">{DAY_NAMES_SHORT[day]}</span>
-                      <span className="text-sm font-semibold text-gray-800 dark:text-gray-100 tabular-nums">{schedule[day]}</span>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-sm text-gray-400 py-1">Nessun orario impostato</p>
-              )}
-              <div className="mt-2 text-right">
-                <button onClick={startEdit}
-                  className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 underline underline-offset-2 transition-colors">
-                  modifica orari
-                </button>
-              </div>
-            </div>
-          ) : (
-            /* Vista modifica */
-            <div className="px-4 py-3 space-y-4">
-
-              {/* Chip giorni */}
-              <div className="flex gap-1.5">
-                {DAY_NAMES_SHORT.map((name, i) => (
-                  <button key={i} onClick={() => toggleDay(i)}
-                    className="flex-1 py-1.5 rounded-xl text-xs font-bold transition-all"
-                    style={editSchedule[i] !== undefined
-                      ? { backgroundColor: "#D4E600", color: "#111" }
-                      : { backgroundColor: "#f3f4f6", color: "#9ca3af" }
-                    }>
-                    {name}
-                  </button>
-                ))}
-              </div>
-
-              {/* Orari — slot picker visivo con disponibilità (uguale per coach e cliente, regole diverse) */}
-              {editDays.length > 0 && (
-                loadingAvail ? (
-                  <div className="text-xs text-gray-400 text-center py-2">Carico disponibilità...</div>
-                ) : (
-                  <div className="space-y-4">
-                    {editDays.map(day => (
-                      <div key={day}>
-                        <div className="text-xs font-bold text-gray-500 dark:text-gray-400 mb-2 uppercase tracking-wide">
-                          {DAY_NAMES_SHORT[day]}
-                        </div>
-                        {[
-                          { label: "Mattina", slots: TIME_SLOTS_MORNING },
-                          { label: "Pomeriggio", slots: TIME_SLOTS_AFTERNOON },
-                        ].map(({ label, slots }) => (
-                          <div key={label} className="mb-3">
-                            <div className="text-[10px] text-gray-400 mb-1.5 uppercase tracking-widest">{label}</div>
-                            <div className="flex flex-wrap gap-1.5">
-                              {slots.map(time => {
-                                const count = slotCount(day, time);
-                                const full = slotFull(day, time);
-                                const selected = editSchedule[day] === time;
-                                const spotsLeft = MAX_PER_SLOT - count;
-                                // Cliente: slot pieno → bloccato. Coach: cliccabile ma warning rosso
-                                const blocked = full && !selected && isClientView;
-                                return (
-                                  <button
-                                    key={time}
-                                    disabled={blocked}
-                                    onClick={() => { if (!blocked) setTime(day, time); }}
-                                    className={`text-xs px-2.5 py-1.5 rounded-xl font-medium transition-all border ${
-                                      selected
-                                        ? "border-transparent font-bold shadow-sm"
-                                        : blocked
-                                        ? "border-gray-100 dark:border-gray-700 text-gray-300 dark:text-gray-600 cursor-not-allowed bg-gray-50 dark:bg-gray-800/50"
-                                        : full && !isClientView
-                                        ? "border-red-200 dark:border-red-800 text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20"
-                                        : spotsLeft === 1
-                                        ? "border-orange-200 dark:border-orange-800 text-orange-500 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-900/20"
-                                        : "border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
-                                    }`}
-                                    style={selected ? { backgroundColor: "#D4E600", color: "#111", borderColor: "transparent" } : {}}
-                                  >
-                                    {time}
-                                    {/* Coach: slot pieno → ⚠ con conteggio */}
-                                    {!selected && full && !isClientView && (
-                                      <span className="ml-1 text-[9px] font-bold text-red-400">⚠ {count}/{MAX_PER_SLOT}</span>
-                                    )}
-                                    {/* Cliente: slot pieno → ✕ */}
-                                    {!selected && blocked && (
-                                      <span className="ml-1 text-[9px] text-gray-300">✕</span>
-                                    )}
-                                    {/* Quasi pieno */}
-                                    {!selected && !full && spotsLeft <= 2 && (
-                                      <span className={`ml-1 text-[9px] font-bold ${spotsLeft === 1 ? "text-orange-500" : "text-gray-400"}`}>
-                                        {spotsLeft === 1 ? "1 posto" : `${spotsLeft}`}
-                                      </span>
-                                    )}
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ))}
-                    <p className="text-[10px] text-gray-400 dark:text-gray-500">
-                      {isClientView
-                        ? <>Slot con ✕ = al completo · <span className="text-orange-400">1 posto</span> = ultimo disponibile</>
-                        : <>Slot in <span className="text-red-400">rosso ⚠</span> = al completo (puoi comunque assegnarlo)</>
-                      }
-                    </p>
-                  </div>
-                )
-              )}
-
-              {/* Errore 2 giorni */}
-              {saveError && (
-                <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl px-4 py-3">
-                  <p className="text-sm text-red-600 dark:text-red-400 font-medium">⚠️ Modifica non consentita</p>
-                  <p className="text-xs text-red-500 dark:text-red-400 mt-0.5 whitespace-pre-line">{saveError}</p>
-                </div>
-              )}
-
-              {/* Azioni */}
-              <div className="flex gap-2 pt-1">
-                <button onClick={cancelEdit} className="btn-secondary flex-1 text-sm">Annulla</button>
-                <button onClick={handleSave} className="btn-primary flex-1 text-sm" disabled={saving}>
-                  {saving ? "Salvo..." : "Salva"}
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ─── Performance Section ─────────────────────────────────────
-function PerformanceSection({ clientId, isClientView }: { clientId: string; isClientView: boolean }) {
-  const [maxes, setMaxes] = useState<Record<string, string>>({});
-  const [editMaxes, setEditMaxes] = useState<Record<string, string>>({});
-  const [open, setOpen] = useState(false);
-  const [editing, setEditing] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    const load = async () => {
-      const res = await fetch(`/api/client-maxes?client_id=${clientId}`);
-      const data = await res.json();
-      const map: Record<string, string> = {};
-      (data ?? []).forEach((r: ClientMax) => {
-        if (r.weight_kg != null) map[r.exercise_name] = String(r.weight_kg);
-      });
-      setMaxes(map);
-      setLoading(false);
-    };
-    load();
-  }, [clientId]);
-
-  const handleSave = async () => {
-    setSaving(true);
-    const rows = Object.entries(editMaxes)
-      .filter(([, v]) => v !== "" && !isNaN(Number(v)))
-      .map(([exercise_name, weight_kg]) => ({
-        client_id: clientId,
-        exercise_name,
-        weight_kg: Number(weight_kg),
-        recorded_at: new Date().toISOString().split("T")[0],
-      }));
-    const cleared = Object.entries(editMaxes).filter(([, v]) => v === "").map(([k]) => k);
-    await fetch("/api/client-maxes", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ client_id: clientId, rows, cleared }),
-    });
-    const newMaxes = { ...editMaxes };
-    cleared.forEach(k => delete newMaxes[k]);
-    setMaxes(newMaxes);
-    setEditing(false);
-    setSaving(false);
-  };
-
-  const setCount = Object.keys(maxes).length;
-  const allExercises = Object.values(PERFORMANCE_EXERCISES).flat();
-
-  if (loading) return null;
-
-  return (
-    <div className="card overflow-hidden">
-      {/* Header */}
-      <button
-        onClick={() => { setOpen(o => !o); if (editing) setEditing(false); }}
-        className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-      >
-        <span className="font-semibold text-sm text-gray-700 dark:text-gray-200">Performance · Massimali</span>
-        <div className="flex items-center gap-2">
-          {setCount > 0 && (
-            <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400">
-              {setCount}/{allExercises.length}
-            </span>
-          )}
-          <svg className={`text-gray-400 transition-transform ${open ? "rotate-180" : ""}`}
-            width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M6 9l6 6 6-6"/>
-          </svg>
-        </div>
-      </button>
-
-      {open && (
-        <div className="border-t border-gray-100 dark:border-gray-700 px-4 py-4 space-y-5">
-          {!editing ? (
-            <>
-              {/* Vista lettura */}
-              {Object.entries(PERFORMANCE_EXERCISES).map(([group, exercises]) => (
-                <div key={group}>
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-2">{group}</p>
-                  <div className="grid grid-cols-2 gap-2">
-                    {exercises.map(ex => (
-                      <div key={ex} className={`flex items-center justify-between px-3 py-2 rounded-xl border ${
-                        maxes[ex]
-                          ? "border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800"
-                          : "border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50"
-                      }`}>
-                        <span className={`text-xs font-medium truncate pr-2 ${maxes[ex] ? "text-gray-700 dark:text-gray-200" : "text-gray-400"}`}>{ex}</span>
-                        {maxes[ex]
-                          ? <span className="text-xs font-bold text-gray-900 dark:text-gray-100 flex-shrink-0">{maxes[ex]} kg</span>
-                          : <span className="text-xs text-gray-300 flex-shrink-0">—</span>
-                        }
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
-              <button onClick={() => { setEditMaxes({ ...maxes }); setEditing(true); }}
-                className="btn-secondary w-full text-sm">
-                Modifica massimali
-              </button>
-            </>
-          ) : (
-            <>
-              {/* Vista modifica */}
-              {Object.entries(PERFORMANCE_EXERCISES).map(([group, exercises]) => (
-                <div key={group}>
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-2">{group}</p>
-                  <div className="space-y-2">
-                    {exercises.map(ex => (
-                      <div key={ex} className="flex items-center gap-3">
-                        <span className="text-sm text-gray-600 dark:text-gray-300 flex-1 min-w-0 truncate">{ex}</span>
-                        <div className="flex items-center gap-1.5 flex-shrink-0">
-                          <input
-                            type="number"
-                            step="0.5"
-                            min="0"
-                            max="500"
-                            placeholder="—"
-                            value={editMaxes[ex] ?? ""}
-                            onChange={e => setEditMaxes(p => ({ ...p, [ex]: e.target.value }))}
-                            className="input w-20 text-center py-1.5 text-sm"
-                          />
-                          <span className="text-xs text-gray-400 w-5">kg</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
-              <div className="flex gap-2 pt-1">
-                <button onClick={() => setEditing(false)} className="btn-secondary flex-1 text-sm">Annulla</button>
-                <button onClick={handleSave} className="btn-primary flex-1 text-sm" disabled={saving}>
-                  {saving ? "Salvo..." : "Salva"}
-                </button>
-              </div>
-            </>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ─── Main Page ────────────────────────────────────────────────
 export default function ClientPage() {
   const params = useParams();
   const router = useRouter();
   const clientId = params.clientId as string;
+  const returnTo = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("returnTo") ?? undefined : undefined;
 
   const [client, setClient] = useState<Client | null>(null);
   const [months, setMonths] = useState<TrainingMonth[]>([]);
   const [lastWeekAny, setLastWeekAny] = useState<TrainingWeek | null>(null);
   const [loading, setLoading] = useState(true);
   const [isClientView, setIsClientView] = useState(false);
-  const [calendarSchedule, setCalendarSchedule] = useState<Record<number, string> | null>(null);
   const [nextWorkout, setNextWorkout] = useState<{ url: string; date: Date; label: string; isToday: boolean } | null>(null);
-  const [showEdit, setShowEdit] = useState(false);
   const [showNewMonth, setShowNewMonth] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -1346,49 +1181,17 @@ export default function ClientPage() {
         title={`${client.name} ${client.surname}`}
         subtitle={isClientView ? "Il tuo piano" : "Profilo cliente"}
         clientView={isClientView}
-        right={
-          !isClientView ? (
-            <button onClick={() => setShowEdit(true)} className="btn-secondary text-xs py-1.5 px-3">
-              Modifica
-            </button>
-          ) : undefined
-        }
       />
 
       <main className="max-w-2xl mx-auto px-4 py-5 space-y-5">
-        {/* Client card */}
-        <div className="card p-5">
-          <div className="flex items-start gap-4">
-            <div
-              className="w-14 h-14 rounded-full flex items-center justify-center flex-shrink-0
-                         font-bold text-lg border-2"
-              style={{ borderColor: "#D4E600", backgroundColor: "#f9fce0", color: "#111" }}
-            >
-              {getInitials(client.name, client.surname)}
-            </div>
-            <div className="flex-1 min-w-0">
-              <h2 className="font-bold text-lg text-gray-900 dark:text-gray-100">{client.name} {client.surname}</h2>
-              <div className="flex items-center gap-2 flex-wrap">
-                <StatusBadge subscriptionEnd={client.subscription_end} />
-              </div>
-              {client.email && (
-                <div className="flex items-center gap-1.5 mt-2 text-sm text-gray-500 dark:text-gray-400">
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
-                  {client.email}
-                </div>
-              )}
-              {client.phone && (
-                <div className="flex items-center gap-1.5 mt-1 text-sm text-gray-500 dark:text-gray-400">
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 13a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.6 2.18h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L7.91 9.91a16 16 0 0 0 6.18 6.18l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
-                  {client.phone}
-                </div>
-              )}
-              {client.notes && (
-                <p className="mt-2 text-sm text-gray-400 italic">{client.notes}</p>
-              )}
-            </div>
-          </div>
-        </div>
+        {/* Unified Profile Card */}
+        <UnifiedProfileCard
+          client={client}
+          clientId={clientId}
+          isClientView={isClientView}
+          returnTo={returnTo}
+          onClientUpdated={fetch}
+        />
 
         {/* ─── Bottone allenamento del giorno ─── */}
         {nextWorkout && (() => {
@@ -1428,12 +1231,8 @@ export default function ClientPage() {
           );
         })()}
 
-        {/* Orari abituali */}
-        <ScheduleSection clientId={clientId} isClientView={isClientView} onScheduleChange={setCalendarSchedule} />
-        <ClientCalendarCard clientId={clientId} scheduleOverride={calendarSchedule} coachView={!isClientView} />
-
-        {/* Performance / Massimali */}
-        <PerformanceSection clientId={clientId} isClientView={isClientView} />
+        {/* Prossimi allenamenti */}
+        <UpcomingSessionsCard clientId={clientId} isClientView={isClientView} />
 
         {/* Months */}
         <div>
@@ -1519,10 +1318,6 @@ export default function ClientPage() {
           </div>
         )}
       </main>
-
-      <Modal open={showEdit} onClose={() => setShowEdit(false)} title="Modifica cliente">
-        <EditClientForm client={client} onSuccess={() => { setShowEdit(false); fetch(); }} onCancel={() => setShowEdit(false)} />
-      </Modal>
 
       <Modal open={showNewMonth} onClose={() => setShowNewMonth(false)} title="Nuovo mese di allenamento">
         <NewMonthForm clientId={clientId} existingMonths={months}

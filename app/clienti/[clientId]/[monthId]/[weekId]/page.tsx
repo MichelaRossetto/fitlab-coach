@@ -210,6 +210,7 @@ export default function WeekPage() {
   const handlePrintWeek = async () => {
     if (days.length === 0) return;
     setPrinting(true);
+    try {
 
     const sectionOrder = ["warmup", "strength", "accessories", "core", "workout"];
     const sectionLabels: Record<string, string> = {
@@ -261,6 +262,10 @@ export default function WeekPage() {
           const kg = Math.round((pct / 100) * max * 2) / 2;
           return `${t} (≈ ${kg} kg)`;
         }
+        const nm = exName.trim().toLowerCase();
+        const isPerf = ALL_PERFORMANCE_EXERCISES.some(e => e.toLowerCase() === nm) ||
+          Object.keys(EXERCISE_PARENT_MAP).some(k => k.toLowerCase() === nm);
+        if (isPerf) return `${t} · massimale non inserito`;
         return t;
       }
       // KG: numero puro (o numero + suffisso strumento)
@@ -273,7 +278,7 @@ export default function WeekPage() {
           const implied =
             (toolKey === "DB" && (n.includes("manubri") || n.includes("manubrio") || /\bdb\b/.test(n))) ||
             (toolKey === "KB" && (/\bkb\b/.test(n) || n.includes("kettlebell"))) ||
-            (toolKey === "BAR" && (n.includes("bilanciere") || /\bbar\b/.test(n))) ||
+            (toolKey === "BAR" && (n.includes("bilanciere") || n.includes("barbell") || n.includes("landmine") || /\bbar\b/.test(n))) ||
             (toolKey === "SB" && (n.includes("slam ball") || /\bsb\b/.test(n))) ||
             (toolKey === "MB" && (n.includes("med ball") || n.includes("medicine") || /\bmb\b/.test(n)));
           return implied ? `${numPart} KG` : `${numPart} KG (${toolKey})`;
@@ -302,7 +307,7 @@ export default function WeekPage() {
       else if (ex.reps) parts.push(ex.reps);
       const formattedLoad = formatLoad(ex.load ?? "", ex.name ?? "");
       if (formattedLoad) parts.push(formattedLoad);
-      if (ex.rest_time) parts.push(`Rest ${ex.rest_time}`);
+      if (ex.rest_time) parts.push(`⏱ Rest ${ex.rest_time}`);
       const cleanNotes = (ex.notes ?? "").replace(/^#\w+#\s*/, "").replace(/^\[.*?\]\s*/, "").trim();
       return `<tr>
         <td style="padding:5px 10px;font-weight:600;color:#111">${ex.name}</td>
@@ -315,7 +320,7 @@ export default function WeekPage() {
     const wkExRow = (ex: any) => {
       const reps = ex.reps ?? "";
       const load = formatLoad(ex.load ?? "", ex.name ?? "");
-      const rest = ex.rest_time ? `Rest ${ex.rest_time}` : "";
+      const rest = ex.rest_time ? `⏱ Rest ${ex.rest_time}` : "";
       const detail = [load, rest].filter(Boolean).join(" · ");
       const cleanNotes = (ex.notes ?? "").replace(/^#\w+#\s*/, "").replace(/^\[.*?\]\s*/, "").trim();
       return `<tr>
@@ -422,17 +427,21 @@ export default function WeekPage() {
       </style>
     </head><body>
       <h1>${clientName} · Settimana ${week?.week_number}</h1>
-      <p>${weekRange}</p>
+<p>${weekRange}</p>
       ${daysHtml}
     </body></html>`;
 
-    setPrinting(false);
-    const w = window.open("", "_blank");
-    if (!w) return;
-    w.document.write(html);
-    w.document.close();
-    w.focus();
-    setTimeout(() => { w.print(); }, 300);
+      setPrinting(false);
+      const w = window.open("", "_blank");
+      if (!w) { alert("Popup bloccato dal browser — consenti i popup per questa pagina"); return; }
+      w.document.write(html);
+      w.document.close();
+      w.focus();
+      setTimeout(() => { w.print(); }, 300);
+    } catch (err: any) {
+      setPrinting(false);
+      alert("Errore stampa: " + (err?.message ?? String(err)));
+    }
   };
 
   if (loading) return (
