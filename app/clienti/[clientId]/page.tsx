@@ -384,7 +384,7 @@ function ClientCalendarCard({ clientId, scheduleOverride, coachView }: {
                     const sessionDate = new Date(session.dateStr + "T12:00:00");
                     const diffDays = Math.floor((sessionDate.getTime() - today.getTime()) / 86400000);
                     const clientBlocked = !coachView && diffDays < 2;
-                    const isRescheduling = reschedulingDayId === session.dayId || reschedulingDayId === `virtual-${session.dow}`;
+                    const isRescheduling = !!reschedulingDayId && (reschedulingDayId === session.dayId || reschedulingDayId === `virtual-${session.dow}`);
 
                     return (
                       <div key={session.key} className="border-b border-gray-700/50 last:border-0">
