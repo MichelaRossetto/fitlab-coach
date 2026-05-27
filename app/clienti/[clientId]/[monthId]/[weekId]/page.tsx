@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
-import { TrainingWeek, TrainingDay, DAY_TYPES, DAY_STATUS_CONFIG, DayStatus, getDefaultDayLabel } from "@/lib/types";
+import { TrainingWeek, TrainingDay, DAY_TYPES, DAY_STATUS_CONFIG, DayStatus, getDefaultDayLabel, ALL_PERFORMANCE_EXERCISES, EXERCISE_PARENT_MAP } from "@/lib/types";
 import { Header } from "@/components/Header";
 import { Modal } from "@/components/Modal";
 
@@ -217,15 +217,69 @@ export default function WeekPage() {
       core: "Core Training", workout: "Workout",
     };
 
-    // Fetch sezioni + esercizi per ogni giorno in parallelo
-    const allDayData = await Promise.all(days.map(async day => {
-      const { data: secs } = await supabase
-        .from("workout_sections")
-        .select("*, exercises(*)")
-        .eq("day_id", day.id)
-        .order("order_index");
-      return { day, sections: secs ?? [] };
-    }));
+    // Fetch sezioni + esercizi + massimali cliente in parallelo
+    const [allDayData, maxesRes] = await Promise.all([
+      Promise.all(days.map(async day => {
+        const { data: secs } = await supabase
+          .from("workout_sections")
+          .select("*, exercises(*)")
+          .eq("day_id", day.id)
+          .order("order_index");
+        return { day, sections: secs ?? [] };
+      })),
+      supabase.from("client_maxes").select("exercise_name, weight_kg").eq("client_id", clientId),
+    ]);
+
+    // Mappa massimali: exerciseName → weight_kg
+    const maxesMap: Record<string, number> = {};
+    for (const m of (maxesRes.data ?? []) as any[]) {
+      maxesMap[m.exercise_name] = m.weight_kg;
+    }
+
+    // Risolve il massimale applicabile a un esercizio (diretto o figlio)
+    const resolveMax = (exName: string): number | null => {
+      const name = exName.trim().toLowerCase();
+      const direct = ALL_PERFORMANCE_EXERCISES.find(e => e.toLowerCase() === name);
+      if (direct && maxesMap[direct] != null) return maxesMap[direct];
+      const childKey = Object.keys(EXERCISE_PARENT_MAP).find(k => k.toLowerCase() === name);
+      if (childKey) {
+        const parent = EXERCISE_PARENT_MAP[childKey];
+        if (maxesMap[parent] != null) return maxesMap[parent];
+      }
+      return null;
+    };
+
+    // Formatta un singolo valore di carico per la stampa
+    const formatSingleLoad = (load: string, exName: string): string => {
+      const t = load.trim();
+      if (!t || t === "-") return "";
+      // Percentuale → mostra % + stima KG se max disponibile
+      if (t.includes("%")) {
+        const pct = parseFloat(t);
+        const max = isNaN(pct) ? null : resolveMax(exName);
+        if (max != null) {
+          const kg = Math.round((pct / 100) * max * 2) / 2;
+          return `${t} (≈ ${kg} kg)`;
+        }
+        return t;
+      }
+      // KG: numero puro (o numero + suffisso strumento)
+      if (/^\d/.test(t) && !/rpe/i.test(t)) {
+        const hasToolSuffix = /\s+(DB|KB|Bar|MB|SB|GHD|BW|RNG|TRX|PAR)$/i.test(t);
+        return hasToolSuffix ? t : `${t} KG`;
+      }
+      return t; // RPE e altro
+    };
+
+    // Formatta il campo load completo (gestisce progressive pipe-separated)
+    const formatLoad = (load: string, exName: string): string => {
+      if (!load || load === "-") return "";
+      if (load.includes("|")) {
+        const parts = load.split("|").map(p => formatSingleLoad(p.trim(), exName)).filter(Boolean);
+        return parts.join(" → ");
+      }
+      return formatSingleLoad(load, exName);
+    };
 
     const WKLABELS: Record<string, string> = { amrap: "AMRAP", emom: "EMOM", fortime: "FOR TIME", cardioliss: "CARDIO LISS" };
 
@@ -233,7 +287,8 @@ export default function WeekPage() {
       const parts: string[] = [];
       if (ex.sets && ex.reps) parts.push(`${ex.sets} × ${ex.reps}`);
       else if (ex.reps) parts.push(ex.reps);
-      if (ex.load && ex.load !== "-") parts.push(ex.load);
+      const formattedLoad = formatLoad(ex.load ?? "", ex.name ?? "");
+      if (formattedLoad) parts.push(formattedLoad);
       if (ex.rest_time) parts.push(`⏱ ${ex.rest_time}`);
       const cleanNotes = (ex.notes ?? "").replace(/^#\w+#\s*/, "").replace(/^\[.*?\]\s*/, "").trim();
       return `<tr>
