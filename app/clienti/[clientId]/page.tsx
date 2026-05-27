@@ -144,7 +144,7 @@ function ClientCalendarCard({ clientId, scheduleOverride, coachView }: {
   const handleConfirmReschedule = async () => {
     if (!reschedulingDayId || !rescheduleDate || !rescheduleTime) return;
     setRescheduleSaving(true);
-    await supabase.from("training_days").update({ day_date: rescheduleDate }).eq("id", reschedulingDayId);
+    await supabase.from("training_days").update({ day_date: rescheduleDate, day_time: rescheduleTime }).eq("id", reschedulingDayId);
     resetReschedule();
     setShowEditSessions(false);
     await loadSessionList(); // ricarica tutto dal DB

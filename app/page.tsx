@@ -113,12 +113,52 @@ function CalendarView({ scheduleEntries, clients, activeFilter }: {
   const visibleIds = new Set(visibleClients.map(c => c.id));
   const [weekStart, setWeekStart] = useState<Date>(() => getMonday(new Date()));
   const [selectedSlot, setSelectedSlot] = useState<{ day: number; time: string } | null>(null);
+  // Override sessioni: { clientId → { newDow, newTime, origDow } }
+  const [sessionOverrides, setSessionOverrides] = useState<Record<string, { newDow: number; newTime: string; origDow: number }[]>>({});
+
+  const localDs = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
 
   const weekDays = Array.from({ length: 5 }, (_, i) => {
     const d = new Date(weekStart);
     d.setDate(d.getDate() + i);
     return d;
   });
+
+  // Fetch training_days con day_date nella settimana corrente
+  useEffect(() => {
+    const ws = localDs(weekDays[0]);
+    const we = localDs(weekDays[4]);
+    const load = async () => {
+      const { data } = await supabase
+        .from("training_days")
+        .select("id, day_date, day_time, day_number, training_weeks!inner(id, training_months!inner(client_id))")
+        .gte("day_date", ws)
+        .lte("day_date", we)
+        .not("day_date", "is", null);
+      if (!data) return;
+      const overrides: Record<string, { newDow: number; newTime: string; origDow: number }[]> = {};
+      for (const td of data as any[]) {
+        const clientId = td.training_weeks?.training_months?.client_id;
+        if (!clientId || !visibleIds.has(clientId)) continue;
+        const d = new Date(td.day_date + "T12:00:00");
+        const jsDay = d.getDay();
+        const newDow = jsDay === 0 ? 6 : jsDay - 1;
+        // Orario: day_time se salvato, altrimenti primo orario ricorrente del cliente
+        const newTime = td.day_time?.slice(0,5)
+          || scheduleEntries.find(e => e.client_id === clientId)?.time?.slice(0,5)
+          || "08:00";
+        // Giorno ricorrente originale del cliente
+        const origEntry = scheduleEntries.find(e => e.client_id === clientId && e.day_of_week !== newDow);
+        const origDow = origEntry?.day_of_week ?? newDow;
+        if (!overrides[clientId]) overrides[clientId] = [];
+        overrides[clientId].push({ newDow, newTime, origDow });
+      }
+      setSessionOverrides(overrides);
+    };
+    load();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [weekStart]);
 
   const isToday = (d: Date) => {
     const today = new Date();
@@ -140,9 +180,21 @@ function CalendarView({ scheduleEntries, clients, activeFilter }: {
   const timeToMin = (t: string) => { const [h, m] = t.split(":").map(Number); return h * 60 + m; };
   const slotMap: Record<number, Record<string, { pr: string[]; pt: string[] }>> = {};
   for (let d = 0; d < 5; d++) slotMap[d] = {};
+
+  // Clienti con override questa settimana: mappa clientId → set di origDow da sopprimere
+  const suppressedDows: Record<string, Set<number>> = {};
+  for (const [clientId, ovs] of Object.entries(sessionOverrides)) {
+    for (const ov of ovs) {
+      if (!suppressedDows[clientId]) suppressedDows[clientId] = new Set();
+      suppressedDows[clientId].add(ov.origDow);
+    }
+  }
+
   for (const e of scheduleEntries) {
     if (e.day_of_week < 0 || e.day_of_week > 4) continue;
     if (!visibleIds.has(e.client_id)) continue;
+    // Salta se questo giorno ricorrente è stato spostato questa settimana
+    if (suppressedDows[e.client_id]?.has(e.day_of_week)) continue;
     const clientType = visibleClients.find(c => c.id === e.client_id)?.client_type ?? "PR";
     const T = timeToMin(e.time);
     for (const slot of DISPLAY_SLOTS) {
@@ -152,6 +204,25 @@ function CalendarView({ scheduleEntries, clients, activeFilter }: {
         const key = clientType === "PT" ? "pt" : "pr";
         if (!slotMap[e.day_of_week][slot][key].includes(e.client_id))
           slotMap[e.day_of_week][slot][key].push(e.client_id);
+      }
+    }
+  }
+
+  // Aggiungi sessioni spostate al nuovo giorno/orario
+  for (const [clientId, ovs] of Object.entries(sessionOverrides)) {
+    if (!visibleIds.has(clientId)) continue;
+    const clientType = visibleClients.find(c => c.id === clientId)?.client_type ?? "PR";
+    for (const ov of ovs) {
+      if (ov.newDow < 0 || ov.newDow > 4) continue;
+      const T = timeToMin(ov.newTime);
+      for (const slot of DISPLAY_SLOTS) {
+        const H = timeToMin(slot);
+        if (T < H + 60 && T + 60 > H) {
+          if (!slotMap[ov.newDow][slot]) slotMap[ov.newDow][slot] = { pr: [], pt: [] };
+          const key = clientType === "PT" ? "pt" : "pr";
+          if (!slotMap[ov.newDow][slot][key].includes(clientId))
+            slotMap[ov.newDow][slot][key].push(clientId);
+        }
       }
     }
   }
