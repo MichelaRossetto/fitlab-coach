@@ -49,6 +49,7 @@ function ClientCalendarCard({ clientId, scheduleOverride, coachView }: {
   const [rescheduleTime, setRescheduleTime] = useState("");
   const [allSlotCounts, setAllSlotCounts] = useState<Record<string, number>>({});
   const [rescheduleSaving, setRescheduleSaving] = useState(false);
+  const [rescheduleError, setRescheduleError] = useState<string | null>(null);
 
   // Fetch schedule
   useEffect(() => {
@@ -148,6 +149,7 @@ function ClientCalendarCard({ clientId, scheduleOverride, coachView }: {
   const handleConfirmReschedule = async () => {
     if (!rescheduleDate || !rescheduleTime) return;
     setRescheduleSaving(true);
+    setRescheduleError(null);
 
     let targetDayId: string | null = (reschedulingDayId && !reschedulingDayId.startsWith("virtual-"))
       ? reschedulingDayId
@@ -178,18 +180,37 @@ function ClientCalendarCard({ clientId, scheduleOverride, coachView }: {
     }
 
     if (!targetDayId) {
+      setRescheduleError("Allenamento non trovato nel programma — contatta la coach.");
       setRescheduleSaving(false);
       return;
     }
 
-    await supabase.from("training_days").update({ day_date: rescheduleDate, day_time: rescheduleTime }).eq("id", targetDayId);
+    // Prova ad aggiornare con day_time; fallback senza se la colonna non esiste
+    let { error: updateErr } = await supabase
+      .from("training_days")
+      .update({ day_date: rescheduleDate, day_time: rescheduleTime })
+      .eq("id", targetDayId);
+
+    if (updateErr) {
+      console.warn("Update con day_time fallito, riprovo senza:", updateErr.message);
+      const { error: updateErr2 } = await supabase
+        .from("training_days")
+        .update({ day_date: rescheduleDate })
+        .eq("id", targetDayId);
+      if (updateErr2) {
+        setRescheduleError("Errore salvataggio: " + updateErr2.message);
+        setRescheduleSaving(false);
+        return;
+      }
+    }
+
     resetReschedule();
     setShowEditSessions(false);
     await loadSessionList();
     setRescheduleSaving(false);
   };
 
-  const cancelReschedule = () => { setReschedulingDayId(null); setReschedulingDow(null); setRescheduleDate(""); setRescheduleTime(""); setAllSlotCounts({}); };
+  const cancelReschedule = () => { setReschedulingDayId(null); setReschedulingDow(null); setRescheduleDate(""); setRescheduleTime(""); setAllSlotCounts({}); setRescheduleError(null); };
 
   const weekDays = Array.from({ length: 5 }, (_, i) => {
     const d = new Date(weekStart); d.setDate(d.getDate() + i); return d;
@@ -265,7 +286,7 @@ function ClientCalendarCard({ clientId, scheduleOverride, coachView }: {
   const todayMonday = getMonday(new Date());
   const isFuture = weekStart.getTime() > todayMonday.getTime();
   const isPast   = weekStart.getTime() < todayMonday.getTime();
-  const resetReschedule = () => { setReschedulingDayId(null); setReschedulingDow(null); setRescheduleDate(""); setRescheduleTime(""); setAllSlotCounts({}); };
+  const resetReschedule = () => { setReschedulingDayId(null); setReschedulingDow(null); setRescheduleDate(""); setRescheduleTime(""); setAllSlotCounts({}); setRescheduleError(null); };
   const prevWeek = () => { resetReschedule(); setShowEditSessions(false); setWeekStart(d => { const n = new Date(d); n.setDate(n.getDate() - 7); return n; }); };
   const nextWeek = () => { resetReschedule(); setShowEditSessions(false); setWeekStart(d => { const n = new Date(d); n.setDate(n.getDate() + 7); return n; }); };
   const goToday  = () => { resetReschedule(); setShowEditSessions(false); setWeekStart(getMonday(new Date())); };
@@ -477,6 +498,9 @@ function ClientCalendarCard({ clientId, scheduleOverride, coachView }: {
                                 </div>
                               )}
 
+                              {rescheduleError && (
+                                <div className="text-[10px] text-red-400 text-center">{rescheduleError}</div>
+                              )}
                               <button
                                 onClick={handleConfirmReschedule}
                                 disabled={!rescheduleDate || !rescheduleTime || rescheduleSaving || slotsFull}
