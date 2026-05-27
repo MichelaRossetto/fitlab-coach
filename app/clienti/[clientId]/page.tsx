@@ -41,7 +41,7 @@ function ClientCalendarCard({ clientId, scheduleOverride, coachView }: {
   const [weekStart, setWeekStart] = useState<Date>(() => getMonday(new Date()));
   const [open, setOpen] = useState(false);
   // Coach: lista sessioni per editing date
-  const [sessionList, setSessionList] = useState<{ dayId: string; label: string; dateStr: string | null; weekLabel: string; weekDateStart: string | null }[]>([]);
+  const [sessionList, setSessionList] = useState<{ dayId: string; label: string; dateStr: string | null; dayTime: string | null; weekLabel: string; weekDateStart: string | null }[]>([]);
   const [showEditSessions, setShowEditSessions] = useState(false);
   const [reschedulingDayId, setReschedulingDayId] = useState<string | null>(null);
   const [rescheduleDate, setRescheduleDate] = useState("");
@@ -80,7 +80,7 @@ function ClientCalendarCard({ clientId, scheduleOverride, coachView }: {
     const weekIds = (weeks as any[]).map((w: any) => w.id);
     const { data: days, error: daysErr } = await supabase
       .from("training_days")
-      .select("id, day_number, day_date, label, status, week_id")
+      .select("id, day_number, day_date, day_time, label, status, week_id")
       .in("week_id", weekIds)
       .order("day_number");
 
@@ -106,6 +106,7 @@ function ClientCalendarCard({ clientId, scheduleOverride, coachView }: {
         dayId: day.id,
         label: day.label,
         dateStr,
+        dayTime: day.day_time ? day.day_time.slice(0, 5) : null,
         weekLabel: `${monthLabel} · Sett. ${week.week_number}`,
         weekDateStart: week.date_start ?? null,
       });
@@ -179,35 +180,45 @@ function ClientCalendarCard({ clientId, scheduleOverride, coachView }: {
   };
 
   const TrainingCell = ({ day, slot }: { day: number; slot: string }) => {
-    const active = hasTraining(day, slot);
     const thisDayDate = localDateStr(weekDays[day]);
-
-    // Se abbiamo sessioni per questa settimana, usa quelle per decidere dove mostrare i dot
     const ws = localDateStr(weekDays[0]);
     const we = localDateStr(weekDays[4]);
     const weekHasSessions = sessionList.some(s => s.dateStr && s.dateStr >= ws && s.dateStr <= we);
-    const hasSessionOnThisDay = sessionList.some(s => s.dateStr === thisDayDate);
 
-    // Mostra il dot ricorrente solo se:
-    // - non abbiamo info sulle sessioni di questa settimana (fallback), oppure
-    // - c'è effettivamente una sessione su questo giorno
-    const showRecurring = active && (!weekHasSessions || hasSessionOnThisDay);
+    // Sessione effettiva su questo giorno (può avere dayTime override)
+    const sessionOnDay = sessionList.find(s => s.dateStr === thisDayDate);
+    const hasSessionOnThisDay = !!sessionOnDay;
 
-    // Sessione spostata su un giorno NON ricorrente — mostra dot indaco nel primo slot
-    const hasMovedSession = !schedule[day] && hasSessionOnThisDay && slot === "08:00";
+    // Se la sessione ha un dayTime esplicito, usa quello per decidere quale slot mostrare
+    const overrideTime = sessionOnDay?.dayTime ?? null;
+    const T = overrideTime ? timeToMin(overrideTime) : null;
+    const H = timeToMin(slot);
+    const isOverrideSlot = T !== null && T < H + 60 && T + 60 > H;
+
+    // Dot ricorrente: mostra se non c'è override oppure se l'override coincide con il ricorrente
+    const recurringActive = hasTraining(day, slot);
+    const showRecurring = recurringActive && (!weekHasSessions || (hasSessionOnThisDay && (overrideTime === null || isOverrideSlot)));
+
+    // Dot indaco: sessione spostata su giorno non ricorrente, oppure stessa giorno con orario diverso
+    const showMoved = hasSessionOnThisDay && !recurringActive && isOverrideSlot;
+    // Caso: stesso giorno ricorrente ma orario cambiato
+    const showMovedSameDay = hasSessionOnThisDay && recurringActive && overrideTime !== null && !hasTraining(day, slot) && isOverrideSlot;
+
+    const showDot = showMoved || showMovedSameDay;
+    const dotTime = overrideTime ?? schedule[day];
 
     return (
       <div className="border-l border-gray-700 flex items-center justify-center min-h-[34px] px-1">
         {showRecurring && (
           <div className="flex flex-col items-center gap-0.5">
             <div className="w-2 h-2 rounded-full" style={{ backgroundColor: "#C0D738" }} />
-            <span className="text-[9px] font-bold tabular-nums" style={{ color: "#C0D738" }}>{schedule[day]}</span>
+            <span className="text-[9px] font-bold tabular-nums" style={{ color: "#C0D738" }}>{dotTime}</span>
           </div>
         )}
-        {hasMovedSession && (
+        {showDot && (
           <div className="flex flex-col items-center gap-0.5">
             <div className="w-2 h-2 rounded-full bg-indigo-400" />
-            <span className="text-[9px] font-bold text-indigo-400">spost.</span>
+            <span className="text-[9px] font-bold text-indigo-400">{overrideTime}</span>
           </div>
         )}
       </div>
