@@ -180,12 +180,34 @@ function ClientCalendarCard({ clientId, scheduleOverride, coachView }: {
 
   const TrainingCell = ({ day, slot }: { day: number; slot: string }) => {
     const active = hasTraining(day, slot);
+    const thisDayDate = localDateStr(weekDays[day]);
+
+    // Se abbiamo sessioni per questa settimana, usa quelle per decidere dove mostrare i dot
+    const ws = localDateStr(weekDays[0]);
+    const we = localDateStr(weekDays[4]);
+    const weekHasSessions = sessionList.some(s => s.dateStr && s.dateStr >= ws && s.dateStr <= we);
+    const hasSessionOnThisDay = sessionList.some(s => s.dateStr === thisDayDate);
+
+    // Mostra il dot ricorrente solo se:
+    // - non abbiamo info sulle sessioni di questa settimana (fallback), oppure
+    // - c'è effettivamente una sessione su questo giorno
+    const showRecurring = active && (!weekHasSessions || hasSessionOnThisDay);
+
+    // Sessione spostata su un giorno NON ricorrente — mostra dot indaco nel primo slot
+    const hasMovedSession = !schedule[day] && hasSessionOnThisDay && slot === "08:00";
+
     return (
       <div className="border-l border-gray-700 flex items-center justify-center min-h-[34px] px-1">
-        {active && (
+        {showRecurring && (
           <div className="flex flex-col items-center gap-0.5">
             <div className="w-2 h-2 rounded-full" style={{ backgroundColor: "#C0D738" }} />
             <span className="text-[9px] font-bold tabular-nums" style={{ color: "#C0D738" }}>{schedule[day]}</span>
+          </div>
+        )}
+        {hasMovedSession && (
+          <div className="flex flex-col items-center gap-0.5">
+            <div className="w-2 h-2 rounded-full bg-indigo-400" />
+            <span className="text-[9px] font-bold text-indigo-400">spost.</span>
           </div>
         )}
       </div>
