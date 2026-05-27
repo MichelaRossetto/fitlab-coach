@@ -41,9 +41,10 @@ function ClientCalendarCard({ clientId, scheduleOverride, coachView }: {
   const [weekStart, setWeekStart] = useState<Date>(() => getMonday(new Date()));
   const [open, setOpen] = useState(false);
   // Coach: lista sessioni per editing date
-  const [sessionList, setSessionList] = useState<{ dayId: string; label: string; dateStr: string | null; dayTime: string | null; weekLabel: string; weekDateStart: string | null }[]>([]);
+  const [sessionList, setSessionList] = useState<{ dayId: string; dayNumber: number; weekId: string; label: string; dateStr: string | null; dayTime: string | null; weekLabel: string; weekDateStart: string | null }[]>([]);
   const [showEditSessions, setShowEditSessions] = useState(false);
   const [reschedulingDayId, setReschedulingDayId] = useState<string | null>(null);
+  const [reschedulingDow, setReschedulingDow] = useState<number | null>(null);
   const [rescheduleDate, setRescheduleDate] = useState("");
   const [rescheduleTime, setRescheduleTime] = useState("");
   const [allSlotCounts, setAllSlotCounts] = useState<Record<string, number>>({});
@@ -90,7 +91,7 @@ function ClientCalendarCard({ clientId, scheduleOverride, coachView }: {
     const weekMap: Record<string, any> = {};
     for (const w of weeks as any[]) weekMap[w.id] = w;
 
-    const list: { dayId: string; label: string; dateStr: string | null; dayTime: string | null; weekLabel: string; weekDateStart: string | null }[] = [];
+    const list: { dayId: string; dayNumber: number; weekId: string; label: string; dateStr: string | null; dayTime: string | null; weekLabel: string; weekDateStart: string | null }[] = [];
     for (const day of days as any[]) {
       const week = weekMap[day.week_id];
       if (!week) continue;
@@ -104,6 +105,8 @@ function ClientCalendarCard({ clientId, scheduleOverride, coachView }: {
       }
       list.push({
         dayId: day.id,
+        dayNumber: day.day_number,
+        weekId: day.week_id,
         label: day.label,
         dateStr,
         dayTime: day.day_time ? day.day_time.slice(0, 5) : null,
@@ -143,16 +146,50 @@ function ClientCalendarCard({ clientId, scheduleOverride, coachView }: {
   };
 
   const handleConfirmReschedule = async () => {
-    if (!reschedulingDayId || !rescheduleDate || !rescheduleTime) return;
+    if (!rescheduleDate || !rescheduleTime) return;
     setRescheduleSaving(true);
-    await supabase.from("training_days").update({ day_date: rescheduleDate, day_time: rescheduleTime }).eq("id", reschedulingDayId);
+
+    let targetDayId: string | null = (reschedulingDayId && !reschedulingDayId.startsWith("virtual-"))
+      ? reschedulingDayId
+      : null;
+
+    // Sessione virtuale (no training_day trovato per data): cerca per week + day_number
+    if (!targetDayId && reschedulingDow !== null) {
+      const schedDows = Object.keys(schedule).map(Number).sort((a: number, b: number) => a - b);
+      const dayNum = schedDows.indexOf(reschedulingDow) + 1;
+      const ws = localDateStr(weekDays[0]);
+      const we = localDateStr(weekDays[4]);
+
+      // 1. Cerca in sessionList per weekDateStart + day_number
+      const match = sessionList.find(s =>
+        s.weekDateStart && s.weekDateStart >= ws && s.weekDateStart <= we && s.dayNumber === dayNum
+      );
+      targetDayId = match?.dayId ?? null;
+
+      // 2. Fallback: query diretta al DB
+      if (!targetDayId) {
+        const weekIdsRaw = sessionList.filter(s => s.weekDateStart && s.weekDateStart >= ws && s.weekDateStart <= we).map(s => s.weekId);
+        const weekIds = weekIdsRaw.filter((id, i) => weekIdsRaw.indexOf(id) === i);
+        if (weekIds.length > 0) {
+          const { data } = await supabase.from("training_days").select("id").in("week_id", weekIds).eq("day_number", dayNum).maybeSingle();
+          targetDayId = data?.id ?? null;
+        }
+      }
+    }
+
+    if (!targetDayId) {
+      setRescheduleSaving(false);
+      return;
+    }
+
+    await supabase.from("training_days").update({ day_date: rescheduleDate, day_time: rescheduleTime }).eq("id", targetDayId);
     resetReschedule();
     setShowEditSessions(false);
-    await loadSessionList(); // ricarica tutto dal DB
+    await loadSessionList();
     setRescheduleSaving(false);
   };
 
-  const cancelReschedule = () => { setReschedulingDayId(null); setRescheduleDate(""); setRescheduleTime(""); setAllSlotCounts({}); };
+  const cancelReschedule = () => { setReschedulingDayId(null); setReschedulingDow(null); setRescheduleDate(""); setRescheduleTime(""); setAllSlotCounts({}); };
 
   const weekDays = Array.from({ length: 5 }, (_, i) => {
     const d = new Date(weekStart); d.setDate(d.getDate() + i); return d;
@@ -228,7 +265,7 @@ function ClientCalendarCard({ clientId, scheduleOverride, coachView }: {
   const todayMonday = getMonday(new Date());
   const isFuture = weekStart.getTime() > todayMonday.getTime();
   const isPast   = weekStart.getTime() < todayMonday.getTime();
-  const resetReschedule = () => { setReschedulingDayId(null); setRescheduleDate(""); setRescheduleTime(""); setAllSlotCounts({}); };
+  const resetReschedule = () => { setReschedulingDayId(null); setReschedulingDow(null); setRescheduleDate(""); setRescheduleTime(""); setAllSlotCounts({}); };
   const prevWeek = () => { resetReschedule(); setShowEditSessions(false); setWeekStart(d => { const n = new Date(d); n.setDate(n.getDate() - 7); return n; }); };
   const nextWeek = () => { resetReschedule(); setShowEditSessions(false); setWeekStart(d => { const n = new Date(d); n.setDate(n.getDate() + 7); return n; }); };
   const goToday  = () => { resetReschedule(); setShowEditSessions(false); setWeekStart(getMonday(new Date())); };
@@ -303,31 +340,38 @@ function ClientCalendarCard({ clientId, scheduleOverride, coachView }: {
             {showEditSessions && (() => {
               const ws = localDateStr(weekDays[0]);
               const we = localDateStr(weekDays[4]);
+              const schedDows = Object.keys(schedule).map(Number).sort((a, b) => a - b).filter(d => d >= 0 && d <= 4);
 
-              // Sessioni effettive (training_days) in questa settimana
-              const actualSessions = sessionList.filter(s => {
-                if (s.dateStr) return s.dateStr >= ws && s.dateStr <= we;
-                if (s.weekDateStart) return s.weekDateStart >= ws && s.weekDateStart <= we;
-                return false;
-              });
-              const actualDateSet = new Set(actualSessions.map(s => s.dateStr).filter(Boolean));
+              // Costruisci lista sempre dall'orario ricorrente, con lookup flessibile del training_day
+              type DisplaySession = { key: string; dow: number; dayNum: number; dateStr: string; dayId: string | null; label: string; dayTime: string | null };
+              const recurringDisplay: DisplaySession[] = schedDows.map((dow, idx) => {
+                const dayNum = idx + 1;
+                const dateStr = localDateStr(weekDays[dow]);
 
-              // Sessioni "virtuali" dal piano ricorrente per giorni non coperti da training_days
-              type DisplaySession = { dayId: string; label: string; dateStr: string | null; dayTime: string | null; weekLabel: string; weekDateStart: string | null; isVirtual: boolean };
-              const virtualItems: DisplaySession[] = [];
-              Object.keys(schedule).map(Number).sort((a, b) => a - b).forEach(dow => {
-                if (dow < 0 || dow > 4) return;
-                const ds = localDateStr(weekDays[dow]);
-                if (!actualDateSet.has(ds)) {
-                  virtualItems.push({ dayId: `virtual-${dow}`, label: CAL_DAY_LABELS[dow], dateStr: ds, dayTime: null, weekLabel: "", weekDateStart: null, isVirtual: true });
-                }
+                // Lookup 1: match diretto per day_date
+                let actual = sessionList.find(s => s.dateStr === dateStr);
+                // Lookup 2: match per weekDateStart + day_number (sessioni senza day_date)
+                if (!actual) actual = sessionList.find(s =>
+                  s.weekDateStart && s.weekDateStart >= ws && s.weekDateStart <= we && s.dayNumber === dayNum
+                );
+                return { key: `dow-${dow}`, dow, dayNum, dateStr, dayId: actual?.dayId ?? null, label: actual?.label ?? `${CAL_DAY_LABELS[dow]}`, dayTime: actual?.dayTime ?? null };
               });
 
-              const weekSessions: DisplaySession[] = [
-                ...actualSessions.map(s => ({ ...s, isVirtual: false })),
-                ...virtualItems,
-              ].sort((a, b) => (a.dateStr ?? "").localeCompare(b.dateStr ?? ""));
+              // Sessioni spostate IN questa settimana da fuori (dateStr in range, dow non ricorrente)
+              const movedIn: DisplaySession[] = sessionList
+                .filter(s => {
+                  if (!s.dateStr || s.dateStr < ws || s.dateStr > we) return false;
+                  const jsD = new Date(s.dateStr + "T12:00:00").getDay();
+                  const ourDow = jsD === 0 ? 6 : jsD - 1;
+                  return !schedDows.includes(ourDow);
+                })
+                .map(s => {
+                  const jsD = new Date(s.dateStr! + "T12:00:00").getDay();
+                  const ourDow = jsD === 0 ? 6 : jsD - 1;
+                  return { key: s.dayId, dow: ourDow, dayNum: s.dayNumber, dateStr: s.dateStr!, dayId: s.dayId, label: s.label, dayTime: s.dayTime };
+                });
 
+              const weekSessions = [...recurringDisplay, ...movedIn].sort((a, b) => a.dateStr.localeCompare(b.dateStr));
               const today = new Date(); today.setHours(0, 0, 0, 0);
 
               return (
@@ -337,33 +381,38 @@ function ClientCalendarCard({ clientId, scheduleOverride, coachView }: {
                       Nessun allenamento in questa settimana
                     </div>
                   ) : weekSessions.map(session => {
-                    const sessionDate = session.dateStr ? new Date(session.dateStr + "T12:00:00") : null;
-                    const diffDays = sessionDate ? Math.floor((sessionDate.getTime() - today.getTime()) / 86400000) : 99;
+                    const sessionDate = new Date(session.dateStr + "T12:00:00");
+                    const diffDays = Math.floor((sessionDate.getTime() - today.getTime()) / 86400000);
                     const clientBlocked = !coachView && diffDays < 2;
-                    const isRescheduling = reschedulingDayId === session.dayId;
+                    const isRescheduling = reschedulingDayId === session.dayId || reschedulingDayId === `virtual-${session.dow}`;
 
                     return (
-                      <div key={session.dayId} className="border-b border-gray-700/50 last:border-0">
+                      <div key={session.key} className="border-b border-gray-700/50 last:border-0">
                         {/* Riga principale */}
                         <div className="flex items-center justify-between px-3 py-2.5 gap-2">
                           <div className="min-w-0 flex-1">
                             <div className="text-xs font-medium text-gray-200 truncate">{session.label}</div>
                             <div className="text-[10px] text-gray-500">
-                              {session.dateStr
-                                ? new Date(session.dateStr + "T12:00:00").toLocaleDateString("it-IT", { weekday: "long", day: "2-digit", month: "2-digit" })
-                                : "data non impostata"}
-                              {session.isVirtual && <span className="ml-1 text-gray-600">(ricorrente)</span>}
+                              {new Date(session.dateStr + "T12:00:00").toLocaleDateString("it-IT", { weekday: "long", day: "2-digit", month: "2-digit" })}
                             </div>
                           </div>
-                          {session.isVirtual ? (
-                            <span className="text-[10px] text-gray-600 italic shrink-0">no programma</span>
-                          ) : clientBlocked ? (
+                          {clientBlocked ? (
                             <span className="text-[10px] text-gray-600 italic shrink-0">entro 2 giorni</span>
                           ) : isRescheduling ? (
                             <button onClick={cancelReschedule} className="text-[10px] text-gray-500 hover:text-gray-300 shrink-0">Annulla</button>
                           ) : (
                             <button
-                              onClick={() => { setReschedulingDayId(session.dayId); checkRescheduleSlot(session.dateStr ?? ""); }}
+                              onClick={() => {
+                                // Se abbiamo un dayId reale, usalo; altrimenti marca come virtual
+                                if (session.dayId) {
+                                  setReschedulingDayId(session.dayId);
+                                  setReschedulingDow(null);
+                                } else {
+                                  setReschedulingDayId(`virtual-${session.dow}`);
+                                  setReschedulingDow(session.dow);
+                                }
+                                checkRescheduleSlot(session.dateStr);
+                              }}
                               className="text-[11px] font-medium px-2.5 py-1 rounded-lg border border-gray-600 text-gray-400 hover:bg-gray-700 hover:text-gray-200 transition-colors shrink-0"
                             >
                               Sposta
@@ -371,8 +420,8 @@ function ClientCalendarCard({ clientId, scheduleOverride, coachView }: {
                           )}
                         </div>
 
-                        {/* Pannello spostamento (solo sessioni reali) */}
-                        {!session.isVirtual && isRescheduling && (() => {
+                        {/* Pannello spostamento */}
+                        {isRescheduling && (() => {
                           const newJsDay = rescheduleDate ? new Date(rescheduleDate + "T12:00:00").getDay() : null;
                           const newOurDow = newJsDay !== null ? (newJsDay === 0 ? 6 : newJsDay - 1) : null;
                           const MAX_SLOTS = 5;
