@@ -283,6 +283,7 @@ export default function WeekPage() {
 
     const WKLABELS: Record<string, string> = { amrap: "AMRAP", emom: "EMOM", fortime: "FOR TIME", cardioliss: "CARDIO LISS" };
 
+    // Riga per sezioni normali (Forza, Accessori, ecc.): Nome | sets×reps · carico · rest
     const exRow = (ex: any) => {
       const parts: string[] = [];
       if (ex.sets && ex.reps) parts.push(`${ex.sets} × ${ex.reps}`);
@@ -294,6 +295,21 @@ export default function WeekPage() {
       return `<tr>
         <td style="padding:5px 10px;font-weight:600;color:#111">${ex.name}</td>
         <td style="padding:5px 10px;color:#444;white-space:nowrap">${parts.join(" · ") || "—"}</td>
+        <td style="padding:5px 10px;color:#888;font-size:11px">${cleanNotes}</td>
+      </tr>`;
+    };
+
+    // Riga per blocchi workout (EMOM/AMRAP/FOR TIME/CARDIO LISS): reps | Nome | carico
+    const wkExRow = (ex: any) => {
+      const reps = ex.reps ?? "";
+      const load = formatLoad(ex.load ?? "", ex.name ?? "");
+      const rest = ex.rest_time ? `Rest ${ex.rest_time}` : "";
+      const detail = [load, rest].filter(Boolean).join(" · ");
+      const cleanNotes = (ex.notes ?? "").replace(/^#\w+#\s*/, "").replace(/^\[.*?\]\s*/, "").trim();
+      return `<tr>
+        <td style="padding:5px 8px;color:#888;font-weight:700;text-align:right;white-space:nowrap;width:32px">${reps}</td>
+        <td style="padding:5px 10px;font-weight:600;color:#111">${ex.name}</td>
+        <td style="padding:5px 10px;color:#444;white-space:nowrap">${detail}</td>
         <td style="padding:5px 10px;color:#888;font-size:11px">${cleanNotes}</td>
       </tr>`;
     };
@@ -331,7 +347,7 @@ export default function WeekPage() {
         return `<div style="margin-bottom:12px">
           <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#EA580C;margin-bottom:4px">${parts.join(" · ")}</div>
           <table style="width:100%;border-collapse:collapse;background:#f9f9f9;border-radius:6px;overflow:hidden">
-            <tbody>${groups[tag].map(exRow).join("")}</tbody>
+            <tbody>${groups[tag].map(wkExRow).join("")}</tbody>
           </table>
         </div>`;
       }).join("");
