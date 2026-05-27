@@ -144,10 +144,10 @@ function ClientCalendarCard({ clientId, scheduleOverride, coachView }: {
   const handleConfirmReschedule = async () => {
     if (!reschedulingDayId || !rescheduleDate || !rescheduleTime) return;
     setRescheduleSaving(true);
-    // Salva data + orario (aggiorna client_schedule per quel giorno se cambia)
     await supabase.from("training_days").update({ day_date: rescheduleDate }).eq("id", reschedulingDayId);
-    setSessionList(prev => prev.map(s => s.dayId === reschedulingDayId ? { ...s, dateStr: rescheduleDate } : s));
     resetReschedule();
+    setShowEditSessions(false);
+    await loadSessionList(); // ricarica tutto dal DB
     setRescheduleSaving(false);
   };
 
@@ -395,14 +395,24 @@ function ClientCalendarCard({ clientId, scheduleOverride, coachView }: {
           {/* Intestazione giorni */}
           <div className="grid grid-cols-[48px_repeat(5,1fr)] border-b border-gray-700 bg-gray-800">
             <div className="p-2" />
-            {weekDays.map((date, i) => (
-              <div key={i} className={`border-l border-gray-700 text-center p-2 ${isToday(date) ? "bg-yellow-900/20" : ""}`}>
-                <div className="text-[10px] text-gray-400 font-medium">{CAL_DAY_LABELS[i]}</div>
-                <div className={`text-sm font-bold mt-0.5 ${isToday(date) ? "text-yellow-400" : "text-gray-200"}`}>
-                  {date.getDate()}
+            {weekDays.map((date, i) => {
+              const ds = localDateStr(date);
+              const hasMoved = sessionList.some(s => s.dateStr === ds && !schedule[i]);
+              const hasSession = sessionList.some(s => s.dateStr === ds);
+              return (
+                <div key={i} className={`border-l border-gray-700 text-center p-2 ${isToday(date) ? "bg-yellow-900/20" : ""}`}>
+                  <div className="text-[10px] text-gray-400 font-medium">{CAL_DAY_LABELS[i]}</div>
+                  <div className={`text-sm font-bold mt-0.5 ${isToday(date) ? "text-yellow-400" : "text-gray-200"}`}>
+                    {date.getDate()}
+                  </div>
+                  {hasSession && (
+                    <div className="w-1.5 h-1.5 rounded-full mx-auto mt-0.5"
+                      style={{ backgroundColor: schedule[i] ? "#C0D738" : "#818cf8" }}
+                      title={schedule[i] ? "Sessione ricorrente" : "Sessione spostata"} />
+                  )}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           <SlotSection slots={MORNING_SLOTS}   label="Mattina" />
