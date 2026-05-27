@@ -289,7 +289,7 @@ export default function WeekPage() {
       else if (ex.reps) parts.push(ex.reps);
       const formattedLoad = formatLoad(ex.load ?? "", ex.name ?? "");
       if (formattedLoad) parts.push(formattedLoad);
-      if (ex.rest_time) parts.push(`⏱ ${ex.rest_time}`);
+      if (ex.rest_time) parts.push(`Rest ${ex.rest_time}`);
       const cleanNotes = (ex.notes ?? "").replace(/^#\w+#\s*/, "").replace(/^\[.*?\]\s*/, "").trim();
       return `<tr>
         <td style="padding:5px 10px;font-weight:600;color:#111">${ex.name}</td>
