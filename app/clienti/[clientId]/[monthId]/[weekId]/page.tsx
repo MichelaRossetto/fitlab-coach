@@ -265,8 +265,20 @@ export default function WeekPage() {
       }
       // KG: numero puro (o numero + suffisso strumento)
       if (/^\d/.test(t) && !/rpe/i.test(t)) {
-        const hasToolSuffix = /\s+(DB|KB|Bar|MB|SB|GHD|BW|RNG|TRX|PAR)$/i.test(t);
-        return hasToolSuffix ? t : `${t} KG`;
+        const toolMatch = t.match(/\s+(DB|KB|MB|SB|Bar)$/i);
+        if (toolMatch) {
+          const toolKey = toolMatch[1].toUpperCase();
+          const numPart = t.slice(0, -toolMatch[0].length);
+          const n = exName.toLowerCase();
+          const implied =
+            (toolKey === "DB" && (n.includes("manubri") || n.includes("manubrio") || /\bdb\b/.test(n))) ||
+            (toolKey === "KB" && (/\bkb\b/.test(n) || n.includes("kettlebell"))) ||
+            (toolKey === "BAR" && (n.includes("bilanciere") || /\bbar\b/.test(n))) ||
+            (toolKey === "SB" && (n.includes("slam ball") || /\bsb\b/.test(n))) ||
+            (toolKey === "MB" && (n.includes("med ball") || n.includes("medicine") || /\bmb\b/.test(n)));
+          return implied ? `${numPart} KG` : `${numPart} KG (${toolKey})`;
+        }
+        return `${t} KG`;
       }
       return t; // RPE e altro
     };
