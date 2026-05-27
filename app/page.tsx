@@ -115,6 +115,7 @@ function CalendarView({ scheduleEntries, clients, activeFilter }: {
   const [selectedSlot, setSelectedSlot] = useState<{ day: number; time: string } | null>(null);
   // Override sessioni: { clientId → { newDow, newTime, origDow } }
   const [sessionOverrides, setSessionOverrides] = useState<Record<string, { newDow: number; newTime: string; origDow: number }[]>>({});
+  const [overridesVersion, setOverridesVersion] = useState(0);
 
   const localDs = (d: Date) =>
     `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
@@ -148,9 +149,11 @@ function CalendarView({ scheduleEntries, clients, activeFilter }: {
         const newTime = td.day_time?.slice(0,5)
           || scheduleEntries.find(e => e.client_id === clientId)?.time?.slice(0,5)
           || "08:00";
-        // Giorno ricorrente originale del cliente
-        const origEntry = scheduleEntries.find(e => e.client_id === clientId && e.day_of_week !== newDow);
-        const origDow = origEntry?.day_of_week ?? newDow;
+        // Giorno originale: usa day_number per trovare il DOW ricorrente corretto
+        const clientSchedule = scheduleEntries
+          .filter(e => e.client_id === clientId)
+          .sort((a, b) => a.day_of_week - b.day_of_week);
+        const origDow = clientSchedule[td.day_number - 1]?.day_of_week ?? newDow;
         if (!overrides[clientId]) overrides[clientId] = [];
         overrides[clientId].push({ newDow, newTime, origDow });
       }
@@ -158,7 +161,18 @@ function CalendarView({ scheduleEntries, clients, activeFilter }: {
     };
     load();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [weekStart]);
+  }, [weekStart, overridesVersion]);
+
+  // Realtime: ricarica overrides se training_days cambia
+  useEffect(() => {
+    const channel = supabase
+      .channel("training_days_changes")
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "training_days" }, () => {
+        setOverridesVersion(v => v + 1);
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, []);
 
   const isToday = (d: Date) => {
     const today = new Date();
