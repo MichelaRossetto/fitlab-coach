@@ -570,7 +570,7 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
             {exercise.sets && <span className="font-bold text-gray-500 dark:text-gray-400">{exercise.sets}×</span>}
             <span className="font-medium">{exercise.name}</span>
             {exercise.reps && <><span className="text-gray-400">·</span><span className="text-gray-500 dark:text-gray-400">{exercise.reps} reps</span></>}
-            {exercise.load && <><span className="text-gray-400">·</span><span className="text-gray-500 dark:text-gray-400">{formatLoad(exercise.load)}</span></>}
+            {exercise.load && <><span className="text-gray-400">·</span><span className="text-gray-500 dark:text-gray-400">{formatLoad(exercise.load, exercise.name)}</span></>}
           </div>
         );
       }
@@ -579,7 +579,7 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
         <div className="text-sm text-gray-900 dark:text-gray-100 flex flex-wrap items-baseline gap-x-1.5">
           {exercise.reps && <span className="font-bold text-gray-500 dark:text-gray-400">{exercise.reps}</span>}
           <span className="font-medium">{exercise.name}</span>
-          {exercise.load && <><span className="text-gray-400">·</span><span className="text-gray-500 dark:text-gray-400">{formatLoad(exercise.load)}</span></>}
+          {exercise.load && <><span className="text-gray-400">·</span><span className="text-gray-500 dark:text-gray-400">{formatLoad(exercise.load, exercise.name)}</span></>}
         </div>
       );
     };
@@ -674,7 +674,7 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
               // min/cal: mostra solo reps con unità (es. "10 min" o "50 cal"), no sets né rest né carico vuoto
               <>
                 {displayReps && <><span className="text-gray-400 dark:text-gray-500">·</span><span className="text-gray-500 dark:text-gray-400">{displayReps}</span></>}
-                {hasRealLoad && <><span className="text-gray-400 dark:text-gray-500">·</span><span className="text-gray-500 dark:text-gray-400">{formatLoad(exercise.load!)}</span></>}
+                {hasRealLoad && <><span className="text-gray-400 dark:text-gray-500">·</span><span className="text-gray-500 dark:text-gray-400">{formatLoad(exercise.load!, exercise.name)}</span></>}
               </>
             ) : (
               // rep: mostra sets×reps, carico, recupero
@@ -687,7 +687,7 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
                   : exercise.sets
                   ? <span className="text-gray-500 dark:text-gray-400">{exercise.sets} serie</span>
                   : null}
-                {hasRealLoad && <><span className="text-gray-400 dark:text-gray-500">·</span><span className="text-gray-500 dark:text-gray-400">{formatLoad(exercise.load!)}</span></>}
+                {hasRealLoad && <><span className="text-gray-400 dark:text-gray-500">·</span><span className="text-gray-500 dark:text-gray-400">{formatLoad(exercise.load!, exercise.name)}</span></>}
                 {exercise.rest_time && <><span className="text-gray-400 dark:text-gray-500">·</span><span className="text-gray-500 dark:text-gray-400">⏱ {exercise.rest_time} rest</span></>}
               </>
             )}
@@ -1504,12 +1504,26 @@ function lookupExercise(lib: LibraryMap, name: string): ExerciseLibrary | undefi
   return undefined;
 }
 
+// Restituisce true se il nome esercizio già implica il tool (es. "Bilanciere" → Bar)
+function nameImpliesTool(name: string, toolKey: string): boolean {
+  const n = name.toLowerCase();
+  const t = toolKey.toUpperCase();
+  if (t === "DB") return n.includes("manubri") || n.includes("manubrio") || /\bdb\b/.test(n);
+  if (t === "KB") return /\bkb\b/.test(n) || n.includes("kettlebell");
+  if (t === "BAR") return n.includes("bilanciere") || /\bbar\b/.test(n) || n.includes("barbell");
+  if (t === "SB") return n.includes("slam ball") || /\bsb\b/.test(n);
+  if (t === "MB") return n.includes("med ball") || n.includes("medicine") || n.includes("medicinale") || /\bmb\b/.test(n);
+  return false;
+}
+
 // Formatta il carico: aggiunge KG se numero puro, @ se percentuale; gestisce progressivi con | e tool DB/KB/MB/SB/Bar
-function formatLoad(load: string): string {
+function formatLoad(load: string, exName?: string): string {
   if (!load || load === "-") return load;
   const toolMatch = load.match(/\s+(DB|KB|MB|SB|Bar)$/i);
   const loadPart = toolMatch ? load.slice(0, -toolMatch[0].length) : load;
-  const toolSuffix = toolMatch ? ` (${toolMatch[1].toUpperCase()})` : "";
+  const toolKey = toolMatch?.[1]?.toUpperCase() ?? "";
+  const suppress = toolKey && exName ? nameImpliesTool(exName, toolKey) : false;
+  const toolSuffix = toolKey && !suppress ? ` (${toolKey})` : "";
   if (loadPart.includes("|")) {
     return loadPart.split("|").map(l => formatLoadSingle(l)).join(" → ") + toolSuffix;
   }
