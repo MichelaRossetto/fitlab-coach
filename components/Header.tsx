@@ -4,6 +4,45 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
+// ─── Guida slides ─────────────────────────────────────────────
+const GUIDA_SLIDES = [
+  {
+    emoji: "👤",
+    title: "Il tuo profilo",
+    text: "Qui trovi i tuoi dati anagrafici e gli orari abituali di allenamento. Questi vengono impostati dalla tua coach — se qualcosa non torna, scrivile direttamente.",
+  },
+  {
+    emoji: "🏋️",
+    title: "Massimali",
+    text: "I massimali sono i tuoi pesi di riferimento per gli esercizi di forza. Servono alla coach per calcolare automaticamente il carico di ogni sessione in base alla % che ha scelto per te.\n\nPuoi inserirli o aggiornarli direttamente da qui, oppure dal giorno di allenamento in cui compare quell'esercizio — troverai un link apposito.",
+  },
+  {
+    emoji: "⚡",
+    title: "Allenamento di oggi",
+    text: "Il bottone giallo ti porta direttamente all'allenamento previsto per oggi, in base alla data corrente. Se non è il giorno giusto, lo trovi comunque nella lista dei prossimi allenamenti.",
+  },
+  {
+    emoji: "📅",
+    title: "Prossimi allenamenti",
+    text: "Vedi le tue prossime sessioni con data e orario. Puoi spostare un allenamento cliccando il bottone \"Sposta\" — ti verranno mostrati gli slot disponibili e quelli già al completo.\n\nAttenzione: non puoi spostare una sessione dopo mezzogiorno del giorno precedente. Passato quel limite trovi la scritta \"scrivi alla coach\" — contattala direttamente per cambi urgenti.",
+  },
+  {
+    emoji: "📋",
+    title: "La scheda di allenamento",
+    text: "Ogni giorno mostra la scheda completa con tutti gli esercizi, le serie, le ripetizioni e i carichi calcolati.\n\nQuando finisci, clicca \"Completato\" per segnare la sessione come fatta. Puoi anche segnare \"Saltato\" se non hai potuto allenarti. Tutte le sessioni passate mostrano automaticamente il loro stato.",
+  },
+  {
+    emoji: "🖨️",
+    title: "Stampa la scheda",
+    text: "Dal giorno o dalla settimana puoi stampare la scheda in formato PDF — utile se preferisci avere tutto su carta in palestra. Trovi il bottone in alto nella pagina dell'allenamento.",
+  },
+  {
+    emoji: "💬",
+    title: "Feedback",
+    text: "Hai trovato un problema? Hai un suggerimento? Usa l'icona fumetto in alto a destra per inviare un messaggio direttamente alla coach. Puoi segnalare un bug, proporre un miglioramento, o semplicemente lasciare un commento.",
+  },
+];
+
 interface HeaderProps {
   backHref?: string;
   title?: string;
@@ -20,6 +59,8 @@ export function Header({ backHref, title, subtitle, right, clientView, clientId 
   const [fbMessage, setFbMessage] = useState("");
   const [fbSending, setFbSending] = useState(false);
   const [fbSent, setFbSent] = useState(false);
+  const [showGuida, setShowGuida] = useState(false);
+  const [guidaSlide, setGuidaSlide] = useState(0);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -75,15 +116,26 @@ export function Header({ backHref, title, subtitle, right, clientView, clientId 
               </div>
             )}
             {clientView && (
-              <button
-                onClick={() => setShowFeedback(true)}
-                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
-                title="Invia feedback"
-              >
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
-                </svg>
-              </button>
+              <div className="flex items-center gap-3">
+                {/* Guida */}
+                <button
+                  onClick={() => { setGuidaSlide(0); setShowGuida(true); }}
+                  className="w-7 h-7 rounded-full border border-gray-300 dark:border-gray-600 flex items-center justify-center text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:border-gray-400 transition-colors text-xs font-bold"
+                  title="Guida all'app"
+                >
+                  ?
+                </button>
+                {/* Feedback */}
+                <button
+                  onClick={() => setShowFeedback(true)}
+                  className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+                  title="Invia feedback"
+                >
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                  </svg>
+                </button>
+              </div>
             )}
           </div>
           {/* Sub-header */}
@@ -160,6 +212,65 @@ export function Header({ backHref, title, subtitle, right, clientView, clientId 
                 </button>
               </>
             )}
+          </div>
+        </div>
+      )}
+      {/* Modal guida */}
+      {showGuida && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center px-4 pb-4 sm:pb-0"
+          style={{ backgroundColor: "rgba(0,0,0,0.6)" }}
+          onClick={e => { if (e.target === e.currentTarget) setShowGuida(false); }}>
+          <div className="bg-white dark:bg-gray-900 rounded-2xl w-full max-w-sm shadow-xl overflow-hidden">
+            {/* Slide content */}
+            <div className="p-6 space-y-3 min-h-[260px] flex flex-col justify-center">
+              <div className="text-4xl">{GUIDA_SLIDES[guidaSlide].emoji}</div>
+              <h3 className="font-bold text-lg text-gray-900 dark:text-gray-100">
+                {GUIDA_SLIDES[guidaSlide].title}
+              </h3>
+              <p className="text-sm text-gray-500 dark:text-gray-400 leading-relaxed whitespace-pre-line">
+                {GUIDA_SLIDES[guidaSlide].text}
+              </p>
+            </div>
+
+            {/* Dots + navigation */}
+            <div className="px-6 pb-5 space-y-4">
+              {/* Dots */}
+              <div className="flex justify-center gap-1.5">
+                {GUIDA_SLIDES.map((_, i) => (
+                  <button key={i} onClick={() => setGuidaSlide(i)}
+                    className="w-1.5 h-1.5 rounded-full transition-all"
+                    style={{ backgroundColor: i === guidaSlide ? "#C0D738" : "#d1d5db" }}
+                  />
+                ))}
+              </div>
+              {/* Buttons */}
+              <div className="flex gap-2">
+                {guidaSlide > 0 ? (
+                  <button onClick={() => setGuidaSlide(s => s - 1)}
+                    className="flex-1 py-2.5 rounded-xl text-sm font-semibold border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+                    ← Indietro
+                  </button>
+                ) : (
+                  <button onClick={() => setShowGuida(false)}
+                    className="flex-1 py-2.5 rounded-xl text-sm font-semibold border border-gray-200 dark:border-gray-700 text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+                    Chiudi
+                  </button>
+                )}
+                {guidaSlide < GUIDA_SLIDES.length - 1 ? (
+                  <button onClick={() => setGuidaSlide(s => s + 1)}
+                    className="flex-1 py-2.5 rounded-xl text-sm font-bold transition-all"
+                    style={{ backgroundColor: "#D4E600", color: "#111" }}>
+                    Avanti →
+                  </button>
+                ) : (
+                  <button onClick={() => setShowGuida(false)}
+                    className="flex-1 py-2.5 rounded-xl text-sm font-bold transition-all"
+                    style={{ backgroundColor: "#D4E600", color: "#111" }}>
+                    Capito! ✓
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       )}

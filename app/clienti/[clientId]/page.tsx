@@ -701,10 +701,13 @@ function UpcomingSessionsCard({ clientId, isClientView }: {
               ? <div className="px-4 py-5 text-sm text-gray-400 text-center italic">Nessun allenamento in programma</div>
               : upcomingSessions.map(session => {
                   const isRescheduling = reschedulingDayId === session.dayId;
-                  const diffDays = session.dateStr
-                    ? Math.floor((new Date(session.dateStr + "T12:00:00").getTime() - today.getTime()) / 86400000)
-                    : 99;
-                  const clientBlocked = !coachView && diffDays < 2;
+                  // Blocca spostamento dopo mezzogiorno del giorno precedente
+                  const clientBlocked = !coachView && (() => {
+                    if (!session.dateStr) return true;
+                    const deadline = new Date(session.dateStr + "T12:00:00");
+                    deadline.setDate(deadline.getDate() - 1); // giorno prima a mezzogiorno
+                    return new Date() >= deadline;
+                  })();
                   const time = getSessionTime(session);
                   const isSessionToday = session.dateStr === todayStr;
 
@@ -734,7 +737,7 @@ function UpcomingSessionsCard({ clientId, isClientView }: {
                               </button>
                         )}
                         {clientBlocked && (
-                          <span className="text-[10px] text-gray-400 italic shrink-0">entro 2gg</span>
+                          <span className="text-[10px] text-gray-400 italic shrink-0">scrivi alla coach</span>
                         )}
                       </div>
                       {isRescheduling && (() => {
@@ -753,7 +756,7 @@ function UpcomingSessionsCard({ clientId, isClientView }: {
                                 type="date"
                                 autoFocus
                                 value={rescheduleDate}
-                                min={coachView ? undefined : localDateStr((() => { const d = new Date(); d.setDate(d.getDate() + 2); return d; })())}
+                                min={coachView ? undefined : localDateStr((() => { const d = new Date(); d.setDate(d.getDate() + (d.getHours() < 12 ? 1 : 2)); return d; })())}
                                 className="w-full text-xs border border-gray-200 dark:border-gray-600 rounded-lg px-2 py-1.5 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 dark:[color-scheme:dark]"
                                 onChange={e => checkRescheduleSlot(e.target.value)}
                               />
