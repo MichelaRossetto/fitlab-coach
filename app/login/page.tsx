@@ -14,11 +14,24 @@ export default function LoginPage() {
     e.preventDefault();
     setLoading(true);
     setError("");
-    const { error: err } = await supabase.auth.signInWithPassword({ email, password });
-    setLoading(false);
+    const { data, error: err } = await supabase.auth.signInWithPassword({ email, password });
     if (err) {
+      setLoading(false);
       setError("Email o password non corretti");
       return;
+    }
+    // Controlla se è un cliente → redirect diretto al suo profilo
+    const loggedEmail = data.user?.email;
+    if (loggedEmail) {
+      const { data: clientMatch } = await supabase
+        .from("clients")
+        .select("id")
+        .eq("email", loggedEmail)
+        .maybeSingle();
+      if (clientMatch) {
+        router.replace(`/clienti/${clientMatch.id}`);
+        return;
+      }
     }
     router.push("/");
     router.refresh();
