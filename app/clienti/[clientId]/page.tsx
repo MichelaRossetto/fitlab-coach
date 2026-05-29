@@ -263,16 +263,15 @@ function UnifiedProfileCard({ client, clientId, isClientView, returnTo, onClient
         </div>
       )}
 
-      {/* ── Sezione Orari (solo coach) ── */}
-      {!isClientView && (
-        <>
-          <button
-            onClick={() => {
-              setOpenSection(s => s === "orari" ? null : "orari");
-              if (editingSchedule) { setEditingSchedule(false); setSaveError(""); }
-            }}
-            className="w-full flex items-center justify-between px-4 py-2.5 border-t border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
-          >
+      {/* ── Sezione Orari ── */}
+      <>
+        <button
+          onClick={() => {
+            setOpenSection(s => s === "orari" ? null : "orari");
+            if (editingSchedule) { setEditingSchedule(false); setSaveError(""); }
+          }}
+          className="w-full flex items-center justify-between px-4 py-2.5 border-t border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
+        >
             <span className="text-xs font-semibold uppercase tracking-widest text-gray-400">Orari abituali</span>
             <div className="flex items-center gap-2">
               {selectedDays.length > 0 && openSection !== "orari" && (
@@ -309,10 +308,17 @@ function UnifiedProfileCard({ client, clientId, isClientView, returnTo, onClient
                         : <span className="italic text-gray-400">Nessun orario impostato</span>
                       }
                     </span>
-                    <button onClick={startEditSchedule} className="text-[11px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 underline underline-offset-2 shrink-0 ml-2">
-                      modifica
-                    </button>
+                    {!isClientView && (
+                      <button onClick={startEditSchedule} className="text-[11px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 underline underline-offset-2 shrink-0 ml-2">
+                        modifica
+                      </button>
+                    )}
                   </div>
+                  {isClientView && (
+                    <p className="text-[11px] text-gray-400 dark:text-gray-500 italic mt-1">
+                      Per modificare gli orari contatta la tua coach.
+                    </p>
+                  )}
                 </div>
               ) : (
                 <div className="px-4 py-3 space-y-4">
@@ -408,7 +414,6 @@ function UnifiedProfileCard({ client, clientId, isClientView, returnTo, onClient
             </div>
           )}
         </>
-      )}
 
       {/* ── Sezione Massimali ── */}
       <button
@@ -498,7 +503,7 @@ function UnifiedProfileCard({ client, clientId, isClientView, returnTo, onClient
                 </div>
               ))}
               <div className="flex gap-2 pt-1">
-                <button onClick={() => setEditingMaxes(false)} className="btn-secondary flex-1 text-sm">Annulla</button>
+                <button onClick={() => { setEditingMaxes(false); setOpenSection(null); }} className="btn-secondary flex-1 text-sm">Annulla</button>
                 <button onClick={handleSaveMaxes} className="btn-primary flex-1 text-sm" disabled={savingMaxes}>
                   {savingMaxes ? "Salvo..." : "Salva"}
                 </button>
@@ -1181,6 +1186,7 @@ export default function ClientPage() {
         title={`${client.name} ${client.surname}`}
         subtitle={isClientView ? "Il tuo piano" : "Profilo cliente"}
         clientView={isClientView}
+        clientId={isClientView ? clientId : undefined}
       />
 
       <main className="max-w-2xl mx-auto px-4 py-5 space-y-5">

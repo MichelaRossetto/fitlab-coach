@@ -3885,6 +3885,7 @@ export default function DayPage() {
         title={day.label}
         subtitle={`${clientName} · ${weekLabel}${dayDateLabel ? ` · ${dayDateLabel}` : ""}`}
         clientView={isClientView}
+        clientId={isClientView ? clientId : undefined}
         right={
           <div className="flex items-center gap-2">
             {!isClientView && (

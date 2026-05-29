@@ -469,6 +469,7 @@ export default function WeekPage() {
         title={`Settimana ${week.week_number}`}
         subtitle={`${clientName} · ${monthLabel}`}
         clientView={isClientView}
+        clientId={isClientView ? clientId : undefined}
         right={
           <div className="flex items-center gap-2">
             {days.length > 0 && (
