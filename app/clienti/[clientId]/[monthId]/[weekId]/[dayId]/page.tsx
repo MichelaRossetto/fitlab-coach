@@ -635,9 +635,10 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
                 </button>
               )}
             </div>
-            {readOnly && clientNoteOpen && (
+            {readOnly && (clientNoteOpen ? (
               <div className="pt-2 pb-1 space-y-2" onClick={e => e.stopPropagation()}>
                 <textarea
+                  autoFocus
                   rows={Math.max(2, draftClientNote.split("\n").length)}
                   placeholder="Scrivi una nota personale..."
                   value={draftClientNote}
@@ -650,7 +651,9 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
                   {localClientNote && <button onClick={handleDeleteClientNote} className="px-3 py-1.5 rounded-lg text-xs text-red-400 border border-red-100 dark:border-red-900/30">Cancella</button>}
                 </div>
               </div>
-            )}
+            ) : localClientNote ? (
+              <p className="text-[11px] text-lime-600 dark:text-lime-400 mt-1 leading-relaxed whitespace-pre-wrap">{localClientNote}</p>
+            ) : null)}
           </div>
           <DeleteBtn />
         </div>
@@ -678,9 +681,10 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
                 </button>
               )}
             </div>
-            {readOnly && clientNoteOpen && (
+            {readOnly && (clientNoteOpen ? (
               <div className="pt-2 pb-1 space-y-2" onClick={e => e.stopPropagation()}>
                 <textarea
+                  autoFocus
                   rows={Math.max(2, draftClientNote.split("\n").length)}
                   placeholder="Scrivi una nota personale..."
                   value={draftClientNote}
@@ -693,7 +697,9 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
                   {localClientNote && <button onClick={handleDeleteClientNote} className="px-3 py-1.5 rounded-lg text-xs text-red-400 border border-red-100 dark:border-red-900/30">Cancella</button>}
                 </div>
               </div>
-            )}
+            ) : localClientNote ? (
+              <p className="text-[11px] text-lime-600 dark:text-lime-400 mt-1 leading-relaxed whitespace-pre-wrap">{localClientNote}</p>
+            ) : null)}
           </div>
           <DeleteBtn />
         </div>
@@ -733,9 +739,10 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
                 </button>
               )}
             </div>
-            {readOnly && clientNoteOpen && (
+            {readOnly && (clientNoteOpen ? (
               <div className="pt-2 pb-1 space-y-2" onClick={e => e.stopPropagation()}>
                 <textarea
+                  autoFocus
                   rows={Math.max(2, draftClientNote.split("\n").length)}
                   placeholder="Scrivi una nota personale..."
                   value={draftClientNote}
@@ -748,7 +755,9 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
                   {localClientNote && <button onClick={handleDeleteClientNote} className="px-3 py-1.5 rounded-lg text-xs text-red-400 border border-red-100 dark:border-red-900/30">Cancella</button>}
                 </div>
               </div>
-            )}
+            ) : localClientNote ? (
+              <p className="text-[11px] text-lime-600 dark:text-lime-400 mt-1 leading-relaxed whitespace-pre-wrap">{localClientNote}</p>
+            ) : null)}
           </div>
           <DeleteBtn />
         </div>
@@ -820,9 +829,10 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
             )}
           </div>
           {maxes && <OneRMHint exerciseName={exercise.name} load={exercise.load ?? ""} maxes={maxes} />}
-          {readOnly && clientNoteOpen && (
+          {readOnly && (clientNoteOpen ? (
             <div className="pt-2 pb-1 space-y-2" onClick={e => e.stopPropagation()}>
               <textarea
+                autoFocus
                 rows={Math.max(2, draftClientNote.split("\n").length)}
                 placeholder="Scrivi una nota personale..."
                 value={draftClientNote}
@@ -835,7 +845,9 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
                 {localClientNote && <button onClick={handleDeleteClientNote} className="px-3 py-1.5 rounded-lg text-xs text-red-400 border border-red-100 dark:border-red-900/30">Cancella</button>}
               </div>
             </div>
-          )}
+          ) : localClientNote ? (
+            <p className="text-[11px] text-lime-600 dark:text-lime-400 mt-1 leading-relaxed whitespace-pre-wrap">{localClientNote}</p>
+          ) : null)}
         </div>
       </div>
       <div className="pl-4"><NoteToggle /></div>
