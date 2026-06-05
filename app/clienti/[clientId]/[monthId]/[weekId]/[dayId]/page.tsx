@@ -105,6 +105,8 @@ interface ExerciseRowProps {
   onSave: (id: string) => void;
   onToggleEdit: (id: string) => void;
   readOnly?: boolean;
+  clientNote?: string;
+  onSaveClientNote?: (exerciseName: string, note: string) => void;
 }
 
 const TOOL_SUFFIXES = ["Bar", "DB", "KB", "MB", "SB"] as const;
@@ -115,7 +117,7 @@ function parseLoadAndTool(load: string): { rawLoad: string; tool: string } {
   return { rawLoad: load, tool: "" };
 }
 
-function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, lib, editing, noteTag, exerciseNumber, maxes, onUpdate, onDelete, onSave, onToggleEdit, readOnly }: ExerciseRowProps) {
+function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, lib, editing, noteTag, exerciseNumber, maxes, onUpdate, onDelete, onSave, onToggleEdit, readOnly, clientNote, onSaveClientNote }: ExerciseRowProps) {
   // Detect cardio warmup: reps contiene "min"/"cal" oppure l'esercizio è rep-based senza load
   const isCardioWarmup = sectionType === "warmup" && !exercise.sets && !exercise.load;
   // Detect mobilità warmup: has sets + reps but no load
@@ -146,6 +148,26 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
   const [editProgLoads, setEditProgLoads] = useState<string[]>(isInitProg ? rawExLoad.split("|") : []);
   const [noteOpen, setNoteOpen] = useState(false);
   const [noteText, setNoteText] = useState(exercise.notes ?? "");
+
+  // ── Note personali cliente ─────────────────────────────────
+  const [localClientNote, setLocalClientNote] = useState(clientNote ?? "");
+  useEffect(() => { setLocalClientNote(clientNote ?? ""); }, [clientNote]);
+  const handleClientNoteBlur = () => {
+    if (onSaveClientNote) onSaveClientNote(exercise.name, localClientNote);
+  };
+
+  const ClientNoteField = () => readOnly ? (
+    <div className="pl-4 pt-1 pb-0.5">
+      <textarea
+        rows={localClientNote ? Math.max(1, localClientNote.split("\n").length) : 1}
+        placeholder="✏️ Note personali..."
+        value={localClientNote}
+        onChange={e => setLocalClientNote(e.target.value)}
+        onBlur={handleClientNoteBlur}
+        className="w-full text-xs text-gray-500 dark:text-gray-400 bg-transparent border-0 border-b border-dashed border-gray-200 dark:border-gray-700 focus:border-lime-400 dark:focus:border-lime-500 focus:outline-none resize-none placeholder-gray-300 dark:placeholder-gray-600 py-0.5 leading-relaxed transition-colors"
+      />
+    </div>
+  ) : null;
 
   const commitLoad = (rawLoad: string, tool: string) => {
     const effectiveMode = detectLoadMode(rawLoad) ?? "kg";
@@ -637,6 +659,7 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
           <DeleteBtn />
         </div>
         <div className="pl-4"><NoteToggle /></div>
+        <ClientNoteField />
       </div>
     );
   }
@@ -698,6 +721,7 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
         </div>
       </div>
       <div className="pl-4"><NoteToggle /></div>
+      <ClientNoteField />
     </div>
   );
 }
@@ -1274,9 +1298,11 @@ interface SectionBlockProps {
   onAddEx: (sectionId: string) => void;
   onClearSection: (sectionId: string) => void;
   readOnly?: boolean;
+  clientNotes?: Record<string, string>;
+  onSaveClientNote?: (exerciseName: string, note: string) => void;
 }
 
-function SectionBlock({ section, lib, editingExId, maxes, onToggleEdit, onUpdateEx, onDeleteEx, onSaveEx, onAddEx, onClearSection, readOnly }: SectionBlockProps) {
+function SectionBlock({ section, lib, editingExId, maxes, onToggleEdit, onUpdateEx, onDeleteEx, onSaveEx, onAddEx, onClearSection, readOnly, clientNotes, onSaveClientNote }: SectionBlockProps) {
   const [confirmClear, setConfirmClear] = useState(false);
   const libSuggestions: string[] = (() => {
     switch (section.section_type) {
@@ -1422,6 +1448,8 @@ function SectionBlock({ section, lib, editingExId, maxes, onToggleEdit, onUpdate
                       }}
                       onToggleEdit={onToggleEdit}
                       readOnly={readOnly}
+                      clientNote={clientNotes?.[ex.name]}
+                      onSaveClientNote={onSaveClientNote}
                     />
                   </div>
                 </React.Fragment>
@@ -3242,6 +3270,7 @@ export default function DayPage() {
   const [weekDateStart, setWeekDateStart] = useState<string | null>(null);
   const [scheduledDays, setScheduledDays] = useState<number[]>([]);
   const [isClientView, setIsClientView] = useState(false);
+  const [clientNotes, setClientNotes] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [editingExId, setEditingExId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -3315,6 +3344,18 @@ export default function DayPage() {
       if (c.email === userData.user?.email) {
         setIsClientView(true);
         document.documentElement.classList.add("dark");
+        // Carica note personali del cliente
+        const { data: notesData } = await supabase
+          .from("client_exercise_notes")
+          .select("exercise_name, note")
+          .eq("client_id", clientId);
+        if (notesData) {
+          const notesMap: Record<string, string> = {};
+          notesData.forEach((r: { exercise_name: string; note: string }) => {
+            notesMap[r.exercise_name] = r.note;
+          });
+          setClientNotes(notesMap);
+        }
       }
     }
     if (w) {
@@ -3467,6 +3508,14 @@ export default function DayPage() {
 
   const handleToggleEdit = (id: string) => {
     setEditingExId(prev => prev === id ? null : id);
+  };
+
+  const handleSaveClientNote = async (exerciseName: string, note: string) => {
+    setClientNotes(prev => ({ ...prev, [exerciseName]: note }));
+    await supabase.from("client_exercise_notes").upsert(
+      { client_id: clientId, exercise_name: exerciseName, note, updated_at: new Date().toISOString() },
+      { onConflict: "client_id,exercise_name" }
+    );
   };
 
   const handleBulkSave = async (bulkState: BulkState) => {
@@ -3945,6 +3994,8 @@ export default function DayPage() {
             onAddEx={handleAddExercise}
             onClearSection={handleClearSection}
             readOnly={isClientView}
+            clientNotes={isClientView ? clientNotes : undefined}
+            onSaveClientNote={isClientView ? handleSaveClientNote : undefined}
           />
         ))}
 
