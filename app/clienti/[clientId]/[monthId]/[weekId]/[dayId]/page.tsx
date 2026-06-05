@@ -54,6 +54,54 @@ const SECTION_COLORS: Record<SectionType, string> = {
   workout: "#EA580C",
 };
 
+// ─── Client Note Editor ──────────────────────────────────────
+// Componente a livello modulo (non dentro ExerciseRow) per evitare remount e cursore che resetta
+function ClientNoteEditor({ savedNote, onSave }: {
+  savedNote: string;
+  onSave: (note: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState(savedNote);
+  const ref = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => { setDraft(savedNote); }, [savedNote]);
+  useEffect(() => {
+    if (open) setTimeout(() => { ref.current?.focus(); ref.current?.setSelectionRange(draft.length, draft.length); }, 30);
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return (
+    <>
+      <button
+        onClick={e => { e.stopPropagation(); if (!open) setDraft(savedNote); setOpen(o => !o); }}
+        className="flex-shrink-0 text-[10px] font-medium transition-colors ml-1"
+        title="Note personali"
+      >
+        <span className={open || savedNote ? "text-lime-500 dark:text-lime-400" : "text-gray-300 dark:text-gray-600"}>✏️</span>
+      </button>
+      {open && (
+        <div className="w-full pt-2 pb-1 space-y-2" onClick={e => e.stopPropagation()}>
+          <textarea
+            ref={ref}
+            rows={3}
+            placeholder="Scrivi una nota personale..."
+            value={draft}
+            onChange={e => setDraft(e.target.value)}
+            className="w-full text-xs text-gray-600 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-2.5 py-2 resize-none placeholder-gray-400 dark:placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-lime-400 leading-relaxed"
+          />
+          <div className="flex gap-2">
+            <button onClick={() => { onSave(draft); setOpen(false); }} className="flex-1 py-1.5 rounded-lg text-xs font-bold" style={{ backgroundColor: "#D4E600", color: "#111" }}>Salva</button>
+            <button onClick={() => { setDraft(savedNote); setOpen(false); }} className="px-3 py-1.5 rounded-lg text-xs text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-700">Annulla</button>
+            {savedNote && <button onClick={() => { onSave(""); setOpen(false); }} className="px-3 py-1.5 rounded-lg text-xs text-red-400 border border-red-100 dark:border-red-900/30">Cancella</button>}
+          </div>
+        </div>
+      )}
+      {!open && savedNote && (
+        <p className="text-[11px] text-lime-600 dark:text-lime-400 mt-1 leading-relaxed whitespace-pre-wrap w-full">{savedNote}</p>
+      )}
+    </>
+  );
+}
+
 // ─── Sub-group tag helpers ────────────────────────────────────
 
 function tagNotes(tag: string, userNotes: string): string {
@@ -151,26 +199,10 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
 
   // ── Note personali cliente ─────────────────────────────────
   const [localClientNote, setLocalClientNote] = useState(clientNote ?? "");
-  const [clientNoteOpen, setClientNoteOpen] = useState(false);
-  const [draftClientNote, setDraftClientNote] = useState(clientNote ?? "");
-  const clientNoteRef = useRef<HTMLTextAreaElement>(null);
-  useEffect(() => { setLocalClientNote(clientNote ?? ""); setDraftClientNote(clientNote ?? ""); }, [clientNote]);
-  useEffect(() => { if (clientNoteOpen) { setTimeout(() => clientNoteRef.current?.focus(), 50); } }, [clientNoteOpen]);
-
-  const handleSaveClientNote = () => {
-    setLocalClientNote(draftClientNote);
-    if (onSaveClientNote) onSaveClientNote(exercise.name, draftClientNote);
-    setClientNoteOpen(false);
-  };
-  const handleCancelClientNote = () => {
-    setDraftClientNote(localClientNote);
-    setClientNoteOpen(false);
-  };
-  const handleDeleteClientNote = () => {
-    setDraftClientNote("");
-    setLocalClientNote("");
-    if (onSaveClientNote) onSaveClientNote(exercise.name, "");
-    setClientNoteOpen(false);
+  useEffect(() => { setLocalClientNote(clientNote ?? ""); }, [clientNote]);
+  const handleSaveClientNote = (note: string) => {
+    setLocalClientNote(note);
+    if (onSaveClientNote) onSaveClientNote(exercise.name, note);
   };
 
   const commitLoad = (rawLoad: string, tool: string) => {
@@ -624,42 +656,11 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
       <div className="px-4 py-2.5 border-b border-gray-100 last:border-0 dark:border-gray-700">
         <div className="flex items-center gap-2">
           <div className="w-1.5 h-1.5 rounded-full bg-gray-300 flex-shrink-0" />
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-1">
-              <div className="flex-1 min-w-0">{renderInline()}</div>
-              {readOnly && (
-                <button
-                  onClick={e => { e.stopPropagation(); setClientNoteOpen(o => !o); setDraftClientNote(localClientNote); }}
-                  className="flex-shrink-0 text-[10px] font-medium transition-colors ml-1"
-                  title="Note personali"
-                >
-                  <span className={clientNoteOpen || localClientNote ? "text-lime-500 dark:text-lime-400" : "text-gray-300 dark:text-gray-600"}>✏️</span>
-                </button>
-              )}
-            </div>
-            {readOnly && (clientNoteOpen ? (
-              <div className="pt-2 pb-1 space-y-2" onClick={e => e.stopPropagation()}>
-                <textarea
-                  ref={clientNoteRef}
-                  rows={3}
-                  placeholder="Scrivi una nota personale..."
-                  value={draftClientNote}
-                  onChange={e => setDraftClientNote(e.target.value)}
-                  className="w-full text-xs text-gray-600 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-2.5 py-2 resize-none placeholder-gray-400 dark:placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-lime-400 leading-relaxed"
-                />
-                <div className="flex gap-2">
-                  <button onClick={handleSaveClientNote} className="flex-1 py-1.5 rounded-lg text-xs font-bold" style={{ backgroundColor: "#D4E600", color: "#111" }}>Salva</button>
-                  <button onClick={handleCancelClientNote} className="px-3 py-1.5 rounded-lg text-xs text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-700">Annulla</button>
-                  {localClientNote && <button onClick={handleDeleteClientNote} className="px-3 py-1.5 rounded-lg text-xs text-red-400 border border-red-100 dark:border-red-900/30">Cancella</button>}
-                </div>
-              </div>
-            ) : localClientNote ? (
-              <p className="text-[11px] text-lime-600 dark:text-lime-400 mt-1 leading-relaxed whitespace-pre-wrap">{localClientNote}</p>
-            ) : null)}
-          </div>
+          <div className="flex-1 min-w-0">{renderInline()}</div>
           <DeleteBtn />
         </div>
         <div className="pl-3.5"><NoteToggle /></div>
+        {readOnly && onSaveClientNote && <div className="pl-3.5 mt-1" onClick={e => e.stopPropagation()}><ClientNoteEditor savedNote={localClientNote} onSave={handleSaveClientNote} /></div>}
       </div>
     );
   }
@@ -670,42 +671,13 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
         <div className="flex items-center gap-3">
           <div className="w-1.5 h-1.5 rounded-full bg-gray-300 flex-shrink-0" />
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-1">
-              <span className="font-medium text-sm text-gray-900 dark:text-gray-100">{exercise.name}</span>
-              {exercise.reps && <span className="text-sm text-gray-500 dark:text-gray-400"> · {exercise.reps}</span>}
-              {readOnly && (
-                <button
-                  onClick={e => { e.stopPropagation(); setClientNoteOpen(o => !o); setDraftClientNote(localClientNote); }}
-                  className="flex-shrink-0 text-[10px] font-medium transition-colors ml-1"
-                  title="Note personali"
-                >
-                  <span className={clientNoteOpen || localClientNote ? "text-lime-500 dark:text-lime-400" : "text-gray-300 dark:text-gray-600"}>✏️</span>
-                </button>
-              )}
-            </div>
-            {readOnly && (clientNoteOpen ? (
-              <div className="pt-2 pb-1 space-y-2" onClick={e => e.stopPropagation()}>
-                <textarea
-                  ref={clientNoteRef}
-                  rows={3}
-                  placeholder="Scrivi una nota personale..."
-                  value={draftClientNote}
-                  onChange={e => setDraftClientNote(e.target.value)}
-                  className="w-full text-xs text-gray-600 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-2.5 py-2 resize-none placeholder-gray-400 dark:placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-lime-400 leading-relaxed"
-                />
-                <div className="flex gap-2">
-                  <button onClick={handleSaveClientNote} className="flex-1 py-1.5 rounded-lg text-xs font-bold" style={{ backgroundColor: "#D4E600", color: "#111" }}>Salva</button>
-                  <button onClick={handleCancelClientNote} className="px-3 py-1.5 rounded-lg text-xs text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-700">Annulla</button>
-                  {localClientNote && <button onClick={handleDeleteClientNote} className="px-3 py-1.5 rounded-lg text-xs text-red-400 border border-red-100 dark:border-red-900/30">Cancella</button>}
-                </div>
-              </div>
-            ) : localClientNote ? (
-              <p className="text-[11px] text-lime-600 dark:text-lime-400 mt-1 leading-relaxed whitespace-pre-wrap">{localClientNote}</p>
-            ) : null)}
+            <span className="font-medium text-sm text-gray-900 dark:text-gray-100">{exercise.name}</span>
+            {exercise.reps && <span className="text-sm text-gray-500 dark:text-gray-400"> · {exercise.reps}</span>}
           </div>
           <DeleteBtn />
         </div>
         <div className="pl-4"><NoteToggle /></div>
+        {readOnly && onSaveClientNote && <div className="pl-4 mt-1" onClick={e => e.stopPropagation()}><ClientNoteEditor savedNote={localClientNote} onSave={handleSaveClientNote} /></div>}
       </div>
     );
   }
@@ -722,48 +694,19 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
         <div className="flex items-center gap-3">
           <div className="w-1.5 h-1.5 rounded-full bg-gray-300 flex-shrink-0" />
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-1">
-              <span className="font-medium text-sm text-gray-900 dark:text-gray-100">{exercise.name}</span>
-              {mobVm !== "rep" ? (
-                mobDisplayReps && <span className="text-sm text-gray-500 dark:text-gray-400"> · {mobDisplayReps}</span>
-              ) : (
-                exercise.sets && exercise.reps && (
-                  <span className="text-sm text-gray-500 dark:text-gray-400"> · {exercise.sets}×{exercise.reps}</span>
-                )
-              )}
-              {readOnly && (
-                <button
-                  onClick={e => { e.stopPropagation(); setClientNoteOpen(o => !o); setDraftClientNote(localClientNote); }}
-                  className="flex-shrink-0 text-[10px] font-medium transition-colors ml-1"
-                  title="Note personali"
-                >
-                  <span className={clientNoteOpen || localClientNote ? "text-lime-500 dark:text-lime-400" : "text-gray-300 dark:text-gray-600"}>✏️</span>
-                </button>
-              )}
-            </div>
-            {readOnly && (clientNoteOpen ? (
-              <div className="pt-2 pb-1 space-y-2" onClick={e => e.stopPropagation()}>
-                <textarea
-                  ref={clientNoteRef}
-                  rows={3}
-                  placeholder="Scrivi una nota personale..."
-                  value={draftClientNote}
-                  onChange={e => setDraftClientNote(e.target.value)}
-                  className="w-full text-xs text-gray-600 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-2.5 py-2 resize-none placeholder-gray-400 dark:placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-lime-400 leading-relaxed"
-                />
-                <div className="flex gap-2">
-                  <button onClick={handleSaveClientNote} className="flex-1 py-1.5 rounded-lg text-xs font-bold" style={{ backgroundColor: "#D4E600", color: "#111" }}>Salva</button>
-                  <button onClick={handleCancelClientNote} className="px-3 py-1.5 rounded-lg text-xs text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-700">Annulla</button>
-                  {localClientNote && <button onClick={handleDeleteClientNote} className="px-3 py-1.5 rounded-lg text-xs text-red-400 border border-red-100 dark:border-red-900/30">Cancella</button>}
-                </div>
-              </div>
-            ) : localClientNote ? (
-              <p className="text-[11px] text-lime-600 dark:text-lime-400 mt-1 leading-relaxed whitespace-pre-wrap">{localClientNote}</p>
-            ) : null)}
+            <span className="font-medium text-sm text-gray-900 dark:text-gray-100">{exercise.name}</span>
+            {mobVm !== "rep" ? (
+              mobDisplayReps && <span className="text-sm text-gray-500 dark:text-gray-400"> · {mobDisplayReps}</span>
+            ) : (
+              exercise.sets && exercise.reps && (
+                <span className="text-sm text-gray-500 dark:text-gray-400"> · {exercise.sets}×{exercise.reps}</span>
+              )
+            )}
           </div>
           <DeleteBtn />
         </div>
         <div className="pl-4"><NoteToggle /></div>
+        {readOnly && onSaveClientNote && <div className="pl-4 mt-1" onClick={e => e.stopPropagation()}><ClientNoteEditor savedNote={localClientNote} onSave={handleSaveClientNote} /></div>}
       </div>
     );
   }
@@ -820,36 +763,9 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
               </>
             )}
             <DeleteBtnInline />
-            {readOnly && (
-              <button
-                onClick={e => { e.stopPropagation(); setClientNoteOpen(o => !o); setDraftClientNote(localClientNote); }}
-                className="flex-shrink-0 text-[10px] font-medium transition-colors ml-1"
-                title="Note personali"
-              >
-                <span className={clientNoteOpen || localClientNote ? "text-lime-500 dark:text-lime-400" : "text-gray-300 dark:text-gray-600"}>✏️</span>
-              </button>
-            )}
           </div>
           {maxes && <OneRMHint exerciseName={exercise.name} load={exercise.load ?? ""} maxes={maxes} />}
-          {readOnly && (clientNoteOpen ? (
-            <div className="pt-2 pb-1 space-y-2" onClick={e => e.stopPropagation()}>
-              <textarea
-                autoFocus
-                rows={Math.max(2, draftClientNote.split("\n").length)}
-                placeholder="Scrivi una nota personale..."
-                value={draftClientNote}
-                onChange={e => setDraftClientNote(e.target.value)}
-                className="w-full text-xs text-gray-600 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-2.5 py-2 resize-none placeholder-gray-400 dark:placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-lime-400 leading-relaxed"
-              />
-              <div className="flex gap-2">
-                <button onClick={handleSaveClientNote} className="flex-1 py-1.5 rounded-lg text-xs font-bold" style={{ backgroundColor: "#D4E600", color: "#111" }}>Salva</button>
-                <button onClick={handleCancelClientNote} className="px-3 py-1.5 rounded-lg text-xs text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-700">Annulla</button>
-                {localClientNote && <button onClick={handleDeleteClientNote} className="px-3 py-1.5 rounded-lg text-xs text-red-400 border border-red-100 dark:border-red-900/30">Cancella</button>}
-              </div>
-            </div>
-          ) : localClientNote ? (
-            <p className="text-[11px] text-lime-600 dark:text-lime-400 mt-1 leading-relaxed whitespace-pre-wrap">{localClientNote}</p>
-          ) : null)}
+          {readOnly && onSaveClientNote && <div onClick={e => e.stopPropagation()}><ClientNoteEditor savedNote={localClientNote} onSave={handleSaveClientNote} /></div>}
         </div>
       </div>
       <div className="pl-4"><NoteToggle /></div>
