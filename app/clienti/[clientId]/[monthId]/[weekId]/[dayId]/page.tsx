@@ -151,20 +151,37 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
 
   // ── Note personali cliente ─────────────────────────────────
   const [localClientNote, setLocalClientNote] = useState(clientNote ?? "");
+  const [clientNoteOpen, setClientNoteOpen] = useState(false);
   useEffect(() => { setLocalClientNote(clientNote ?? ""); }, [clientNote]);
   const handleClientNoteBlur = () => {
     if (onSaveClientNote) onSaveClientNote(exercise.name, localClientNote);
   };
 
-  const ClientNoteField = () => readOnly ? (
+  // Bottone inline (va dentro la riga flex del nome esercizio)
+  const ClientNoteBtn = () => !readOnly ? null : (
+    <button
+      onClick={e => { e.stopPropagation(); setClientNoteOpen(o => !o); }}
+      className="flex-shrink-0 text-[10px] font-medium transition-colors ml-1"
+      title="Note personali"
+    >
+      {localClientNote && !clientNoteOpen
+        ? <span className="text-lime-500 dark:text-lime-400">✏️</span>
+        : <span className={clientNoteOpen ? "text-lime-500" : "text-gray-300 dark:text-gray-600 hover:text-gray-400 dark:hover:text-gray-500"}>✏️</span>
+      }
+    </button>
+  );
+
+  // Textarea espansa (va fuori dalla riga flex, sotto)
+  const ClientNoteExpand = () => (readOnly && clientNoteOpen) ? (
     <div className="pl-4 pt-1 pb-0.5">
       <textarea
-        rows={localClientNote ? Math.max(1, localClientNote.split("\n").length) : 1}
-        placeholder="✏️ Note personali..."
+        autoFocus
+        rows={Math.max(1, localClientNote.split("\n").length)}
+        placeholder="Scrivi una nota personale..."
         value={localClientNote}
         onChange={e => setLocalClientNote(e.target.value)}
         onBlur={handleClientNoteBlur}
-        className="w-full text-xs text-gray-500 dark:text-gray-400 bg-transparent border-0 border-b border-dashed border-gray-200 dark:border-gray-700 focus:border-lime-400 dark:focus:border-lime-500 focus:outline-none resize-none placeholder-gray-300 dark:placeholder-gray-600 py-0.5 leading-relaxed transition-colors"
+        className="w-full text-xs text-gray-600 dark:text-gray-300 bg-transparent border-0 border-b border-dashed border-gray-200 dark:border-gray-700 focus:border-lime-400 dark:focus:border-lime-500 focus:outline-none resize-none placeholder-gray-400 dark:placeholder-gray-600 py-0.5 leading-relaxed transition-colors"
       />
     </div>
   ) : null;
@@ -611,7 +628,13 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
       <div className="px-4 py-2.5 border-b border-gray-100 last:border-0 dark:border-gray-700">
         <div className="flex items-center gap-2">
           <div className="w-1.5 h-1.5 rounded-full bg-gray-300 flex-shrink-0" />
-          <div className="flex-1 min-w-0">{renderInline()}</div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-1">
+              <div className="flex-1 min-w-0">{renderInline()}</div>
+              <ClientNoteBtn />
+            </div>
+            <ClientNoteExpand />
+          </div>
           <DeleteBtn />
         </div>
         <div className="pl-3.5"><NoteToggle /></div>
@@ -625,8 +648,12 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
         <div className="flex items-center gap-3">
           <div className="w-1.5 h-1.5 rounded-full bg-gray-300 flex-shrink-0" />
           <div className="flex-1 min-w-0">
-            <span className="font-medium text-sm text-gray-900 dark:text-gray-100">{exercise.name}</span>
-            {exercise.reps && <span className="text-sm text-gray-500 dark:text-gray-400"> · {exercise.reps}</span>}
+            <div className="flex items-center gap-1">
+              <span className="font-medium text-sm text-gray-900 dark:text-gray-100">{exercise.name}</span>
+              {exercise.reps && <span className="text-sm text-gray-500 dark:text-gray-400"> · {exercise.reps}</span>}
+              <ClientNoteBtn />
+            </div>
+            <ClientNoteExpand />
           </div>
           <DeleteBtn />
         </div>
@@ -647,19 +674,22 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
         <div className="flex items-center gap-3">
           <div className="w-1.5 h-1.5 rounded-full bg-gray-300 flex-shrink-0" />
           <div className="flex-1 min-w-0">
-            <span className="font-medium text-sm text-gray-900 dark:text-gray-100">{exercise.name}</span>
-            {mobVm !== "rep" ? (
-              mobDisplayReps && <span className="text-sm text-gray-500 dark:text-gray-400"> · {mobDisplayReps}</span>
-            ) : (
-              exercise.sets && exercise.reps && (
-                <span className="text-sm text-gray-500 dark:text-gray-400"> · {exercise.sets}×{exercise.reps}</span>
-              )
-            )}
+            <div className="flex items-center gap-1">
+              <span className="font-medium text-sm text-gray-900 dark:text-gray-100">{exercise.name}</span>
+              {mobVm !== "rep" ? (
+                mobDisplayReps && <span className="text-sm text-gray-500 dark:text-gray-400"> · {mobDisplayReps}</span>
+              ) : (
+                exercise.sets && exercise.reps && (
+                  <span className="text-sm text-gray-500 dark:text-gray-400"> · {exercise.sets}×{exercise.reps}</span>
+                )
+              )}
+              <ClientNoteBtn />
+            </div>
+            <ClientNoteExpand />
           </div>
           <DeleteBtn />
         </div>
         <div className="pl-4"><NoteToggle /></div>
-        <ClientNoteField />
       </div>
     );
   }
@@ -716,12 +746,13 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
               </>
             )}
             <DeleteBtnInline />
+            <ClientNoteBtn />
           </div>
           {maxes && <OneRMHint exerciseName={exercise.name} load={exercise.load ?? ""} maxes={maxes} />}
+          <ClientNoteExpand />
         </div>
       </div>
       <div className="pl-4"><NoteToggle /></div>
-      <ClientNoteField />
     </div>
   );
 }
