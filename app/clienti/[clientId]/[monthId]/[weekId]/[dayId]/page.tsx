@@ -55,43 +55,54 @@ const SECTION_COLORS: Record<SectionType, string> = {
 };
 
 // ─── Client Note Editor ──────────────────────────────────────
-// Componente a livello modulo (non dentro ExerciseRow) per evitare remount e cursore che resetta
+// Usa textarea NON controllato (defaultValue + ref) per evitare il reset del cursore
 function ClientNoteEditor({ savedNote, onSave }: {
   savedNote: string;
   onSave: (note: string) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const [draft, setDraft] = useState(savedNote);
   const ref = useRef<HTMLTextAreaElement>(null);
 
-  useEffect(() => { setDraft(savedNote); }, [savedNote]);
-  useEffect(() => {
-    if (open) setTimeout(() => { ref.current?.focus(); ref.current?.setSelectionRange(draft.length, draft.length); }, 30);
-  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+  const handleOpen = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setOpen(o => !o);
+  };
+  const handleSave = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onSave(ref.current?.value ?? "");
+    setOpen(false);
+  };
+  const handleCancel = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setOpen(false);
+  };
+  const handleDelete = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onSave("");
+    setOpen(false);
+  };
 
   return (
     <>
-      <button
-        onClick={e => { e.stopPropagation(); if (!open) setDraft(savedNote); setOpen(o => !o); }}
-        className="flex-shrink-0 text-[10px] font-medium transition-colors ml-1"
-        title="Note personali"
-      >
+      <button onClick={handleOpen} className="flex-shrink-0 text-[10px] font-medium transition-colors ml-1" title="Note personali">
         <span className={open || savedNote ? "text-lime-500 dark:text-lime-400" : "text-gray-300 dark:text-gray-600"}>✏️</span>
       </button>
       {open && (
         <div className="w-full pt-2 pb-1 space-y-2" onClick={e => e.stopPropagation()}>
+          {/* key={savedNote} forza remount del textarea quando si apre, così defaultValue è aggiornato */}
           <textarea
+            key={savedNote}
             ref={ref}
             rows={3}
+            defaultValue={savedNote}
             placeholder="Scrivi una nota personale..."
-            value={draft}
-            onChange={e => setDraft(e.target.value)}
+            autoFocus
             className="w-full text-xs text-gray-600 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-2.5 py-2 resize-none placeholder-gray-400 dark:placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-lime-400 leading-relaxed"
           />
           <div className="flex gap-2">
-            <button onClick={() => { onSave(draft); setOpen(false); }} className="flex-1 py-1.5 rounded-lg text-xs font-bold" style={{ backgroundColor: "#D4E600", color: "#111" }}>Salva</button>
-            <button onClick={() => { setDraft(savedNote); setOpen(false); }} className="px-3 py-1.5 rounded-lg text-xs text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-700">Annulla</button>
-            {savedNote && <button onClick={() => { onSave(""); setOpen(false); }} className="px-3 py-1.5 rounded-lg text-xs text-red-400 border border-red-100 dark:border-red-900/30">Cancella</button>}
+            <button onClick={handleSave} className="flex-1 py-1.5 rounded-lg text-xs font-bold" style={{ backgroundColor: "#D4E600", color: "#111" }}>Salva</button>
+            <button onClick={handleCancel} className="px-3 py-1.5 rounded-lg text-xs text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-700">Annulla</button>
+            {savedNote && <button onClick={handleDelete} className="px-3 py-1.5 rounded-lg text-xs text-red-400 border border-red-100 dark:border-red-900/30">Cancella</button>}
           </div>
         </div>
       )}
