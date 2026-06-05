@@ -153,7 +153,9 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
   const [localClientNote, setLocalClientNote] = useState(clientNote ?? "");
   const [clientNoteOpen, setClientNoteOpen] = useState(false);
   const [draftClientNote, setDraftClientNote] = useState(clientNote ?? "");
+  const clientNoteRef = useRef<HTMLTextAreaElement>(null);
   useEffect(() => { setLocalClientNote(clientNote ?? ""); setDraftClientNote(clientNote ?? ""); }, [clientNote]);
+  useEffect(() => { if (clientNoteOpen) { setTimeout(() => clientNoteRef.current?.focus(), 50); } }, [clientNoteOpen]);
 
   const handleSaveClientNote = () => {
     setLocalClientNote(draftClientNote);
@@ -638,7 +640,7 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
             {readOnly && (clientNoteOpen ? (
               <div className="pt-2 pb-1 space-y-2" onClick={e => e.stopPropagation()}>
                 <textarea
-                  autoFocus
+                  ref={clientNoteRef}
                   rows={3}
                   placeholder="Scrivi una nota personale..."
                   value={draftClientNote}
@@ -684,7 +686,7 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
             {readOnly && (clientNoteOpen ? (
               <div className="pt-2 pb-1 space-y-2" onClick={e => e.stopPropagation()}>
                 <textarea
-                  autoFocus
+                  ref={clientNoteRef}
                   rows={3}
                   placeholder="Scrivi una nota personale..."
                   value={draftClientNote}
@@ -742,7 +744,7 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
             {readOnly && (clientNoteOpen ? (
               <div className="pt-2 pb-1 space-y-2" onClick={e => e.stopPropagation()}>
                 <textarea
-                  autoFocus
+                  ref={clientNoteRef}
                   rows={3}
                   placeholder="Scrivi una nota personale..."
                   value={draftClientNote}
