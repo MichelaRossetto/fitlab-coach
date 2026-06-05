@@ -639,7 +639,7 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
               <div className="pt-2 pb-1 space-y-2" onClick={e => e.stopPropagation()}>
                 <textarea
                   autoFocus
-                  rows={Math.max(2, draftClientNote.split("\n").length)}
+                  rows={3}
                   placeholder="Scrivi una nota personale..."
                   value={draftClientNote}
                   onChange={e => setDraftClientNote(e.target.value)}
@@ -685,7 +685,7 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
               <div className="pt-2 pb-1 space-y-2" onClick={e => e.stopPropagation()}>
                 <textarea
                   autoFocus
-                  rows={Math.max(2, draftClientNote.split("\n").length)}
+                  rows={3}
                   placeholder="Scrivi una nota personale..."
                   value={draftClientNote}
                   onChange={e => setDraftClientNote(e.target.value)}
@@ -743,7 +743,7 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
               <div className="pt-2 pb-1 space-y-2" onClick={e => e.stopPropagation()}>
                 <textarea
                   autoFocus
-                  rows={Math.max(2, draftClientNote.split("\n").length)}
+                  rows={3}
                   placeholder="Scrivi una nota personale..."
                   value={draftClientNote}
                   onChange={e => setDraftClientNote(e.target.value)}
