@@ -152,39 +152,24 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
   // ── Note personali cliente ─────────────────────────────────
   const [localClientNote, setLocalClientNote] = useState(clientNote ?? "");
   const [clientNoteOpen, setClientNoteOpen] = useState(false);
-  useEffect(() => { setLocalClientNote(clientNote ?? ""); }, [clientNote]);
-  const handleClientNoteBlur = () => {
-    if (onSaveClientNote) onSaveClientNote(exercise.name, localClientNote);
+  const [draftClientNote, setDraftClientNote] = useState(clientNote ?? "");
+  useEffect(() => { setLocalClientNote(clientNote ?? ""); setDraftClientNote(clientNote ?? ""); }, [clientNote]);
+
+  const handleSaveClientNote = () => {
+    setLocalClientNote(draftClientNote);
+    if (onSaveClientNote) onSaveClientNote(exercise.name, draftClientNote);
+    setClientNoteOpen(false);
   };
-
-  // Bottone inline (va dentro la riga flex del nome esercizio)
-  const ClientNoteBtn = () => !readOnly ? null : (
-    <button
-      onClick={e => { e.stopPropagation(); setClientNoteOpen(o => !o); }}
-      className="flex-shrink-0 text-[10px] font-medium transition-colors ml-1"
-      title="Note personali"
-    >
-      {localClientNote && !clientNoteOpen
-        ? <span className="text-lime-500 dark:text-lime-400">✏️</span>
-        : <span className={clientNoteOpen ? "text-lime-500" : "text-gray-300 dark:text-gray-600 hover:text-gray-400 dark:hover:text-gray-500"}>✏️</span>
-      }
-    </button>
-  );
-
-  // Textarea espansa (va fuori dalla riga flex, sotto)
-  const ClientNoteExpand = () => (readOnly && clientNoteOpen) ? (
-    <div className="pl-4 pt-1 pb-0.5">
-      <textarea
-        autoFocus
-        rows={Math.max(1, localClientNote.split("\n").length)}
-        placeholder="Scrivi una nota personale..."
-        value={localClientNote}
-        onChange={e => setLocalClientNote(e.target.value)}
-        onBlur={handleClientNoteBlur}
-        className="w-full text-xs text-gray-600 dark:text-gray-300 bg-transparent border-0 border-b border-dashed border-gray-200 dark:border-gray-700 focus:border-lime-400 dark:focus:border-lime-500 focus:outline-none resize-none placeholder-gray-400 dark:placeholder-gray-600 py-0.5 leading-relaxed transition-colors"
-      />
-    </div>
-  ) : null;
+  const handleCancelClientNote = () => {
+    setDraftClientNote(localClientNote);
+    setClientNoteOpen(false);
+  };
+  const handleDeleteClientNote = () => {
+    setDraftClientNote("");
+    setLocalClientNote("");
+    if (onSaveClientNote) onSaveClientNote(exercise.name, "");
+    setClientNoteOpen(false);
+  };
 
   const commitLoad = (rawLoad: string, tool: string) => {
     const effectiveMode = detectLoadMode(rawLoad) ?? "kg";
@@ -406,7 +391,7 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
       );
     }
 
-    const isBodyweight = noteTag === "bw";
+    const isBodyweight = sectionType !== "accessories" && noteTag === "bw";
     const exLibEdit = lib ? lookupExercise(lib, exercise.name) : undefined;
     const availVm = getAvailableVmModes(exLibEdit);
     // editUnitMode è lo stato già inizializzato dalla libreria/dati salvati — usato come vm attivo
@@ -546,6 +531,15 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
 
   const NoteToggle = () => {
     if (!noteOpen && !exercise.notes) return null;
+    // In vista cliente: mostra solo il testo della nota coach, non è modificabile
+    if (readOnly) {
+      if (!exercise.notes) return null;
+      return (
+        <div className="mt-1 text-[10px] text-gray-400 dark:text-gray-500 italic pl-0.5">
+          📌 {exercise.notes}
+        </div>
+      );
+    }
     return (
       <div className="mt-1.5" onClick={e => e.stopPropagation()}>
         {noteOpen ? (
@@ -631,9 +625,32 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-1">
               <div className="flex-1 min-w-0">{renderInline()}</div>
-              <ClientNoteBtn />
+              {readOnly && (
+                <button
+                  onClick={e => { e.stopPropagation(); setClientNoteOpen(o => !o); setDraftClientNote(localClientNote); }}
+                  className="flex-shrink-0 text-[10px] font-medium transition-colors ml-1"
+                  title="Note personali"
+                >
+                  <span className={clientNoteOpen || localClientNote ? "text-lime-500 dark:text-lime-400" : "text-gray-300 dark:text-gray-600"}>✏️</span>
+                </button>
+              )}
             </div>
-            <ClientNoteExpand />
+            {readOnly && clientNoteOpen && (
+              <div className="pt-2 pb-1 space-y-2" onClick={e => e.stopPropagation()}>
+                <textarea
+                  rows={Math.max(2, draftClientNote.split("\n").length)}
+                  placeholder="Scrivi una nota personale..."
+                  value={draftClientNote}
+                  onChange={e => setDraftClientNote(e.target.value)}
+                  className="w-full text-xs text-gray-600 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-2.5 py-2 resize-none placeholder-gray-400 dark:placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-lime-400 leading-relaxed"
+                />
+                <div className="flex gap-2">
+                  <button onClick={handleSaveClientNote} className="flex-1 py-1.5 rounded-lg text-xs font-bold" style={{ backgroundColor: "#D4E600", color: "#111" }}>Salva</button>
+                  <button onClick={handleCancelClientNote} className="px-3 py-1.5 rounded-lg text-xs text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-700">Annulla</button>
+                  {localClientNote && <button onClick={handleDeleteClientNote} className="px-3 py-1.5 rounded-lg text-xs text-red-400 border border-red-100 dark:border-red-900/30">Cancella</button>}
+                </div>
+              </div>
+            )}
           </div>
           <DeleteBtn />
         </div>
@@ -651,9 +668,32 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
             <div className="flex items-center gap-1">
               <span className="font-medium text-sm text-gray-900 dark:text-gray-100">{exercise.name}</span>
               {exercise.reps && <span className="text-sm text-gray-500 dark:text-gray-400"> · {exercise.reps}</span>}
-              <ClientNoteBtn />
+              {readOnly && (
+                <button
+                  onClick={e => { e.stopPropagation(); setClientNoteOpen(o => !o); setDraftClientNote(localClientNote); }}
+                  className="flex-shrink-0 text-[10px] font-medium transition-colors ml-1"
+                  title="Note personali"
+                >
+                  <span className={clientNoteOpen || localClientNote ? "text-lime-500 dark:text-lime-400" : "text-gray-300 dark:text-gray-600"}>✏️</span>
+                </button>
+              )}
             </div>
-            <ClientNoteExpand />
+            {readOnly && clientNoteOpen && (
+              <div className="pt-2 pb-1 space-y-2" onClick={e => e.stopPropagation()}>
+                <textarea
+                  rows={Math.max(2, draftClientNote.split("\n").length)}
+                  placeholder="Scrivi una nota personale..."
+                  value={draftClientNote}
+                  onChange={e => setDraftClientNote(e.target.value)}
+                  className="w-full text-xs text-gray-600 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-2.5 py-2 resize-none placeholder-gray-400 dark:placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-lime-400 leading-relaxed"
+                />
+                <div className="flex gap-2">
+                  <button onClick={handleSaveClientNote} className="flex-1 py-1.5 rounded-lg text-xs font-bold" style={{ backgroundColor: "#D4E600", color: "#111" }}>Salva</button>
+                  <button onClick={handleCancelClientNote} className="px-3 py-1.5 rounded-lg text-xs text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-700">Annulla</button>
+                  {localClientNote && <button onClick={handleDeleteClientNote} className="px-3 py-1.5 rounded-lg text-xs text-red-400 border border-red-100 dark:border-red-900/30">Cancella</button>}
+                </div>
+              </div>
+            )}
           </div>
           <DeleteBtn />
         </div>
@@ -683,9 +723,32 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
                   <span className="text-sm text-gray-500 dark:text-gray-400"> · {exercise.sets}×{exercise.reps}</span>
                 )
               )}
-              <ClientNoteBtn />
+              {readOnly && (
+                <button
+                  onClick={e => { e.stopPropagation(); setClientNoteOpen(o => !o); setDraftClientNote(localClientNote); }}
+                  className="flex-shrink-0 text-[10px] font-medium transition-colors ml-1"
+                  title="Note personali"
+                >
+                  <span className={clientNoteOpen || localClientNote ? "text-lime-500 dark:text-lime-400" : "text-gray-300 dark:text-gray-600"}>✏️</span>
+                </button>
+              )}
             </div>
-            <ClientNoteExpand />
+            {readOnly && clientNoteOpen && (
+              <div className="pt-2 pb-1 space-y-2" onClick={e => e.stopPropagation()}>
+                <textarea
+                  rows={Math.max(2, draftClientNote.split("\n").length)}
+                  placeholder="Scrivi una nota personale..."
+                  value={draftClientNote}
+                  onChange={e => setDraftClientNote(e.target.value)}
+                  className="w-full text-xs text-gray-600 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-2.5 py-2 resize-none placeholder-gray-400 dark:placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-lime-400 leading-relaxed"
+                />
+                <div className="flex gap-2">
+                  <button onClick={handleSaveClientNote} className="flex-1 py-1.5 rounded-lg text-xs font-bold" style={{ backgroundColor: "#D4E600", color: "#111" }}>Salva</button>
+                  <button onClick={handleCancelClientNote} className="px-3 py-1.5 rounded-lg text-xs text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-700">Annulla</button>
+                  {localClientNote && <button onClick={handleDeleteClientNote} className="px-3 py-1.5 rounded-lg text-xs text-red-400 border border-red-100 dark:border-red-900/30">Cancella</button>}
+                </div>
+              </div>
+            )}
           </div>
           <DeleteBtn />
         </div>
@@ -746,10 +809,33 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
               </>
             )}
             <DeleteBtnInline />
-            <ClientNoteBtn />
+            {readOnly && (
+              <button
+                onClick={e => { e.stopPropagation(); setClientNoteOpen(o => !o); setDraftClientNote(localClientNote); }}
+                className="flex-shrink-0 text-[10px] font-medium transition-colors ml-1"
+                title="Note personali"
+              >
+                <span className={clientNoteOpen || localClientNote ? "text-lime-500 dark:text-lime-400" : "text-gray-300 dark:text-gray-600"}>✏️</span>
+              </button>
+            )}
           </div>
           {maxes && <OneRMHint exerciseName={exercise.name} load={exercise.load ?? ""} maxes={maxes} />}
-          <ClientNoteExpand />
+          {readOnly && clientNoteOpen && (
+            <div className="pt-2 pb-1 space-y-2" onClick={e => e.stopPropagation()}>
+              <textarea
+                rows={Math.max(2, draftClientNote.split("\n").length)}
+                placeholder="Scrivi una nota personale..."
+                value={draftClientNote}
+                onChange={e => setDraftClientNote(e.target.value)}
+                className="w-full text-xs text-gray-600 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-2.5 py-2 resize-none placeholder-gray-400 dark:placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-lime-400 leading-relaxed"
+              />
+              <div className="flex gap-2">
+                <button onClick={handleSaveClientNote} className="flex-1 py-1.5 rounded-lg text-xs font-bold" style={{ backgroundColor: "#D4E600", color: "#111" }}>Salva</button>
+                <button onClick={handleCancelClientNote} className="px-3 py-1.5 rounded-lg text-xs text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-700">Annulla</button>
+                {localClientNote && <button onClick={handleDeleteClientNote} className="px-3 py-1.5 rounded-lg text-xs text-red-400 border border-red-100 dark:border-red-900/30">Cancella</button>}
+              </div>
+            </div>
+          )}
         </div>
       </div>
       <div className="pl-4"><NoteToggle /></div>
@@ -1441,7 +1527,9 @@ function SectionBlock({ section, lib, editingExId, maxes, onToggleEdit, onUpdate
             {exercisesWithNumbers.map((ex, idx) => {
               const showHeader = ex._group !== null &&
                 (idx === 0 || ex._group !== exercisesWithNumbers[idx - 1]._group) &&
-                section.section_type !== "strength";
+                section.section_type !== "strength" &&
+                section.section_type !== "warmup" &&
+                section.section_type !== "accessories";
               return (
                 <React.Fragment key={ex.id}>
                   {showHeader && (
@@ -1632,12 +1720,7 @@ interface BulkState {
     tag: string;
     label: string;
   };
-  accessori: {
-    bodyweight: AccessoriRow[];
-    manubri: AccessoriRow[];
-    kettlebell: AccessoriRow[];
-    bilanciere: AccessoriRow[];
-  };
+  accessori: AccessoriRow[];
   core: CoreRow[];
   workout: {
     blocks: WorkoutBlock[]; // 1, 2 or 3 selected workout types
@@ -1703,9 +1786,10 @@ function computeLoad(name: string, tool: string, exLib?: ExerciseLibrary): strin
   if (exLib) {
     if (exLib.default_load === "pct") return "80%";
     if (exLib.default_load === "rpe") return "RPE 7";
+    if (exLib.default_load === "kg")  return defaultLoadForTool(tool);
     if (exLib.load_pct) return "80%";
-    if (exLib.load_rpe) return "RPE 7";
     if (exLib.load_kg)  return defaultLoadForTool(tool);
+    if (exLib.load_rpe) return "RPE 7";
     return "-";
   }
   // Fallback: esercizi performance non trovati in libreria
@@ -1783,28 +1867,34 @@ function buildInitialState(lib: LibraryMap, dayLabel = ""): BulkState {
 
   return {
     warmup: {
-      cardio: pickPadded("WARMUP", "CARDIO", 2).map(name => {
+      cardio: pickPadded("WARMUP", "CARDIO", 1).map(name => {
         const ex = lib[libKey("WARMUP", "CARDIO")]?.find(e => e.name === name);
         const unitMode = (ex?.default_unit ?? "min") as "min" | "cal" | "rep";
         const tool = getDefaultTool(ex) || detectTool(name);
         return mkCardioRow(name, unitMode, tool);
       }),
-      mobilita: pickPadded("WARMUP", "MOBILITÀ", 4, dayFilter).map(n => mkMobilitaRow(n, lookupExercise(lib, n))),
+      mobilita: pickPadded("WARMUP", "MOBILITÀ", 2, dayFilter).map(n => mkMobilitaRow(n, lookupExercise(lib, n))),
       attivazione: getRandom(getLibNames(lib, "WARMUP", "ATTIVAZIONE", dayFilter), 2).map(n => mkMobilitaRow(n, lookupExercise(lib, n))),
     },
     forza: {
-      rows: pickPadded("FORZA", forza.libSub, 3).map(n => mkForzaRow(n, lookupExercise(lib, n))),
+      rows: pickPadded("FORZA", forza.libSub, 1).map(n => mkForzaRow(n, lookupExercise(lib, n))),
       libSub: forza.libSub,
       tag: forza.tag,
       label: forza.label,
     },
-    accessori: {
-      bodyweight: pickPadded("ACCESSORI", "BODYWEIGHT", 1).map(n => mkAccessoriRow(n, getDefaultTool(lookupExercise(lib, n)))),
-      manubri:    pickPadded("ACCESSORI", "MANUBRI",    3).map(n => mkAccessoriRow(n, getDefaultTool(lookupExercise(lib, n)) || "DB")),
-      kettlebell: pickPadded("ACCESSORI", "KETTLEBELL", 3).map(n => mkAccessoriRow(n, getDefaultTool(lookupExercise(lib, n)) || "KB")),
-      bilanciere: pickPadded("ACCESSORI", "BILANCIERE", 2).map(n => mkAccessoriRow(n, getDefaultTool(lookupExercise(lib, n)) || "Bar")),
-    },
-    core: pickPadded("CORE TRAINING", null, 4).map(n => mkCoreRow(n, lookupExercise(lib, n))),
+    accessori: (() => {
+      const allAcc = [
+        ...getLibNames(lib, "ACCESSORI", "BODYWEIGHT").map(n => ({ n, tool: getDefaultTool(lookupExercise(lib, n)) ?? "" })),
+        ...getLibNames(lib, "ACCESSORI", "MANUBRI").map(n => ({ n, tool: getDefaultTool(lookupExercise(lib, n)) || "DB" })),
+        ...getLibNames(lib, "ACCESSORI", "KETTLEBELL").map(n => ({ n, tool: getDefaultTool(lookupExercise(lib, n)) || "KB" })),
+        ...getLibNames(lib, "ACCESSORI", "BILANCIERE").map(n => ({ n, tool: getDefaultTool(lookupExercise(lib, n)) || "Bar" })),
+      ];
+      return getRandom(allAcc.map(x => x.n), 3).map(n => {
+        const entry = allAcc.find(x => x.n === n);
+        return mkAccessoriRow(n, entry?.tool ?? "", lookupExercise(lib, n));
+      });
+    })(),
+    core: pickPadded("CORE TRAINING", null, 3).map(n => mkCoreRow(n, lookupExercise(lib, n))),
     workout: (() => {
       const allWk = getLibNames(lib, "WORKOUT", null);
       const pickWk = (sub: string, n: number) => {
@@ -2374,10 +2464,7 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, maxes, onSave, onCan
     s.warmup.mobilita.forEach(r => { if (r.name.trim()) n++; });
     s.warmup.attivazione.forEach(r => { if (r.name.trim()) n++; });
     s.forza.rows.forEach(r => { if (r.name.trim()) n++; });
-    s.accessori.bodyweight.forEach(r => { if (r.name.trim()) n++; });
-    s.accessori.manubri.forEach(r => { if (r.name.trim()) n++; });
-    s.accessori.kettlebell.forEach(r => { if (r.name.trim()) n++; });
-    s.accessori.bilanciere.forEach(r => { if (r.name.trim()) n++; });
+    s.accessori.forEach(r => { if (r.name.trim()) n++; });
     s.core.forEach(r => { if (r.name.trim()) n++; });
     s.workout.blocks.forEach(b => b.rows.forEach(r => { if (r.name.trim()) n++; }));
     return n;
@@ -2422,21 +2509,19 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, maxes, onSave, onCan
       },
     }));
 
-  const updA = <K extends keyof BulkState["accessori"]>(sub: K, idx: number, patch: Partial<AccessoriRow>) =>
+  const updA = (idx: number, patch: Partial<AccessoriRow>) =>
     setState(prev => ({
       ...prev,
-      accessori: {
-        ...prev.accessori,
-        [sub]: (prev.accessori[sub] as AccessoriRow[]).map((r, i) => {
-          if (i !== idx) return r;
-          const next = { ...r, ...patch };
-          if ("name" in patch) {
-            const detected = detectTool(next.name);
-            if (detected) next.tool = detected; // name keyword wins; otherwise keep sub-type default
-          }
-          return next;
-        }),
-      },
+      accessori: prev.accessori.map((r, i) => {
+        if (i !== idx) return r;
+        const next = { ...r, ...patch };
+        if ("name" in patch) {
+          const ex = lookupExercise(lib, next.name);
+          const detected = getDefaultTool(ex) || detectTool(next.name);
+          if (detected) next.tool = detected;
+        }
+        return next;
+      }),
     }));
 
   const updC = (idx: number, patch: Partial<CoreRow>) =>
@@ -2473,6 +2558,33 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, maxes, onSave, onCan
       ...prev,
       warmup: { ...prev.warmup, [sub]: [...prev.warmup[sub], sub === "cardio" ? mkCardioRow() : mkMobilitaRow()] },
     }));
+
+  const addWarmupRandom = () => {
+    const cardioNames = getLibNames(lib, "WARMUP", "CARDIO");
+    const mobNames    = getLibNames(lib, "WARMUP", "MOBILITÀ", mobFilter ?? null);
+    const attNames    = getLibNames(lib, "WARMUP", "ATTIVAZIONE", mobFilter ?? null);
+    const usedCardio  = new Set(state.warmup.cardio.map(r => r.name));
+    const usedMob     = new Set([...state.warmup.mobilita.map(r => r.name), ...state.warmup.attivazione.map(r => r.name)]);
+    const freeCardio  = cardioNames.filter(n => !usedCardio.has(n));
+    const freeMob     = mobNames.filter(n => !usedMob.has(n));
+    const freeAtt     = attNames.filter(n => !usedMob.has(n));
+    const allFree     = [
+      ...freeCardio.map(n => ({ n, sub: "cardio" as const })),
+      ...freeMob.map(n => ({ n, sub: "mobilita" as const })),
+      ...freeAtt.map(n => ({ n, sub: "attivazione" as const })),
+    ];
+    if (allFree.length === 0) { addW("mobilita"); return; }
+    const pick = allFree[Math.floor(Math.random() * allFree.length)];
+    if (pick.sub === "cardio") {
+      const ex = lookupExercise(lib, pick.n);
+      const unitMode = (ex?.default_unit ?? "min") as "min" | "cal" | "rep";
+      const tool = getDefaultTool(ex) || detectTool(pick.n);
+      setState(prev => ({ ...prev, warmup: { ...prev.warmup, cardio: [...prev.warmup.cardio, mkCardioRow(pick.n, unitMode, tool)] } }));
+    } else {
+      const row = mkMobilitaRow(pick.n, lookupExercise(lib, pick.n));
+      setState(prev => ({ ...prev, warmup: { ...prev.warmup, [pick.sub]: [...prev.warmup[pick.sub], row] } }));
+    }
+  };
   const removeW = (sub: "cardio" | "mobilita" | "attivazione", idx: number) =>
     setState(prev => ({
       ...prev,
@@ -2510,18 +2622,23 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, maxes, onSave, onCan
   const removeF = (idx: number) =>
     setState(prev => ({ ...prev, forza: { ...prev.forza, rows: prev.forza.rows.filter((_, i) => i !== idx) } }));
 
-  const addA = (sub: keyof BulkState["accessori"]) => {
-    const defaultTool: string = sub === "manubri" ? "DB" : sub === "kettlebell" ? "KB" : sub === "bilanciere" ? "Bar" : "";
+  const addA = () => {
+    const allAcc = [
+      ...getLibNames(lib, "ACCESSORI", "BODYWEIGHT").map(n => ({ n, tool: getDefaultTool(lookupExercise(lib, n)) ?? "" })),
+      ...getLibNames(lib, "ACCESSORI", "MANUBRI").map(n => ({ n, tool: getDefaultTool(lookupExercise(lib, n)) || "DB" })),
+      ...getLibNames(lib, "ACCESSORI", "KETTLEBELL").map(n => ({ n, tool: getDefaultTool(lookupExercise(lib, n)) || "KB" })),
+      ...getLibNames(lib, "ACCESSORI", "BILANCIERE").map(n => ({ n, tool: getDefaultTool(lookupExercise(lib, n)) || "Bar" })),
+    ];
+    const used = new Set(state.accessori.map(r => r.name));
+    const pool = allAcc.filter(x => !used.has(x.n));
+    const pick = pool.length ? pool[Math.floor(Math.random() * pool.length)] : { n: "", tool: "" };
     setState(prev => ({
       ...prev,
-      accessori: { ...prev.accessori, [sub]: [...(prev.accessori[sub] as AccessoriRow[]), mkAccessoriRow("", defaultTool)] },
+      accessori: [...prev.accessori, mkAccessoriRow(pick.n, pick.tool, lookupExercise(lib, pick.n))],
     }));
   };
-  const removeA = (sub: keyof BulkState["accessori"], idx: number) =>
-    setState(prev => ({
-      ...prev,
-      accessori: { ...prev.accessori, [sub]: (prev.accessori[sub] as AccessoriRow[]).filter((_, i) => i !== idx) },
-    }));
+  const removeA = (idx: number) =>
+    setState(prev => ({ ...prev, accessori: prev.accessori.filter((_, i) => i !== idx) }));
 
   const addCoreRow = () =>
     setState(prev => ({ ...prev, core: [...prev.core, mkCoreRow()] }));
@@ -2620,7 +2737,6 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, maxes, onSave, onCan
 
   const renderWarmup = () => (
     <div className="space-y-1">
-      <SubgroupLabel label="Cardio" color={color} />
       {state.warmup.cardio.map((row, i) => {
         const exLib = lookupExercise(lib, row.name);
         // Se l'esercizio è in libreria → usa i suoi flag esatti
@@ -2710,9 +2826,8 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, maxes, onSave, onCan
           </div>
         );
       })}
-      {addBtn(() => addW("cardio"), "aggiungi cardio")}
+      {/* bottone unico aggiunto in fondo */}
 
-      <SubgroupLabel label={`Mobilità${mobSubLabel}`} color={color} />
       {state.warmup.mobilita.map((row, i) => {
         const exLib = lookupExercise(lib, row.name);
         const vm = getVolumeMode(exLib);
@@ -2766,9 +2881,7 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, maxes, onSave, onCan
           </div>
         );
       })}
-      {addBtn(() => addW("mobilita"), "aggiungi mobilità")}
 
-      <SubgroupLabel label={`Attivazione${mobSubLabel}`} color={color} />
       {state.warmup.attivazione.map((row, i) => {
         const exLib = lookupExercise(lib, row.name);
         const vm = getVolumeMode(exLib);
@@ -2824,7 +2937,7 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, maxes, onSave, onCan
           </div>
         );
       })}
-      {addBtn(() => addW("attivazione"), "aggiungi attivazione")}
+      {addBtn(addWarmupRandom, "aggiungi esercizio")}
     </div>
   );
 
@@ -2953,10 +3066,9 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, maxes, onSave, onCan
     </div>
   );
 
-  const accessoriGroup = (label: string, sub: keyof BulkState["accessori"], libSub: string) => (
-    <>
-      <SubgroupLabel label={label} color={color} />
-      {(state.accessori[sub] as AccessoriRow[]).map((row, i) => {
+  const renderAccessori = () => (
+    <div className="space-y-1">
+      {state.accessori.map((row, i) => {
         const exLib = lookupExercise(lib, row.name);
         return (
           <div key={i} className="p-2.5 bg-gray-50 dark:bg-gray-700/40 rounded-xl space-y-1.5">
@@ -2968,19 +3080,24 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, maxes, onSave, onCan
                   const tool = getDefaultTool(ex) || detectTool(v);
                   const load = computeLoad(v, tool, ex);
                   const newVm = getVolumeMode(ex);
-                  updA(sub, i, {
+                  updA(i, {
                     name: v, tool, load, unitMode: newVm,
                     sets: newVm === "rep" ? "3" : "",
                     reps: newVm === "min" ? "10 min" : newVm === "cal" ? "50 cal" : "12",
                     rest: newVm === "rep" ? "60" : "",
                   });
                 }}
-                suggestions={getLibNames(lib, "ACCESSORI", libSub)}
+                suggestions={[
+                  ...getLibNames(lib, "ACCESSORI", "BODYWEIGHT"),
+                  ...getLibNames(lib, "ACCESSORI", "MANUBRI"),
+                  ...getLibNames(lib, "ACCESSORI", "KETTLEBELL"),
+                  ...getLibNames(lib, "ACCESSORI", "BILANCIERE"),
+                ]}
                 globalSuggestions={getAllLibNames(lib)}
                 strict
-                placeholder={`Esercizio ${label.toLowerCase()}`}
+                placeholder="Esercizio accessori"
               />
-              {removeBtn(() => removeA(sub, i))}
+              {removeBtn(() => removeA(i))}
             </div>
             <ExerciseFields
               name={row.name} exLib={exLib}
@@ -2989,22 +3106,13 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, maxes, onSave, onCan
               unitMode={row.unitMode}
               maxes={maxes}
               setsPlaceholder="3" repsPlaceholder="12" restPlaceholder="60"
-              onChange={updates => updA(sub, i, updates)}
+              onChange={updates => updA(i, updates)}
             />
-            <BulkNoteField value={row.notes} onChange={v => updA(sub, i, { notes: v })} />
+            <BulkNoteField value={row.notes} onChange={v => updA(i, { notes: v })} />
           </div>
         );
       })}
-      {addBtn(() => addA(sub), `aggiungi ${label.toLowerCase()}`)}
-    </>
-  );
-
-  const renderAccessori = () => (
-    <div className="space-y-1">
-      {accessoriGroup("Bodyweight", "bodyweight", "BODYWEIGHT")}
-      {accessoriGroup("Manubri", "manubri", "MANUBRI")}
-      {accessoriGroup("Kettlebell", "kettlebell", "KETTLEBELL")}
-      {accessoriGroup("Bilanciere", "bilanciere", "BILANCIERE")}
+      {addBtn(addA, "aggiungi esercizio")}
     </div>
   );
 
@@ -3680,25 +3788,18 @@ export default function DayPage() {
         return r.load;
       };
 
-      const pushAcc = (rows: AccessoriRow[], groupTag: string, includeLoad = true) => {
-        rows.filter(r => r.name.trim()).forEach(r => {
-          accRows.push({
-            section_id: accessoriSection.id,
-            name: r.name.trim(),
-            sets: r.sets?.trim() || null,
-            reps: r.reps?.trim() || null,
-            load: includeLoad ? buildAccLoad(r) : null,
-            rest_time: r.rest ? `${r.rest} sec` : null,
-            notes: tagNotes(groupTag, r.notes ?? ""),
-            order_index: accRows.length,
-          });
+      bulkState.accessori.filter(r => r.name.trim()).forEach(r => {
+        accRows.push({
+          section_id: accessoriSection.id,
+          name: r.name.trim(),
+          sets: r.sets?.trim() || null,
+          reps: r.reps?.trim() || null,
+          load: buildAccLoad(r),
+          rest_time: r.rest ? `${r.rest} sec` : null,
+          notes: r.notes?.trim() || null,
+          order_index: accRows.length,
         });
-      };
-
-      pushAcc(bulkState.accessori.bodyweight, "bw", false);
-      pushAcc(bulkState.accessori.manubri, "man");
-      pushAcc(bulkState.accessori.kettlebell, "kb");
-      pushAcc(bulkState.accessori.bilanciere, "bar");
+      });
 
       toInsert.push(...accRows);
     }
