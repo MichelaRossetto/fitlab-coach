@@ -55,13 +55,16 @@ const SECTION_COLORS: Record<SectionType, string> = {
 };
 
 // ─── Client Note Editor ──────────────────────────────────────
-// Usa textarea NON controllato (defaultValue + ref) per evitare il reset del cursore
-function ClientNoteEditor({ savedNote, onSave }: {
+// React.memo con comparatore custom: ri-renderizza SOLO se savedNote cambia,
+// ignorando onSave (nuova referenza ad ogni render del parent) per evitare rimount del textarea
+const ClientNoteEditor = React.memo(function ClientNoteEditor({ savedNote, onSave }: {
   savedNote: string;
   onSave: (note: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLTextAreaElement>(null);
+  const onSaveRef = useRef(onSave);
+  useEffect(() => { onSaveRef.current = onSave; }, [onSave]);
 
   const handleOpen = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -69,7 +72,7 @@ function ClientNoteEditor({ savedNote, onSave }: {
   };
   const handleSave = (e: React.MouseEvent) => {
     e.stopPropagation();
-    onSave(ref.current?.value ?? "");
+    onSaveRef.current(ref.current?.value ?? "");
     setOpen(false);
   };
   const handleCancel = (e: React.MouseEvent) => {
@@ -78,7 +81,7 @@ function ClientNoteEditor({ savedNote, onSave }: {
   };
   const handleDelete = (e: React.MouseEvent) => {
     e.stopPropagation();
-    onSave("");
+    onSaveRef.current("");
     setOpen(false);
   };
 
@@ -111,7 +114,7 @@ function ClientNoteEditor({ savedNote, onSave }: {
       )}
     </>
   );
-}
+}, (prev, next) => prev.savedNote === next.savedNote); // ignora cambi di onSave reference
 
 // ─── Sub-group tag helpers ────────────────────────────────────
 
