@@ -107,6 +107,10 @@ export default function MonthPage() {
   const [showNewWeek, setShowNewWeek] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [editingWeekId, setEditingWeekId] = useState<string | null>(null);
+  const [editDateStart, setEditDateStart] = useState("");
+  const [editDateEnd, setEditDateEnd] = useState("");
+  const [savingWeek, setSavingWeek] = useState(false);
 
   const fetch = useCallback(async () => {
     setLoading(true);
@@ -141,6 +145,27 @@ export default function MonthPage() {
   }, [monthId, clientId]);
 
   useEffect(() => { fetch(); }, [fetch]);
+
+  const handleEditWeek = (week: TrainingWeek, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setEditingWeekId(week.id);
+    setEditDateStart(week.date_start ?? "");
+    setEditDateEnd(week.date_end ?? "");
+  };
+
+  const handleSaveWeekDates = async (weekId: string) => {
+    setSavingWeek(true);
+    await supabase.from("training_weeks").update({
+      date_start: editDateStart || null,
+      date_end: editDateEnd || null,
+    }).eq("id", weekId);
+    // Azzera i day_date così vengono ricalcolati dalle nuove date
+    await supabase.from("training_days").update({ day_date: null }).eq("week_id", weekId);
+    setSavingWeek(false);
+    setEditingWeekId(null);
+    fetch();
+  };
 
   const handleDeleteMonth = async () => {
     setDeleting(true);
@@ -204,33 +229,73 @@ export default function MonthPage() {
           ) : (
             <div className="space-y-3">
               {weeks.map(week => (
-                <Link
-                  key={week.id}
-                  href={`/clienti/${clientId}/${monthId}/${week.id}`}
-                  className="card p-4 flex items-center justify-between hover:bg-gray-50 transition-colors group dark:hover:bg-gray-700"
-                >
-                  <div className="flex items-center gap-3">
-                    <div
-                      className="w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm flex-shrink-0"
-                      style={{ backgroundColor: "#D4E600", color: "#111" }}
-                    >
-                      S{week.week_number}
-                    </div>
-                    <div>
-                      <div className="font-semibold text-gray-900 dark:text-gray-100">Settimana {week.week_number}</div>
-                      {(week.date_start || week.date_end) && (
-                        <div className="text-sm text-gray-400 mt-0.5">
-                          {formatDate(week.date_start)} — {formatDate(week.date_end)}
+                <div key={week.id} className="card overflow-hidden">
+                  {editingWeekId === week.id ? (
+                    // ── Modalità edit date ──────────────────────
+                    <div className="p-4 space-y-3">
+                      <div className="flex items-center gap-3 mb-1">
+                        <div className="w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm flex-shrink-0" style={{ backgroundColor: "#D4E600", color: "#111" }}>
+                          S{week.week_number}
                         </div>
-                      )}
-                      {week.notes && <div className="text-xs text-gray-400 mt-0.5">{week.notes}</div>}
+                        <span className="font-semibold text-gray-900 dark:text-gray-100">Settimana {week.week_number}</span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="label">Dal</label>
+                          <input className="input" type="date" value={editDateStart} onChange={e => setEditDateStart(e.target.value)} />
+                        </div>
+                        <div>
+                          <label className="label">Al</label>
+                          <input className="input" type="date" value={editDateEnd} onChange={e => setEditDateEnd(e.target.value)} />
+                        </div>
+                      </div>
+                      <div className="flex gap-2 pt-1">
+                        <button className="btn-secondary flex-1 text-sm" onClick={() => setEditingWeekId(null)}>Annulla</button>
+                        <button className="btn-primary flex-1 text-sm" disabled={savingWeek} onClick={() => handleSaveWeekDates(week.id)}>
+                          {savingWeek ? "Salvo..." : "Salva"}
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                  <svg className="text-gray-300 group-hover:text-gray-500 transition-colors"
-                    width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M9 18l6-6-6-6"/>
-                  </svg>
-                </Link>
+                  ) : (
+                    // ── Vista normale ───────────────────────────
+                    <Link
+                      href={`/clienti/${clientId}/${monthId}/${week.id}`}
+                      className="p-4 flex items-center justify-between hover:bg-gray-50 transition-colors group dark:hover:bg-gray-700 block"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm flex-shrink-0" style={{ backgroundColor: "#D4E600", color: "#111" }}>
+                          S{week.week_number}
+                        </div>
+                        <div>
+                          <div className="font-semibold text-gray-900 dark:text-gray-100">Settimana {week.week_number}</div>
+                          {(week.date_start || week.date_end) && (
+                            <div className="text-sm text-gray-400 mt-0.5">
+                              {formatDate(week.date_start)} — {formatDate(week.date_end)}
+                            </div>
+                          )}
+                          {week.notes && <div className="text-xs text-gray-400 mt-0.5">{week.notes}</div>}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {!isClientView && (
+                          <button
+                            onClick={e => handleEditWeek(week, e)}
+                            className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-300 hover:text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                            title="Modifica date"
+                          >
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                            </svg>
+                          </button>
+                        )}
+                        <svg className="text-gray-300 group-hover:text-gray-500 transition-colors" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M9 18l6-6-6-6"/>
+                        </svg>
+                      </div>
+                    </Link>
+                  )}
+                </div>
               ))}
             </div>
           )}
