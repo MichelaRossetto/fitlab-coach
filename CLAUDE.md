@@ -24,26 +24,7 @@ Informazioni qualitative che non entrano nei campi strutturati (intensità, vari
 ### Regola 4 — Esercizio con "rack" nel nome
 Se il nome contiene la parola "rack" → di default è con bilanciere (barbell), a meno che non sia specificato diversamente.
 
-### Regola 5 — Tag warmup
-- Cardio → `#cardio#`
-- Mobilità → `#mob#`
-- Attivazione → `#att#`
-
-### Regola 6 — Tag forza
-- Lower Body → `#lower#`
-- Upper Body → `#upper#`
-- Full Body → `#full#`
-
-### Regola 7 — Tag workout
-- AMRAP → `#amrap#`
-- EMOM → `#emom#`
-- For Time → `#fortime#`
-- Cardio LISS → `#cardioliss#`
-
-### Regola 8 — Peso con attrezzo
-Formato carico: `"20 KB"`, `"12.5 DB"`, `"RPE 7"`, `"80%"` — sempre con il suffisso dell'attrezzo se specificato.
-
-### Regola 9 — Assunzioni da segnalare
+### Regola 5 — Assunzioni da segnalare
 Segnalare esplicitamente quando si fa un'assunzione su:
 - Quale esercizio usare tra opzioni alternative (es. "Row o SkillMill")
 - Quale attrezzo usare se non specificato
