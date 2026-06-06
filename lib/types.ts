@@ -209,7 +209,7 @@ export interface ClientMax {
 export const PERFORMANCE_EXERCISES: Record<string, string[]> = {
   "Lower Body": ["Back Squat", "Deadlift", "Sumo Deadlift", "Front Squat", "Overhead Squat"],
   "Upper Body": ["Bench Press", "Press", "Push Press"],
-  "Full Body":  ["Clean & Jerk", "Power Clean", "Hang Power Snatch", "Hang Power Clean", "Push Jerk", "Thruster"],
+  "Full Body":  ["Clean & Jerk", "Power Clean", "Hang Power Snatch", "Hang Power Clean", "Push Jerk", "Split Jerk", "Thruster"],
 };
 
 export const ALL_PERFORMANCE_EXERCISES = Object.values(PERFORMANCE_EXERCISES).flat();
