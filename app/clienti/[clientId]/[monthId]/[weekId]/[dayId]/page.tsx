@@ -61,8 +61,13 @@ const ClientNoteEditor = React.memo(function ClientNoteEditor({ savedNote, onSav
   savedNote: string;
   onSave: (note: string) => void;
 }) {
+  console.log("🔵 ClientNoteEditor RENDER");
   const [open, setOpen] = useState(false);
   const [displayNote, setDisplayNote] = useState(savedNote);
+  useEffect(() => {
+    console.log("🟢 ClientNoteEditor MOUNT");
+    return () => { console.log("🔴 ClientNoteEditor UNMOUNT"); };
+  }, []);
   const ref = useRef<HTMLTextAreaElement>(null);
   // Refs per accedere ai valori aggiornati senza causare re-render
   const onSaveRef = useRef(onSave);
