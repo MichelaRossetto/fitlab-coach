@@ -61,13 +61,8 @@ const ClientNoteEditor = React.memo(function ClientNoteEditor({ savedNote, onSav
   savedNote: string;
   onSave: (note: string) => void;
 }) {
-  console.log("🔵 ClientNoteEditor RENDER");
   const [open, setOpen] = useState(false);
   const [displayNote, setDisplayNote] = useState(savedNote);
-  useEffect(() => {
-    console.log("🟢 ClientNoteEditor MOUNT");
-    return () => { console.log("🔴 ClientNoteEditor UNMOUNT"); };
-  }, []);
   const ref = useRef<HTMLTextAreaElement>(null);
   // Refs per accedere ai valori aggiornati senza causare re-render
   const onSaveRef = useRef(onSave);
@@ -590,8 +585,10 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
   }
 
   // Read-only view — inline note editor
+  const noteRef = useRef<HTMLTextAreaElement>(null);
   const handleSaveNote = () => {
-    const full = noteTag ? tagNotes(noteTag, noteText) : (noteText.trim() || null);
+    const currentText = noteRef.current?.value ?? noteText;
+    const full = noteTag ? tagNotes(noteTag, currentText) : (currentText.trim() || null);
     onUpdate(exercise.id, "notes", full ?? "");
     onSave(exercise.id);
     setNoteOpen(false);
@@ -613,16 +610,16 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
         {noteOpen ? (
           <div className="flex gap-2 items-start">
             <textarea
+              ref={noteRef}
               autoFocus
               rows={2}
               className="input text-xs flex-1 resize-none"
               placeholder="Aggiungi nota..."
-              value={noteText}
-              onChange={e => setNoteText(e.target.value)}
+              defaultValue={noteText}
             />
             <div className="flex flex-col gap-1">
               <button onClick={handleSaveNote} className="text-[10px] font-semibold text-green-600 hover:text-green-700 whitespace-nowrap">Salva</button>
-              <button onClick={() => { setNoteText(exercise.notes ?? ""); setNoteOpen(false); }} className="text-[10px] text-gray-400 hover:text-gray-600">Annulla</button>
+              <button onClick={() => setNoteOpen(false)} className="text-[10px] text-gray-400 hover:text-gray-600">Annulla</button>
             </div>
           </div>
         ) : (
