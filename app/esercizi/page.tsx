@@ -183,10 +183,15 @@ export default function EserciziPage() {
         if (sub === "CARDIO") {
           if (subExercises.length > 0) subAcc[sub] = { "_": subExercises };
         } else {
-          subAcc[sub] = (["UPPER", "LOWER"] as const).reduce((zoneAcc, zone) => {
-            zoneAcc[zone] = subExercises.filter(e => e.sub_subcategory === zone);
+          const zoneMap = (["UPPER", "LOWER"] as const).reduce((zoneAcc, zone) => {
+            const zEx = subExercises.filter(e => e.sub_subcategory === zone);
+            if (zEx.length > 0) zoneAcc[zone] = zEx;
             return zoneAcc;
           }, {} as Record<string, ExerciseLibrary[]>);
+          // Esercizi senza sub_subcategory → gruppo generico "_"
+          const general = subExercises.filter(e => !e.sub_subcategory);
+          if (general.length > 0) zoneMap["_"] = general;
+          subAcc[sub] = zoneMap;
         }
         return subAcc;
       }, {} as Record<string, Record<string, ExerciseLibrary[]>>);
@@ -293,6 +298,14 @@ export default function EserciziPage() {
                                 ) : (
                                   <div className="mx-4 mb-3 space-y-2">
                                     {Object.entries(subData).map(([zone, zoneExs]: [string, any]) => {
+                                      // Esercizi senza sub_subcategory → nessun header
+                                      if (zone === "_") {
+                                        return (
+                                          <div key={zone} className="rounded-xl border border-gray-100 dark:border-gray-700 overflow-hidden">
+                                            {zoneExs.map((ex: ExerciseLibrary) => <ExerciseRow key={ex.id} ex={ex} onDelete={() => setDeleteId(ex.id)} onUpdate={handleUpdate} />)}
+                                          </div>
+                                        );
+                                      }
                                       const zoneKey = `${cat}__${sub}__${zone}`;
                                       const isZoneOpen = openZones[zoneKey] === true;
                                       return (
