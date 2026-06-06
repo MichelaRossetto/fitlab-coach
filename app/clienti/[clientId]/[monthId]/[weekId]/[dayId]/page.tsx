@@ -62,58 +62,74 @@ const ClientNoteEditor = React.memo(function ClientNoteEditor({ savedNote, onSav
   onSave: (note: string) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const [draft, setDraft] = useState(savedNote);
+  const [displayNote, setDisplayNote] = useState(savedNote);
   const ref = useRef<HTMLTextAreaElement>(null);
+  // Refs per accedere ai valori aggiornati senza causare re-render
   const onSaveRef = useRef(onSave);
-  useEffect(() => { onSaveRef.current = onSave; }, [onSave]);
-  useEffect(() => { if (!open) setDraft(savedNote); }, [savedNote, open]);
+  const savedNoteRef = useRef(savedNote);
+  onSaveRef.current = onSave;
+  savedNoteRef.current = savedNote;
 
-  const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const sel = e.target.selectionStart;
-    const val = e.target.value;
-    setDraft(val);
-    // Ripristina cursore dopo il re-render causato da setDraft
-    requestAnimationFrame(() => {
-      if (ref.current) {
-        ref.current.selectionStart = sel;
-        ref.current.selectionEnd = sel;
+  const doSave = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const val = ref.current?.value ?? "";
+    onSaveRef.current(val);
+    setDisplayNote(val);
+    setOpen(false);
+  };
+  const doCancel = (e: React.MouseEvent) => { e.stopPropagation(); setOpen(false); };
+  const doDelete = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onSaveRef.current("");
+    setDisplayNote("");
+    setOpen(false);
+  };
+  const doOpen = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setOpen(o => {
+      if (!o) {
+        // Imposta il valore del textarea via DOM dopo il mount
+        setTimeout(() => {
+          if (ref.current) {
+            ref.current.value = savedNoteRef.current;
+            ref.current.focus();
+            const l = ref.current.value.length;
+            ref.current.setSelectionRange(l, l);
+          }
+        }, 0);
       }
+      return !o;
     });
   };
 
   return (
     <>
-      <button
-        onClick={e => { e.stopPropagation(); setOpen(o => { if (!o) setDraft(savedNote); return !o; }); }}
-        className="flex-shrink-0 text-[10px] font-medium transition-colors ml-1"
-        title="Note personali"
-      >
-        <span className={open || savedNote ? "text-lime-500 dark:text-lime-400" : "text-gray-300 dark:text-gray-600"}>✏️</span>
+      <button onClick={doOpen} className="flex-shrink-0 text-[10px] font-medium transition-colors ml-1" title="Note personali">
+        <span className={open || displayNote ? "text-lime-500 dark:text-lime-400" : "text-gray-300 dark:text-gray-600"}>✏️</span>
       </button>
       {open && (
         <div className="w-full pt-2 pb-1 space-y-2" onClick={e => e.stopPropagation()}>
+          {/* textarea completamente non controllato: nessun value, nessun onChange, React non tocca il DOM */}
           <textarea
             ref={ref}
             rows={3}
-            value={draft}
-            onChange={handleChange}
             placeholder="Scrivi una nota personale..."
-            autoFocus
             className="w-full text-xs text-gray-600 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-2.5 py-2 resize-none placeholder-gray-400 dark:placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-lime-400 leading-relaxed"
           />
           <div className="flex gap-2">
-            <button onClick={e => { e.stopPropagation(); onSaveRef.current(draft); setOpen(false); }} className="flex-1 py-1.5 rounded-lg text-xs font-bold" style={{ backgroundColor: "#D4E600", color: "#111" }}>Salva</button>
-            <button onClick={e => { e.stopPropagation(); setDraft(savedNote); setOpen(false); }} className="px-3 py-1.5 rounded-lg text-xs text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-700">Annulla</button>
-            {savedNote && <button onClick={e => { e.stopPropagation(); onSaveRef.current(""); setOpen(false); }} className="px-3 py-1.5 rounded-lg text-xs text-red-400 border border-red-100 dark:border-red-900/30">Cancella</button>}
+            <button onClick={doSave} className="flex-1 py-1.5 rounded-lg text-xs font-bold" style={{ backgroundColor: "#D4E600", color: "#111" }}>Salva</button>
+            <button onClick={doCancel} className="px-3 py-1.5 rounded-lg text-xs text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-700">Annulla</button>
+            {displayNote && <button onClick={doDelete} className="px-3 py-1.5 rounded-lg text-xs text-red-400 border border-red-100 dark:border-red-900/30">Cancella</button>}
           </div>
         </div>
       )}
-      {!open && savedNote && (
-        <p className="text-[11px] text-lime-600 dark:text-lime-400 mt-1 leading-relaxed whitespace-pre-wrap w-full">{savedNote}</p>
+      {!open && displayNote && (
+        <p className="text-[11px] text-lime-600 dark:text-lime-400 mt-1 leading-relaxed whitespace-pre-wrap w-full">{displayNote}</p>
       )}
     </>
   );
-}, (prev, next) => prev.savedNote === next.savedNote);
+// () => true = non ri-renderizzare MAI da props esterne, solo da stato interno
+}, () => true);
 
 // ─── Sub-group tag helpers ────────────────────────────────────
 
