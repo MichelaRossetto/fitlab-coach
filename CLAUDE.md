@@ -14,6 +14,13 @@ Quando una cancellazione è necessaria (es. per reinserire dati corretti), chied
 
 Aspettare la conferma esplicita prima di procedere. Mai presumere che una cancellazione sia implicita in una richiesta di modifica o reinserimento.
 
+### ⚠️ REGOLA CRITICA — Modifiche alla libreria esercizi
+**NON modificare MAI la tabella `exercise_library`** (UPDATE o INSERT) senza chiedere conferma esplicita prima, specificando:
+
+> "MI CONFERMI CHE AGGIORNO IN LIBRERIA [nome esercizio] — cambio [campo] da [valore attuale] a [nuovo valore]?"
+
+Questo vale per qualsiasi modifica: flag load_pct, default_load, categorie, nomi, ecc.
+
 ## Inserimento esercizi nel DB
 
 ### Regola 1 — Verifica sempre la libreria
