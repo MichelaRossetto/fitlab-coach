@@ -29,8 +29,9 @@ Prima di inserire qualsiasi esercizio via script, fare sempre una query alla tab
 ### Regola 2 — Peso doppio
 Quando la scheda riporta due pesi (es. "16/20 kg"), usare sempre il più alto (es. "20 KB").
 
-### Regola 3 — Note qualitative
-Informazioni qualitative che non entrano nei campi strutturati (intensità, variante, istruzioni) vanno salvate nel campo `notes` dell'esercizio. Esempi:
+### Regola 3 — Note qualitative e istruzioni
+Informazioni qualitative che non entrano nei campi strutturati (intensità, variante, istruzioni) vanno salvate nel campo `notes` dell'esercizio.
+**Le istruzioni tecniche della coach vanno sempre copiate COMPLETE nel campo notes — mai abbreviare, troncare o riassumere.** Esempi:
 - "INCLINE MEDIA INTENSITÀ" → notes
 - "BOX ALTO" → notes
 - "PESANTI" → notes
