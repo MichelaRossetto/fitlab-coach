@@ -217,10 +217,22 @@ export const ALL_PERFORMANCE_EXERCISES = Object.values(PERFORMANCE_EXERCISES).fl
 // Child exercises that inherit their max from a parent performance exercise.
 // They enable % in LoadInput and show the calculated weight, but are NOT tracked separately.
 export const EXERCISE_PARENT_MAP: Record<string, string> = {
-  "Box Squat":               "Back Squat",
-  "Deadlift da Rialzo":      "Deadlift",
-  "Romanian Deadlift":       "Deadlift",
-  "Floor Press con Bilanciere": "Bench Press",
+  // Back Squat family
+  "Box Squat":                   "Back Squat",
+  "Front Squat":                 "Back Squat",
+  // Deadlift family
+  "Deadlift da Rialzo":          "Deadlift",
+  "Romanian Deadlift":           "Deadlift",
+  "Sumo Deadlift":               "Deadlift",
+  "Deficit deadlift":            "Deadlift",
+  // Bench Press family
+  "Floor Press con Bilanciere":  "Bench Press",
+  "DB Bench Press":              "Bench Press",
+  "DB Incline Bench Press":      "Bench Press",
+  // Press (overhead) family
+  "Strict Press Bilanciere":     "Press",
+  "Push Press Bilanciere":       "Push Press",
+  "Push Press":                  "Press",
 };
 
 export const DAY_NAMES_SHORT    = ["Lun", "Mar", "Mer", "Gio", "Ven"];
