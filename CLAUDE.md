@@ -6,6 +6,14 @@
 - Prima di fare push in produzione, mostrare sempre le modifiche in locale e aspettare conferma
 - Segnalare sempre le assunzioni fatte prima di procedere con inserimenti o modifiche
 
+### ⚠️ REGOLA CRITICA — Cancellazione dati DB
+**NON cancellare MAI nessun dato dal database** senza che l'utente lo abbia richiesto esplicitamente.
+Quando una cancellazione è necessaria (es. per reinserire dati corretti), chiedere conferma con questa formula precisa:
+
+> "MI CONFERMI CHE CANCELLIAMO DAL DB [descrizione esatta di cosa viene cancellato, da quale tabella, per quale cliente/settimana/giorno]?"
+
+Aspettare la conferma esplicita prima di procedere. Mai presumere che una cancellazione sia implicita in una richiesta di modifica o reinserimento.
+
 ## Inserimento esercizi nel DB
 
 ### Regola 1 — Verifica sempre la libreria
