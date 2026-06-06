@@ -62,50 +62,49 @@ const ClientNoteEditor = React.memo(function ClientNoteEditor({ savedNote, onSav
   onSave: (note: string) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState(savedNote);
   const ref = useRef<HTMLTextAreaElement>(null);
   const onSaveRef = useRef(onSave);
   useEffect(() => { onSaveRef.current = onSave; }, [onSave]);
+  useEffect(() => { if (!open) setDraft(savedNote); }, [savedNote, open]);
 
-  const handleOpen = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setOpen(o => !o);
-  };
-  const handleSave = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    onSaveRef.current(ref.current?.value ?? "");
-    setOpen(false);
-  };
-  const handleCancel = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setOpen(false);
-  };
-  const handleDelete = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    onSaveRef.current("");
-    setOpen(false);
+  const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const sel = e.target.selectionStart;
+    const val = e.target.value;
+    setDraft(val);
+    // Ripristina cursore dopo il re-render causato da setDraft
+    requestAnimationFrame(() => {
+      if (ref.current) {
+        ref.current.selectionStart = sel;
+        ref.current.selectionEnd = sel;
+      }
+    });
   };
 
   return (
     <>
-      <button onClick={handleOpen} className="flex-shrink-0 text-[10px] font-medium transition-colors ml-1" title="Note personali">
+      <button
+        onClick={e => { e.stopPropagation(); setOpen(o => { if (!o) setDraft(savedNote); return !o; }); }}
+        className="flex-shrink-0 text-[10px] font-medium transition-colors ml-1"
+        title="Note personali"
+      >
         <span className={open || savedNote ? "text-lime-500 dark:text-lime-400" : "text-gray-300 dark:text-gray-600"}>✏️</span>
       </button>
       {open && (
         <div className="w-full pt-2 pb-1 space-y-2" onClick={e => e.stopPropagation()}>
-          {/* key={savedNote} forza remount del textarea quando si apre, così defaultValue è aggiornato */}
           <textarea
-            key={savedNote}
             ref={ref}
             rows={3}
-            defaultValue={savedNote}
+            value={draft}
+            onChange={handleChange}
             placeholder="Scrivi una nota personale..."
             autoFocus
             className="w-full text-xs text-gray-600 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-2.5 py-2 resize-none placeholder-gray-400 dark:placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-lime-400 leading-relaxed"
           />
           <div className="flex gap-2">
-            <button onClick={handleSave} className="flex-1 py-1.5 rounded-lg text-xs font-bold" style={{ backgroundColor: "#D4E600", color: "#111" }}>Salva</button>
-            <button onClick={handleCancel} className="px-3 py-1.5 rounded-lg text-xs text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-700">Annulla</button>
-            {savedNote && <button onClick={handleDelete} className="px-3 py-1.5 rounded-lg text-xs text-red-400 border border-red-100 dark:border-red-900/30">Cancella</button>}
+            <button onClick={e => { e.stopPropagation(); onSaveRef.current(draft); setOpen(false); }} className="flex-1 py-1.5 rounded-lg text-xs font-bold" style={{ backgroundColor: "#D4E600", color: "#111" }}>Salva</button>
+            <button onClick={e => { e.stopPropagation(); setDraft(savedNote); setOpen(false); }} className="px-3 py-1.5 rounded-lg text-xs text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-700">Annulla</button>
+            {savedNote && <button onClick={e => { e.stopPropagation(); onSaveRef.current(""); setOpen(false); }} className="px-3 py-1.5 rounded-lg text-xs text-red-400 border border-red-100 dark:border-red-900/30">Cancella</button>}
           </div>
         </div>
       )}
@@ -114,7 +113,7 @@ const ClientNoteEditor = React.memo(function ClientNoteEditor({ savedNote, onSav
       )}
     </>
   );
-}, (prev, next) => prev.savedNote === next.savedNote); // ignora cambi di onSave reference
+}, (prev, next) => prev.savedNote === next.savedNote);
 
 // ─── Sub-group tag helpers ────────────────────────────────────
 
