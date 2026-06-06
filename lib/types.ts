@@ -223,10 +223,8 @@ export const EXERCISE_PARENT_MAP: Record<string, string> = {
   "Deadlift da Rialzo":          "Deadlift",
   "Romanian Deadlift":           "Deadlift",
   "Deficit deadlift":            "Deadlift",
-  // Bench Press family
+  // Bench Press family (solo bilanciere)
   "Floor Press con Bilanciere":  "Bench Press",
-  "DB Bench Press":              "Bench Press",
-  "DB Incline Bench Press":      "Bench Press",
   // Press (overhead) family — Push Press ha massimale proprio
   "Strict Press Bilanciere":     "Press",
   "Push Press Bilanciere":       "Push Press",
