@@ -220,9 +220,7 @@ export const EXERCISE_PARENT_MAP: Record<string, string> = {
   // Back Squat family (Front Squat e Sumo Deadlift hanno massimale proprio)
   "Box Squat":                   "Back Squat",
   // Deadlift family
-  "Deadlift da Rialzo":          "Deadlift",
   "Romanian Deadlift":           "Deadlift",
-  "Deficit deadlift":            "Deadlift",
   // Bench Press family (solo bilanciere)
   "Floor Press Bilanciere":      "Bench Press",
   // Press (overhead) family — Push Press ha massimale proprio
@@ -230,7 +228,6 @@ export const EXERCISE_PARENT_MAP: Record<string, string> = {
   "Push Press Bilanciere":       "Push Press",
   // Thruster family
   "Thruster Bilanciere":         "Thruster",
-  "Thruster Manubri":            "Thruster",
   // Clean & Jerk family (nome libreria vs nome massimale)
   "Clean and Jerk":              "Clean & Jerk",
 };
