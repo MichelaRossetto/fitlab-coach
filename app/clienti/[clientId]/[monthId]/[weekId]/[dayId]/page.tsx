@@ -225,6 +225,7 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
   const [editProgLoads, setEditProgLoads] = useState<string[]>(isInitProg ? rawExLoad.split("|") : []);
   const [noteOpen, setNoteOpen] = useState(false);
   const [noteText, setNoteText] = useState(exercise.notes ?? "");
+  const noteRef = useRef<HTMLTextAreaElement>(null);
 
   // ── Note personali cliente ─────────────────────────────────
   const [localClientNote, setLocalClientNote] = useState(clientNote ?? "");
@@ -585,7 +586,6 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
   }
 
   // Read-only view — inline note editor
-  const noteRef = useRef<HTMLTextAreaElement>(null);
   const handleSaveNote = () => {
     const currentText = noteRef.current?.value ?? noteText;
     const full = noteTag ? tagNotes(noteTag, currentText) : (currentText.trim() || null);
