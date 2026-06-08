@@ -111,6 +111,11 @@ export default function MonthPage() {
   const [editDateStart, setEditDateStart] = useState("");
   const [editDateEnd, setEditDateEnd] = useState("");
   const [savingWeek, setSavingWeek] = useState(false);
+  // ── Note coach ────────────────────────────────────────────────
+  const [showNotes, setShowNotes] = useState(false);
+  const [notesText, setNotesText] = useState("");
+  const [weekDays, setWeekDays] = useState<Record<string, { id: string; day_number: number; label: string | null }[]>>({});
+  const [savingNotes, setSavingNotes] = useState(false);
 
   const fetch = useCallback(async () => {
     setLoading(true);
@@ -167,6 +172,42 @@ export default function MonthPage() {
     fetch();
   };
 
+  const handleOpenNotes = async () => {
+    // Se ci sono già note salvate, mostrare quelle
+    if (month?.notes) {
+      setNotesText(month.notes);
+      setShowNotes(true);
+      return;
+    }
+    // Altrimenti genera il template con titoli settimana/day
+    const daysMap: Record<string, { id: string; day_number: number; label: string | null }[]> = {};
+    for (const w of weeks) {
+      const { data } = await supabase.from("training_days").select("id, day_number, label").eq("week_id", w.id).order("day_number");
+      daysMap[w.id] = data ?? [];
+    }
+    setWeekDays(daysMap);
+    let template = "";
+    for (const w of weeks) {
+      template += `── SETTIMANA ${w.week_number} ─────────────────────────\n`;
+      const days = daysMap[w.id] ?? [];
+      for (const d of days) {
+        const dayTitle = d.label ?? `Day ${d.day_number}`;
+        template += `\n${dayTitle}\n\n\n`;
+      }
+      template += "\n";
+    }
+    setNotesText(template);
+    setShowNotes(true);
+  };
+
+  const handleSaveNotes = async () => {
+    setSavingNotes(true);
+    await supabase.from("training_months").update({ notes: notesText }).eq("id", monthId);
+    setSavingNotes(false);
+    setMonth(m => m ? { ...m, notes: notesText } : m);
+    setShowNotes(false);
+  };
+
   const handleDeleteMonth = async () => {
     setDeleting(true);
     await supabase.from("training_months").delete().eq("id", monthId);
@@ -202,19 +243,20 @@ export default function MonthPage() {
         clientView={isClientView}
         clientId={isClientView ? clientId : undefined}
         right={!isClientView ? (
-          <button onClick={() => setShowNewWeek(true)} className="btn-primary text-xs py-1.5 px-3 flex items-center gap-1">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 5v14M5 12h14"/></svg>
-            Settimana
-          </button>
+          <div className="flex items-center gap-2">
+            <button onClick={handleOpenNotes} className="btn-secondary text-xs py-1.5 px-3 flex items-center gap-1">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+              Note
+            </button>
+            <button onClick={() => setShowNewWeek(true)} className="btn-primary text-xs py-1.5 px-3 flex items-center gap-1">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 5v14M5 12h14"/></svg>
+              Settimana
+            </button>
+          </div>
         ) : undefined}
       />
 
       <main className="max-w-2xl mx-auto px-4 py-5 space-y-5">
-        {month.notes && (
-          <div className="card p-4 border-l-4" style={{ borderLeftColor: "#D4E600" }}>
-            <p className="text-sm text-gray-600 italic dark:text-gray-300">{month.notes}</p>
-          </div>
-        )}
 
         {/* Weeks */}
         <div>
@@ -329,6 +371,45 @@ export default function MonthPage() {
           subscriptionEnd={subscriptionEnd}
           onSuccess={() => { setShowNewWeek(false); fetch(); }} onCancel={() => setShowNewWeek(false)} />
       </Modal>
+
+      {/* ── Modale Note Coach ─────────────────────────────────── */}
+      {showNotes && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center px-4 pb-4 sm:pb-0"
+          style={{ backgroundColor: "rgba(0,0,0,0.5)" }}
+          onClick={e => { if (e.target === e.currentTarget) setShowNotes(false); }}>
+          <div className="bg-white dark:bg-gray-900 rounded-2xl w-full max-w-lg shadow-xl flex flex-col" style={{ height: "80vh" }}>
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 dark:border-gray-700 flex-shrink-0">
+              <div>
+                <h3 className="font-bold text-gray-900 dark:text-gray-100">📝 Note — {month.label}</h3>
+                <p className="text-xs text-gray-400 mt-0.5">Appunti liberi della coach</p>
+              </div>
+              <button onClick={() => setShowNotes(false)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+              </button>
+            </div>
+            {/* Textarea unica */}
+            <textarea
+              className="flex-1 w-full px-5 py-4 text-sm text-gray-800 dark:text-gray-100 bg-white dark:bg-gray-900 resize-none focus:outline-none font-mono leading-relaxed placeholder-gray-300 dark:placeholder-gray-600"
+              placeholder="Inizia a scrivere..."
+              value={notesText}
+              onChange={e => setNotesText(e.target.value)}
+            />
+            {/* Footer */}
+            <div className="px-5 py-4 border-t border-gray-100 dark:border-gray-700 flex-shrink-0 flex gap-2">
+              <button onClick={() => setShowNotes(false)}
+                className="flex-none px-4 py-2.5 rounded-xl text-sm text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+                Chiudi
+              </button>
+              <button onClick={handleSaveNotes} disabled={savingNotes}
+                className="flex-1 py-2.5 rounded-xl text-sm font-bold transition-all disabled:opacity-50"
+                style={{ backgroundColor: "#D4E600", color: "#111" }}>
+                {savingNotes ? "Salvataggio..." : "Salva"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
