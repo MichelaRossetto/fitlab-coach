@@ -22,6 +22,7 @@ export interface TrainingMonth {
   year: number;
   month_num: number;
   notes: string | null;
+  description: string | null;
 }
 
 export interface TrainingWeek {

@@ -1284,6 +1284,7 @@ export default function ClientPage() {
                 >
                   <div>
                     <div className="font-semibold text-gray-900 dark:text-gray-100">{m.label}</div>
+                    {m.description && <div className="text-xs text-gray-400 mt-0.5 line-clamp-1">{m.description}</div>}
                   </div>
                   <svg className="text-gray-300 group-hover:text-gray-500 transition-colors"
                     width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
