@@ -531,6 +531,7 @@ function UpcomingSessionsCard({ clientId, isClientView }: {
   const [schedule, setSchedule] = useState<Record<number, string>>({});
   const [loadingS, setLoadingS] = useState(true);
   const [sessionList, setSessionList] = useState<{ dayId: string; dayNumber: number; weekId: string; monthId: string; label: string; dateStr: string | null; dayTime: string | null; weekLabel: string; weekDateStart: string | null }[]>([]);
+  const [loadingSessions, setLoadingSessions] = useState(true);
   const [reschedulingDayId, setReschedulingDayId] = useState<string | null>(null);
   const [rescheduleDate, setRescheduleDate] = useState("");
   const [rescheduleTime, setRescheduleTime] = useState("");
@@ -555,6 +556,7 @@ function UpcomingSessionsCard({ clientId, isClientView }: {
   }, [clientId]);
 
   const loadSessionList = useCallback(async () => {
+    setLoadingSessions(true);
     const schedDays = Object.keys(schedule).map(Number).sort((a: number, b: number) => a - b);
 
     const { data: weeks, error: weeksErr } = await supabase
@@ -608,6 +610,7 @@ function UpcomingSessionsCard({ clientId, isClientView }: {
       return a.dateStr.localeCompare(b.dateStr);
     });
     setSessionList(list);
+    setLoadingSessions(false);
   }, [clientId, schedule]);
 
   useEffect(() => {
@@ -697,7 +700,17 @@ function UpcomingSessionsCard({ clientId, isClientView }: {
       {open && (
         <div className="border-t border-gray-100 dark:border-gray-700">
           {(
-            upcomingSessions.length === 0
+            loadingSessions
+              ? <div className="px-4 py-4 space-y-3">
+                  {[1,2,3].map(i => (
+                    <div key={i} className="flex items-center gap-3 animate-pulse">
+                      <div className="h-3 w-20 bg-gray-200 dark:bg-gray-700 rounded-full" />
+                      <div className="h-3 flex-1 bg-gray-100 dark:bg-gray-800 rounded-full" />
+                      <div className="h-5 w-12 bg-gray-200 dark:bg-gray-700 rounded-full" />
+                    </div>
+                  ))}
+                </div>
+              : upcomingSessions.length === 0
               ? <div className="px-4 py-5 text-sm text-gray-400 text-center italic">Nessun allenamento in programma</div>
               : upcomingSessions.map(session => {
                   const isRescheduling = reschedulingDayId === session.dayId;
@@ -1271,7 +1284,6 @@ export default function ClientPage() {
                 >
                   <div>
                     <div className="font-semibold text-gray-900 dark:text-gray-100">{m.label}</div>
-                    {m.notes && <div className="text-sm text-gray-400 mt-0.5">{m.notes}</div>}
                   </div>
                   <svg className="text-gray-300 group-hover:text-gray-500 transition-colors"
                     width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
