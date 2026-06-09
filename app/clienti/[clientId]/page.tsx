@@ -851,15 +851,36 @@ function EditClientForm({ client, onSuccess, onCancel }: {
     e.preventDefault();
     if (!form.name.trim() || !form.surname.trim()) { setError("Nome e cognome obbligatori"); return; }
     setSaving(true);
+
+    const newEmail = form.email.trim() || null;
+    const oldEmail = client.email;
+
+    // Aggiorna tabella clients
     const { error: err } = await supabase.from("clients").update({
       name: form.name.trim(), surname: form.surname.trim(),
-      email: form.email.trim() || null, phone: form.phone.trim() || null,
+      email: newEmail, phone: form.phone.trim() || null,
       subscription_end: form.subscription_end || null,
       notes: form.notes.trim() || null,
       is_paused: isPaused,
     }).eq("id", client.id);
+    if (err) { setSaving(false); setError(err.message); return; }
+
+    // Se l'email è cambiata, aggiorna anche auth.users
+    if (oldEmail && newEmail && oldEmail !== newEmail) {
+      const res = await window.fetch("/api/update-client-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ oldEmail, newEmail }),
+      });
+      const result = await res.json();
+      if (!res.ok) {
+        setSaving(false);
+        setError("Dati salvati, ma aggiornamento email accesso fallito: " + result.error);
+        return;
+      }
+    }
+
     setSaving(false);
-    if (err) { setError(err.message); return; }
     onSuccess();
   };
 
