@@ -67,8 +67,10 @@ const ClientNoteEditor = React.memo(function ClientNoteEditor({ savedNote, onSav
   // Refs per accedere ai valori aggiornati senza causare re-render
   const onSaveRef = useRef(onSave);
   const savedNoteRef = useRef(savedNote);
+  const displayNoteRef = useRef(displayNote);
   onSaveRef.current = onSave;
   savedNoteRef.current = savedNote;
+  displayNoteRef.current = displayNote;
 
   const doSave = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -91,7 +93,7 @@ const ClientNoteEditor = React.memo(function ClientNoteEditor({ savedNote, onSav
         // Imposta il valore del textarea via DOM dopo il mount
         setTimeout(() => {
           if (ref.current) {
-            ref.current.value = savedNoteRef.current;
+            ref.current.value = displayNoteRef.current;
             ref.current.focus();
             const l = ref.current.value.length;
             ref.current.setSelectionRange(l, l);
@@ -591,6 +593,7 @@ function ExerciseRow({ exercise, sectionType, sectionSubtype, libSuggestions, li
     const full = noteTag ? tagNotes(noteTag, currentText) : (currentText.trim() || null);
     onUpdate(exercise.id, "notes", full ?? "");
     onSave(exercise.id);
+    setNoteText(full ?? "");
     setNoteOpen(false);
   };
 
