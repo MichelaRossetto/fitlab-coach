@@ -31,6 +31,11 @@ yarn-error.log*
 
 # seed scripts (contengono chiavi private)
 seed-runner.mjs
+seed-6-clienti.mjs
+seed-diana-maggio.mjs
+seed-ivan-jessica.mjs
+seed-lisa-lucia.mjs
+seed-matteo-r-schiop.mjs
 
 # claude code settings (contengono chiavi private)
 .claude/

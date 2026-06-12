@@ -190,9 +190,11 @@ export default function WeekPage() {
     return date;
   };
 
-  // "done" e "skip" espliciti vincono sempre; "pending" (default DB) lascia decidere le date
+  // Status esplicito vince sempre sul calcolo automatico delle date
   const getEffectiveStatus = (day: TrainingDay): DayStatus => {
     if (day.status === "done" || day.status === "skip") return day.status;
+    if (day.status === "pending") return "pending"; // impostato esplicitamente dalla cliente
+    // status null = mai toccato → auto-calcolo da data
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     if (day.day_date && new Date(day.day_date) < today) return "done";

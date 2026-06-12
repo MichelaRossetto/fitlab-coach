@@ -522,9 +522,10 @@ function UnifiedProfileCard({ client, clientId, isClientView, returnTo, onClient
 }
 
 // ─── Upcoming Sessions Card ───────────────────────────────────
-function UpcomingSessionsCard({ clientId, isClientView }: {
+function UpcomingSessionsCard({ clientId, isClientView, clientName }: {
   clientId: string;
   isClientView: boolean;
+  clientName: string;
 }) {
   const coachView = !isClientView;
   const [open, setOpen] = useState(false);
@@ -635,6 +636,8 @@ function UpcomingSessionsCard({ clientId, isClientView }: {
     setRescheduleError(null);
 
     const targetDayId = reschedulingDayId;
+    const session = sessionList.find(s => s.dayId === targetDayId);
+    const originalDate = session?.dateStr ?? null;
 
     let { error: updateErr } = await supabase
       .from("training_days")
@@ -652,6 +655,24 @@ function UpcomingSessionsCard({ clientId, isClientView }: {
         setRescheduleSaving(false);
         return;
       }
+    }
+
+    // Notifica alla coach solo se è il cliente a spostare
+    if (!coachView) {
+      const fmt = (d: string) => new Date(d + "T12:00:00").toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long" });
+      const fromLabel = originalDate ? fmt(originalDate) : "data precedente";
+      const originalTime = session?.dayTime ?? null;
+      const fromTime = originalTime ? ` ore ${originalTime}` : "";
+      const toLabel = fmt(rescheduleDate);
+      await fetch("/api/feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          client_id: clientId,
+          type: "reschedule",
+          message: `${clientName} ha spostato "${session?.label ?? "allenamento"}" da ${fromLabel}${fromTime} a ${toLabel} ore ${rescheduleTime}.`,
+        }),
+      });
     }
 
     resetReschedule();
@@ -1087,6 +1108,112 @@ function NewMonthForm({ clientId, existingMonths, lastWeekAny, subscriptionEnd, 
   );
 }
 
+// ─── Subscription Banner ──────────────────────────────────────
+function SubscriptionBanner({ clientId, subscriptionEnd, clientName }: {
+  clientId: string;
+  subscriptionEnd: string | null;
+  clientName: string;
+}) {
+  const [dismissed, setDismissed] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [sending, setSending] = useState(false);
+
+  useEffect(() => {
+    if (!subscriptionEnd) return;
+    const key = `paid_ack_${clientId}_${subscriptionEnd}`;
+    if (localStorage.getItem(key) === "1") setDismissed(true);
+  }, [clientId, subscriptionEnd]);
+
+  if (!subscriptionEnd || dismissed) return null;
+
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const expiry = new Date(subscriptionEnd + "T00:00:00");
+  const daysLeft = Math.round((expiry.getTime() - today.getTime()) / 86400000);
+
+  if (daysLeft > 5) return null;
+
+  const expired = daysLeft < 0;
+  const bannerLabel = expired
+    ? `Abbonamento scaduto il ${expiry.toLocaleDateString("it-IT", { day: "numeric", month: "long", year: "numeric" })}`
+    : daysLeft === 0
+    ? "Abbonamento in scadenza oggi"
+    : `Abbonamento in scadenza tra ${daysLeft} giorn${daysLeft === 1 ? "o" : "i"} · ${expiry.toLocaleDateString("it-IT", { day: "numeric", month: "long" })}`;
+
+  const handleConfirmPayment = async () => {
+    setSending(true);
+    await fetch("/api/feedback", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        client_id: clientId,
+        type: "payment",
+        message: `${clientName} ha effettuato il pagamento dell'abbonamento (scadenza ${expiry.toLocaleDateString("it-IT", { day: "numeric", month: "long", year: "numeric" })}).`,
+      }),
+    });
+    localStorage.setItem(`paid_ack_${clientId}_${subscriptionEnd}`, "1");
+    setSending(false);
+    setShowConfirm(false);
+    setDismissed(true);
+  };
+
+  return (
+    <>
+      <div className="rounded-2xl px-4 py-3 flex items-center gap-3 bg-red-500/10 border border-red-400/40 dark:bg-red-500/15">
+        <div className="shrink-0 w-8 h-8 rounded-xl flex items-center justify-center bg-red-500/15">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+            <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+          </svg>
+        </div>
+        <p className="flex-1 text-sm font-medium text-red-600 dark:text-red-400">{bannerLabel}</p>
+        <button
+          onClick={() => setShowConfirm(true)}
+          className="shrink-0 text-xs font-bold px-3 py-1.5 rounded-xl bg-red-500 hover:bg-red-600 text-white transition-all"
+        >
+          Pagato
+        </button>
+      </div>
+
+      {/* Modale conferma */}
+      {showConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4" style={{ backgroundColor: "rgba(0,0,0,0.5)" }}>
+          <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 max-w-sm w-full shadow-xl space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-green-100 dark:bg-green-900/30 flex items-center justify-center shrink-0">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 22C6.477 22 2 17.523 2 12S6.477 2 12 2s10 4.477 10 10-4.477 10-10 10z"/>
+                  <path d="M9 12l2 2 4-4"/>
+                </svg>
+              </div>
+              <h3 className="font-bold text-gray-900 dark:text-gray-100 text-base">Conferma pagamento</h3>
+            </div>
+            <p className="text-sm text-gray-600 dark:text-gray-300 leading-relaxed">
+              Confermi di aver effettuato il bonifico o di aver saldato direttamente in sede con la coach?
+            </p>
+            <div className="flex gap-2 pt-1">
+              <button
+                onClick={() => setShowConfirm(false)}
+                className="btn-secondary flex-1 text-sm"
+                disabled={sending}
+              >
+                Annulla
+              </button>
+              <button
+                onClick={handleConfirmPayment}
+                disabled={sending}
+                className="flex-1 text-sm font-bold py-2.5 rounded-xl text-white transition-all disabled:opacity-60"
+                style={{ backgroundColor: "#22c55e" }}
+              >
+                {sending ? "Invio..." : "Sì, confermo"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 // ─── Main Page ────────────────────────────────────────────────
 export default function ClientPage() {
   const params = useParams();
@@ -1106,6 +1233,7 @@ export default function ClientPage() {
 
   const fetch = useCallback(async () => {
     setLoading(true);
+    try {
     const [{ data: c }, { data: m }, { data: userData }] = await Promise.all([
       supabase.from("clients").select("*").eq("id", clientId).single(),
       supabase.from("training_months").select("*").eq("client_id", clientId)
@@ -1184,7 +1312,11 @@ export default function ClientPage() {
       }
     }
 
-    setLoading(false);
+    } catch (e) {
+      console.error("Errore caricamento cliente:", e);
+    } finally {
+      setLoading(false);
+    }
   }, [clientId]);
 
   useEffect(() => { fetch(); }, [fetch]);
@@ -1227,6 +1359,9 @@ export default function ClientPage() {
       />
 
       <main className="max-w-2xl mx-auto px-4 py-5 space-y-5">
+        {/* Banner scadenza abbonamento */}
+        <SubscriptionBanner clientId={clientId} subscriptionEnd={client.subscription_end ?? null} clientName={`${client.name} ${client.surname}`} />
+
         {/* Unified Profile Card */}
         <UnifiedProfileCard
           client={client}
@@ -1275,7 +1410,7 @@ export default function ClientPage() {
         })()}
 
         {/* Prossimi allenamenti */}
-        <UpcomingSessionsCard clientId={clientId} isClientView={isClientView} />
+        <UpcomingSessionsCard clientId={clientId} isClientView={isClientView} clientName={`${client.name} ${client.surname}`} />
 
         {/* Months */}
         <div>

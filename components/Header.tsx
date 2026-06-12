@@ -4,6 +4,35 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
+// ─── Regolamento slides ───────────────────────────────────────
+const REGOLAMENTO_SLIDES = [
+  {
+    emoji: "📌",
+    title: "Assenze e spostamenti",
+    text: "Ogni seduta è uno spazio riservato esclusivamente a te e fa parte di un percorso costruito su misura.\n\nPuoi spostare una sessione direttamente dal tuo profilo, entro la mattinata del giorno precedente. Passato questo limite, contatta la coach direttamente.\n\nTi chiediamo di non abusare di questa possibilità: il limite è volutamente ampio per darti flessibilità, ma spostamenti continui compromettono la qualità della programmazione.\n\nCome regola generale, cerca di limitarti a un massimo di uno spostamento a settimana — non tutte le settimane e non tutti i giorni.",
+  },
+  {
+    emoji: "🔄",
+    title: "Recuperi",
+    text: "È consentito il recupero di massimo 1 settimana ogni 4 settimane di programmazione.\n\nNon sono previsti ulteriori recuperi, salvo malattia superiore a 15 giorni documentata da certificato medico.\n\nSpostamenti frequenti e cancellazioni dell'ultimo momento compromettono l'efficacia della programmazione.",
+  },
+  {
+    emoji: "👟",
+    title: "Scarpe e igiene",
+    text: "Per motivi di igiene e sicurezza è obbligatorio utilizzare scarpe pulite, riservate esclusivamente all'uso interno.\n\nNon è consentito accedere alle aree di allenamento con calzature utilizzate all'esterno.\n\nPulire e riporre sempre l'attrezzatura dopo ogni utilizzo.",
+  },
+  {
+    emoji: "🤝",
+    title: "Condivisione degli spazi",
+    text: "Lo studio è uno spazio condiviso tra clienti con programmazione autonoma e clienti in sessione di personal training.\n\nDurante le sessioni, alcune aree o attrezzature potrebbero essere temporaneamente riservate. Si richiede collaborazione e flessibilità nel rispetto delle attività in corso.",
+  },
+  {
+    emoji: "⭐",
+    title: "Il nostro patto",
+    text: "Lo studio opera su appuntamento e programmazione personalizzata, costruita sulle tue esigenze e sui tuoi obiettivi.\n\nCostanza, continuità e rispetto della programmazione concordata sono fondamentali per ottenere risultati concreti.\n\nCollaborazione, puntualità e rispetto reciproco sono la base del lavoro che facciamo insieme.",
+  },
+];
+
 // ─── Guida slides ─────────────────────────────────────────────
 const GUIDA_SLIDES = [
   {
@@ -61,6 +90,8 @@ export function Header({ backHref, title, subtitle, right, clientView, clientId 
   const [fbSent, setFbSent] = useState(false);
   const [showGuida, setShowGuida] = useState(false);
   const [guidaSlide, setGuidaSlide] = useState(0);
+  const [showRegolamento, setShowRegolamento] = useState(false);
+  const [regSlide, setRegSlide] = useState(0);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -117,6 +148,15 @@ export function Header({ backHref, title, subtitle, right, clientView, clientId 
             )}
             {clientView && (
               <div className="flex items-center gap-3">
+                {/* Regolamento */}
+                <button
+                  onClick={() => { setRegSlide(0); setShowRegolamento(true); }}
+                  className="h-7 px-2.5 rounded-full flex items-center justify-center text-xs font-bold transition-colors"
+                  style={{ backgroundColor: "#22c55e", color: "#fff" }}
+                  title="Regolamento Studio"
+                >
+                  📋
+                </button>
                 {/* Guida */}
                 <button
                   onClick={() => { setGuidaSlide(0); setShowGuida(true); }}
@@ -275,6 +315,68 @@ export function Header({ backHref, title, subtitle, right, clientView, clientId 
                     className="flex-1 py-2.5 rounded-xl text-sm font-bold transition-all"
                     style={{ backgroundColor: "#D4E600", color: "#111" }}>
                     Capito! ✓
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal regolamento */}
+      {showRegolamento && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center px-4 pb-4 sm:pb-0"
+          style={{ backgroundColor: "rgba(0,0,0,0.6)" }}
+          onClick={e => { if (e.target === e.currentTarget) setShowRegolamento(false); }}>
+          <div className="bg-white dark:bg-gray-900 rounded-2xl w-full max-w-sm shadow-xl overflow-hidden">
+            {/* Header verde */}
+            <div className="flex items-center gap-2 px-5 pt-5 pb-0">
+              <div className="w-2 h-2 rounded-full bg-green-500 flex-shrink-0" />
+              <span className="text-[11px] font-bold uppercase tracking-widest text-green-600 dark:text-green-400">Regolamento Studio</span>
+            </div>
+            {/* Slide content */}
+            <div className="p-6 space-y-3 min-h-[260px] flex flex-col justify-center">
+              <div className="text-4xl">{REGOLAMENTO_SLIDES[regSlide].emoji}</div>
+              <h3 className="font-bold text-lg text-gray-900 dark:text-gray-100">
+                {REGOLAMENTO_SLIDES[regSlide].title}
+              </h3>
+              <p className="text-sm text-gray-500 dark:text-gray-400 leading-relaxed whitespace-pre-line">
+                {REGOLAMENTO_SLIDES[regSlide].text}
+              </p>
+            </div>
+            {/* Nav */}
+            <div className="px-6 pb-6 space-y-3">
+              <div className="flex justify-center gap-1.5">
+                {REGOLAMENTO_SLIDES.map((_, i) => (
+                  <button key={i} onClick={() => setRegSlide(i)}
+                    className="w-1.5 h-1.5 rounded-full transition-all"
+                    style={{ backgroundColor: i === regSlide ? "#22c55e" : "#d1d5db" }}
+                  />
+                ))}
+              </div>
+              <div className="flex gap-2">
+                {regSlide > 0 ? (
+                  <button onClick={() => setRegSlide(s => s - 1)}
+                    className="flex-1 py-2.5 rounded-xl text-sm font-semibold border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+                    ← Indietro
+                  </button>
+                ) : (
+                  <button onClick={() => setShowRegolamento(false)}
+                    className="flex-1 py-2.5 rounded-xl text-sm font-semibold border border-gray-200 dark:border-gray-700 text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+                    Chiudi
+                  </button>
+                )}
+                {regSlide < REGOLAMENTO_SLIDES.length - 1 ? (
+                  <button onClick={() => setRegSlide(s => s + 1)}
+                    className="flex-1 py-2.5 rounded-xl text-sm font-bold transition-all"
+                    style={{ backgroundColor: "#22c55e", color: "#fff" }}>
+                    Avanti →
+                  </button>
+                ) : (
+                  <button onClick={() => setShowRegolamento(false)}
+                    className="flex-1 py-2.5 rounded-xl text-sm font-bold transition-all"
+                    style={{ backgroundColor: "#22c55e", color: "#fff" }}>
+                    Ho letto ✓
                   </button>
                 )}
               </div>
