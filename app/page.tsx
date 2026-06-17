@@ -509,7 +509,7 @@ function ClientSection({
         <div className="card divide-y divide-gray-50 dark:divide-gray-700">
           {sorted.map(client => (
             <Link key={client.id} href={`/clienti/${client.id}`}
-              className={`flex items-center gap-3.5 p-4 hover:bg-gray-50 transition-colors group dark:hover:bg-gray-700 ${!client.is_paused && getSubscriptionStatus(client.subscription_end) === "inactive" ? "opacity-40" : ""}`}>
+              className="flex items-center gap-3.5 p-4 hover:bg-gray-50 transition-colors group dark:hover:bg-gray-700">
               <div className="w-11 h-11 rounded-full flex items-center justify-center flex-shrink-0 font-bold text-sm border-2"
                 style={{ borderColor: accent, backgroundColor: accentBg, color: "#111" }}>
                 {getInitials(client.name, client.surname)}

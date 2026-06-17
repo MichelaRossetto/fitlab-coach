@@ -863,6 +863,7 @@ function EditClientForm({ client, onSuccess, onCancel }: {
     notes: client.notes ?? "",
   });
   const [isPaused, setIsPaused] = useState(!!client.is_paused);
+  const [clientType, setClientType] = useState<"PR" | "PT">(client.client_type === "PT" ? "PT" : "PR");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
@@ -883,6 +884,7 @@ function EditClientForm({ client, onSuccess, onCancel }: {
       subscription_end: form.subscription_end || null,
       notes: form.notes.trim() || null,
       is_paused: isPaused,
+      client_type: clientType,
     }).eq("id", client.id);
     if (err) { setSaving(false); setError(err.message); return; }
 
@@ -915,6 +917,25 @@ function EditClientForm({ client, onSuccess, onCancel }: {
       <div><label className="label">Telefono</label><input className="input" type="tel" value={form.phone} onChange={set("phone")} /></div>
       <div><label className="label">Scadenza abbonamento</label><input className="input" type="date" value={form.subscription_end} onChange={set("subscription_end")} /></div>
       <div><label className="label">Note</label><textarea className="input resize-none" rows={2} value={form.notes} onChange={set("notes")} /></div>
+
+      {/* Toggle PR/PT */}
+      <div>
+        <label className="label">Tipo cliente</label>
+        <div className="flex gap-2">
+          {(["PR", "PT"] as const).map(t => (
+            <button key={t} type="button" onClick={() => setClientType(t)}
+              className={`flex-1 py-2.5 rounded-xl border-2 text-sm font-bold transition-all ${
+                clientType === t
+                  ? t === "PT"
+                    ? "border-indigo-400 bg-indigo-50 text-indigo-700 dark:bg-indigo-900/20 dark:text-indigo-300"
+                    : "border-[#C0D738] bg-[#f9fce0] text-[#6b7a00]"
+                  : "border-gray-200 dark:border-gray-600 text-gray-400"
+              }`}>
+              {t}
+            </button>
+          ))}
+        </div>
+      </div>
 
       {/* Toggle pausa */}
       <div>
