@@ -213,7 +213,7 @@ function CalendarView({ scheduleEntries, clients, activeFilter }: {
     const T = timeToMin(e.time);
     for (const slot of DISPLAY_SLOTS) {
       const H = timeToMin(slot);
-      if (T < H + 60 && T + 60 > H) {
+      if (T >= H && T < H + 60) {
         if (!slotMap[e.day_of_week][slot]) slotMap[e.day_of_week][slot] = { pr: [], pt: [] };
         const key = clientType === "PT" ? "pt" : "pr";
         if (!slotMap[e.day_of_week][slot][key].includes(e.client_id))
@@ -231,7 +231,7 @@ function CalendarView({ scheduleEntries, clients, activeFilter }: {
       const T = timeToMin(ov.newTime);
       for (const slot of DISPLAY_SLOTS) {
         const H = timeToMin(slot);
-        if (T < H + 60 && T + 60 > H) {
+        if (T >= H && T < H + 60) {
           if (!slotMap[ov.newDow][slot]) slotMap[ov.newDow][slot] = { pr: [], pt: [] };
           const key = clientType === "PT" ? "pt" : "pr";
           if (!slotMap[ov.newDow][slot][key].includes(clientId))
@@ -509,7 +509,7 @@ function ClientSection({
         <div className="card divide-y divide-gray-50 dark:divide-gray-700">
           {sorted.map(client => (
             <Link key={client.id} href={`/clienti/${client.id}`}
-              className={`flex items-center gap-3.5 p-4 hover:bg-gray-50 transition-colors group dark:hover:bg-gray-700 ${getSubscriptionStatus(client.subscription_end) === "inactive" ? "opacity-40" : ""}`}>
+              className={`flex items-center gap-3.5 p-4 hover:bg-gray-50 transition-colors group dark:hover:bg-gray-700 ${!client.is_paused && getSubscriptionStatus(client.subscription_end) === "inactive" ? "opacity-40" : ""}`}>
               <div className="w-11 h-11 rounded-full flex items-center justify-center flex-shrink-0 font-bold text-sm border-2"
                 style={{ borderColor: accent, backgroundColor: accentBg, color: "#111" }}>
                 {getInitials(client.name, client.surname)}
@@ -602,6 +602,13 @@ export default function Dashboard() {
   }, [router]);
 
   useEffect(() => { fetchClients(); }, [fetchClients]);
+
+  // Re-fetch when tab regains focus (handles stale state after navigating back from profile)
+  useEffect(() => {
+    const onVisible = () => { if (document.visibilityState === "visible") fetchClients(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [fetchClients]);
 
   const prClients = clients.filter(c => (c.client_type ?? "PR") === "PR");
   const ptClients = clients.filter(c => c.client_type === "PT");

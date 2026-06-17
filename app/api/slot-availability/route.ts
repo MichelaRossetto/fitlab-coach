@@ -15,8 +15,7 @@ function timeToMin(t: string) {
 }
 
 // GET /api/slot-availability?exclude_client=xxx
-// Returns: Record<"dow:slot", count> — stessa logica overlap del calendario coach
-// Un cliente con orario 18:30 viene contato nello slot 18:00 (overlap di 1h)
+// Returns: Record<"dow:slot", count> — conta i clienti per slot (stessa logica del calendario coach)
 export async function GET(req: NextRequest) {
   const excludeClientId = req.nextUrl.searchParams.get("exclude_client");
 
@@ -33,8 +32,8 @@ export async function GET(req: NextRequest) {
     const T = timeToMin(row.time.slice(0, 5));
     for (const slot of DISPLAY_SLOTS) {
       const H = timeToMin(slot);
-      // Stesso overlap check del calendario: finestra 1h del cliente sovrapposta allo slot 1h
-      if (T < H + 60 && T + 60 > H) {
+      // Il cliente va nello slot dove cade il suo orario (T >= H e T < H+60)
+      if (T >= H && T < H + 60) {
         const key = `${row.day_of_week}:${slot}`;
         if (!slotSets[key]) slotSets[key] = new Set();
         slotSets[key].add(row.client_id);
