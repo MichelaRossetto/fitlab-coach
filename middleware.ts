@@ -22,6 +22,12 @@ export async function middleware(request: NextRequest) {
 
   const { data: { user } } = await supabase.auth.getUser();
 
+  // Route API interne: non richiedono sessione (usano service role key)
+  const internalApiRoutes = ["/api/sync-calendar"];
+  if (internalApiRoutes.some(r => request.nextUrl.pathname.startsWith(r))) {
+    return response;
+  }
+
   // Se non loggato e non siamo già su /login → redirect
   if (!user && !request.nextUrl.pathname.startsWith("/login")) {
     return NextResponse.redirect(new URL("/login", request.url));

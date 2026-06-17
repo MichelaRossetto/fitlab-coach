@@ -9,7 +9,6 @@ import { Modal } from "@/components/Modal";
 
 type FilterType = "all" | "expiring" | "expired" | "inactive" | "paused";
 type SectionFilter = FilterType | null; // null = sezione nascosta
-type ViewType = "list" | "calendar";
 
 interface ScheduleEntry {
   client_id: string;
@@ -113,8 +112,9 @@ function CalendarView({ scheduleEntries, clients, activeFilter }: {
   const visibleIds = new Set(visibleClients.map(c => c.id));
   const [weekStart, setWeekStart] = useState<Date>(() => getMonday(new Date()));
   const [selectedSlot, setSelectedSlot] = useState<{ day: number; time: string } | null>(null);
-  // Override sessioni: { clientId → { newDow, newTime, origDow } }
   const [sessionOverrides, setSessionOverrides] = useState<Record<string, { newDow: number; newTime: string; origDow: number }[]>>({});
+  // Eventi PT da iCloud (pt_calendar_events)
+  const [ptCalEvents, setPtCalEvents] = useState<{ client_id: string; event_date: string; event_time: string | null }[]>([]);
   const [overridesVersion, setOverridesVersion] = useState(0);
 
   const localDs = (d: Date) =>
@@ -163,6 +163,19 @@ function CalendarView({ scheduleEntries, clients, activeFilter }: {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [weekStart, overridesVersion]);
 
+  // Fetch pt_calendar_events per la settimana visualizzata
+  useEffect(() => {
+    const ws = localDs(weekDays[0]);
+    const we = localDs(weekDays[4]);
+    supabase
+      .from("pt_calendar_events")
+      .select("client_id, event_date, event_time")
+      .gte("event_date", ws)
+      .lte("event_date", we)
+      .then(({ data }) => setPtCalEvents(data ?? []));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [weekStart]);
+
   // Realtime: ricarica overrides se training_days cambia
   useEffect(() => {
     const channel = supabase
@@ -204,12 +217,16 @@ function CalendarView({ scheduleEntries, clients, activeFilter }: {
     }
   }
 
+  // PT con eventi iCloud questa settimana → non usare scheduleEntries per loro
+  const ptClientsWithCalEvents = new Set(ptCalEvents.map(e => e.client_id));
+
   for (const e of scheduleEntries) {
     if (e.day_of_week < 0 || e.day_of_week > 4) continue;
     if (!visibleIds.has(e.client_id)) continue;
-    // Salta se questo giorno ricorrente è stato spostato questa settimana
     if (suppressedDows[e.client_id]?.has(e.day_of_week)) continue;
     const clientType = visibleClients.find(c => c.id === e.client_id)?.client_type ?? "PR";
+    // PT con eventi iCloud: skip scheduleEntries, verranno aggiunti da ptCalEvents
+    if (clientType === "PT" && ptClientsWithCalEvents.has(e.client_id)) continue;
     const T = timeToMin(e.time);
     for (const slot of DISPLAY_SLOTS) {
       const H = timeToMin(slot);
@@ -218,6 +235,24 @@ function CalendarView({ scheduleEntries, clients, activeFilter }: {
         const key = clientType === "PT" ? "pt" : "pr";
         if (!slotMap[e.day_of_week][slot][key].includes(e.client_id))
           slotMap[e.day_of_week][slot][key].push(e.client_id);
+      }
+    }
+  }
+
+  // Aggiungi PT da iCloud (posizione reale dalla data dell'evento)
+  for (const ptEv of ptCalEvents) {
+    if (!visibleIds.has(ptEv.client_id)) continue;
+    const d = new Date(ptEv.event_date + "T12:00:00");
+    const jsDay = d.getDay();
+    const dow = jsDay === 0 ? 6 : jsDay - 1;
+    if (dow < 0 || dow > 4) continue;
+    const T = timeToMin(ptEv.event_time ?? "08:00");
+    for (const slot of DISPLAY_SLOTS) {
+      const H = timeToMin(slot);
+      if (T < H + 60 && T + 60 > H) {
+        if (!slotMap[dow][slot]) slotMap[dow][slot] = { pr: [], pt: [] };
+        if (!slotMap[dow][slot].pt.includes(ptEv.client_id))
+          slotMap[dow][slot].pt.push(ptEv.client_id);
       }
     }
   }
@@ -552,8 +587,9 @@ export default function Dashboard() {
   const [showModal, setShowModal] = useState(false);
   const [prFilter, setPrFilter] = useState<SectionFilter>("all");
   const [ptFilter, setPtFilter] = useState<SectionFilter>(null);
-  const [view, setView] = useState<ViewType>("list");
   const [unreadFeedback, setUnreadFeedback] = useState(0);
+  const [syncing, setSyncing] = useState(false);
+  const [syncMsg, setSyncMsg] = useState<{ text: string; ok: boolean } | null>(null);
 
   useEffect(() => {
     fetch("/api/feedback")
@@ -612,6 +648,25 @@ export default function Dashboard() {
 
   const prClients = clients.filter(c => (c.client_type ?? "PR") === "PR");
   const ptClients = clients.filter(c => c.client_type === "PT");
+
+  const handleSyncCalendar = async () => {
+    setSyncing(true);
+    setSyncMsg(null);
+    try {
+      const res = await fetch("/api/sync-calendar", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        setSyncMsg({ text: data.error ?? "Errore sync", ok: false });
+      } else {
+        setSyncMsg({ text: `Sync OK — ${data.updated} date aggiornate (${data.events} eventi trovati)`, ok: true });
+        await fetchClients();
+      }
+    } catch {
+      setSyncMsg({ text: "Errore di rete", ok: false });
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   const hasAnyResult = (type: "PR" | "PT") => {
     const filter = type === "PR" ? prFilter : ptFilter;
@@ -676,11 +731,41 @@ export default function Dashboard() {
 
       <main className="max-w-2xl mx-auto px-4 py-5 space-y-5">
 
+        {/* Bottone Calendario — prima cosa */}
+        <Link href="/calendario"
+          className="flex items-center justify-center gap-2 w-full py-3 rounded-2xl font-semibold text-sm transition-all border-2 border-gray-900 dark:border-gray-100 text-gray-900 dark:text-gray-100 hover:bg-gray-900 hover:text-white dark:hover:bg-gray-100 dark:hover:text-gray-900">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+            <line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
+          </svg>
+          Calendario
+        </Link>
+
         {/* Stats distinte per tipo */}
         {!loading && clients.length > 0 && (
           <div className="space-y-3">
             {ptClients.length > 0 && (
-              <TypeStatsRow label="PT" clients={ptClients} sectionFilter={ptFilter} onFilter={setPtFilter} />
+              <div className="space-y-1.5">
+                <TypeStatsRow label="PT" clients={ptClients} sectionFilter={ptFilter} onFilter={setPtFilter} />
+                <div className="flex items-center justify-between">
+                  <button
+                    onClick={handleSyncCalendar}
+                    disabled={syncing}
+                    className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-indigo-500 disabled:opacity-50 transition-colors"
+                  >
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+                      className={syncing ? "animate-spin" : ""}>
+                      <path d="M21 2v6h-6M3 12a9 9 0 0 1 15-6.7L21 8M3 22v-6h6M21 12a9 9 0 0 1-15 6.7L3 16"/>
+                    </svg>
+                    {syncing ? "Sincronizzando..." : "Sync calendario PT"}
+                  </button>
+                  {syncMsg && (
+                    <span className={`text-[11px] ${syncMsg.ok ? "text-green-600" : "text-red-500"}`}>
+                      {syncMsg.text}
+                    </span>
+                  )}
+                </div>
+              </div>
             )}
             {prClients.length > 0 && (
               <TypeStatsRow label="PR" clients={prClients} sectionFilter={prFilter} onFilter={setPrFilter} />
@@ -688,82 +773,52 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* View toggle */}
-        {!loading && (
-          <div className="flex gap-2 bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 p-1">
-            <button onClick={() => setView("list")}
-              className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-sm font-medium transition-all
-                ${view === "list" ? "bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900" : "text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"}`}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/>
-                <line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>
-              </svg>
-              Lista
-            </button>
-            <button onClick={() => setView("calendar")}
-              className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-sm font-medium transition-all
-                ${view === "calendar" ? "bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900" : "text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"}`}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
-                <line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
-              </svg>
-              Calendario
-            </button>
+        {/* Search */}
+        <div className="relative">
+          <svg className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+          </svg>
+          <input className="input pl-10" placeholder="Cerca cliente..." value={search} onChange={e => setSearch(e.target.value)} autoComplete="off" />
+        </div>
+
+        {loading ? (
+          <div className="space-y-3">
+            {[...Array(4)].map((_, i) => (
+              <div key={i} className="card p-4 flex items-center gap-3 animate-pulse">
+                <div className="w-11 h-11 rounded-full bg-gray-100" />
+                <div className="flex-1 space-y-2">
+                  <div className="h-3.5 bg-gray-100 rounded w-40" />
+                  <div className="h-3 bg-gray-100 rounded w-24" />
+                </div>
+              </div>
+            ))}
           </div>
-        )}
-
-        {view === "calendar" ? (
-          <CalendarView scheduleEntries={scheduleEntries} clients={clients} activeFilter="all" />
-        ) : (
-          <>
-            {/* Search */}
-            <div className="relative">
-              <svg className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
-              </svg>
-              <input className="input pl-10" placeholder="Cerca cliente..." value={search} onChange={e => setSearch(e.target.value)} autoComplete="off" />
-            </div>
-
-            {loading ? (
-              <div className="space-y-3">
-                {[...Array(4)].map((_, i) => (
-                  <div key={i} className="card p-4 flex items-center gap-3 animate-pulse">
-                    <div className="w-11 h-11 rounded-full bg-gray-100" />
-                    <div className="flex-1 space-y-2">
-                      <div className="h-3.5 bg-gray-100 rounded w-40" />
-                      <div className="h-3 bg-gray-100 rounded w-24" />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : !hasAnyResult("PR") && !hasAnyResult("PT") ? (
-              <div className="card p-10 text-center">
-                {clients.length === 0 ? (
-                  <>
-                    <div className="text-3xl mb-3">👋</div>
-                    <p className="font-medium text-gray-700 mb-1">Nessun cliente ancora</p>
-                    <p className="text-sm text-gray-400 mb-4">Aggiungi il tuo primo cliente per iniziare</p>
-                    <button className="btn-primary mx-auto" onClick={() => setShowModal(true)}>Aggiungi cliente</button>
-                  </>
-                ) : search ? (
-                  <>
-                    <div className="text-3xl mb-3">🔍</div>
-                    <p className="text-gray-500">{`Nessun cliente trovato per "${search}"`}</p>
-                    <button className="mt-3 text-sm text-gray-400 hover:text-gray-600 underline" onClick={() => setSearch("")}>Rimuovi ricerca</button>
-                  </>
-                ) : (
-                  <>
-                    <p className="text-gray-400 text-sm">Clicca su <strong>totali</strong> PT o PR per visualizzare la lista</p>
-                  </>
-                )}
-              </div>
+        ) : !hasAnyResult("PR") && !hasAnyResult("PT") ? (
+          <div className="card p-10 text-center">
+            {clients.length === 0 ? (
+              <>
+                <div className="text-3xl mb-3">👋</div>
+                <p className="font-medium text-gray-700 mb-1">Nessun cliente ancora</p>
+                <p className="text-sm text-gray-400 mb-4">Aggiungi il tuo primo cliente per iniziare</p>
+                <button className="btn-primary mx-auto" onClick={() => setShowModal(true)}>Aggiungi cliente</button>
+              </>
+            ) : search ? (
+              <>
+                <div className="text-3xl mb-3">🔍</div>
+                <p className="text-gray-500">{`Nessun cliente trovato per "${search}"`}</p>
+                <button className="mt-3 text-sm text-gray-400 hover:text-gray-600 underline" onClick={() => setSearch("")}>Rimuovi ricerca</button>
+              </>
             ) : (
-              <div className="space-y-6">
-                <ClientSection type="PT" clients={ptClients} scheduleDays={scheduleDays} search={search} activeFilter={ptFilter} />
-                <ClientSection type="PR" clients={prClients} scheduleDays={scheduleDays} search={search} activeFilter={prFilter} />
-              </div>
+              <>
+                <p className="text-gray-400 text-sm">Clicca su <strong>totali</strong> PT o PR per visualizzare la lista</p>
+              </>
             )}
-          </>
+          </div>
+        ) : (
+          <div className="space-y-6">
+            <ClientSection type="PT" clients={ptClients} scheduleDays={scheduleDays} search={search} activeFilter={ptFilter} />
+            <ClientSection type="PR" clients={prClients} scheduleDays={scheduleDays} search={search} activeFilter={prFilter} />
+          </div>
         )}
       </main>
 
