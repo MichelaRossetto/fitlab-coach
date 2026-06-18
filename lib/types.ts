@@ -23,6 +23,7 @@ export interface TrainingMonth {
   month_num: number;
   notes: string | null;
   description: string | null;
+  visible_from: string | null;
 }
 
 export interface TrainingWeek {

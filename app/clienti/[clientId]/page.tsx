@@ -562,7 +562,7 @@ function UpcomingSessionsCard({ clientId, isClientView, clientName }: {
 
     const { data: weeks, error: weeksErr } = await supabase
       .from("training_weeks")
-      .select("id, date_start, week_number, month_id, training_months!inner(client_id, label)")
+      .select("id, date_start, week_number, month_id, training_months!inner(client_id, label, visible_from)")
       .eq("training_months.client_id", clientId);
 
     if (weeksErr || !weeks || weeks.length === 0) return;
@@ -579,10 +579,29 @@ function UpcomingSessionsCard({ clientId, isClientView, clientName }: {
     const weekMap: Record<string, any> = {};
     for (const w of weeks as any[]) weekMap[w.id] = w;
 
+    // Mesi bloccati (visible_from futuro o auto-calcolato da settimana1 - 3gg)
+    const firstWkDs: Record<string, string> = {};
+    for (const w of weeks as any[]) {
+      if (!w.date_start) continue;
+      if (!firstWkDs[w.month_id] || w.date_start < firstWkDs[w.month_id]) firstWkDs[w.month_id] = w.date_start;
+    }
+    const lockedMonthIds = new Set<string>();
+    for (const w of weeks as any[]) {
+      const mo = w["training_months"] as any;
+      if (!mo) continue;
+      let evf = mo.visible_from as string | null;
+      if (!evf && firstWkDs[w.month_id]) {
+        const dt = new Date(firstWkDs[w.month_id] + "T12:00:00"); dt.setDate(dt.getDate() - 3);
+        evf = dt.toISOString().split("T")[0];
+      }
+      if (evf && evf > todayStr) lockedMonthIds.add(w.month_id);
+    }
+
     const list: { dayId: string; dayNumber: number; weekId: string; monthId: string; label: string; dateStr: string | null; dayTime: string | null; weekLabel: string; weekDateStart: string | null }[] = [];
     for (const day of days as any[]) {
       const week = weekMap[day.week_id];
       if (!week) continue;
+      if (lockedMonthIds.has(week.month_id)) continue;
       const monthLabel = (week["training_months"] as any)?.label ?? "";
 
       let dateStr: string | null = day.day_date ?? null;
@@ -591,6 +610,14 @@ function UpcomingSessionsCard({ clientId, isClientView, clientName }: {
         ws.setDate(ws.getDate() + schedDays[day.day_number - 1]);
         dateStr = ws.toISOString().split("T")[0];
       }
+      // Orario: usa day_time esplicito; fallback all'orario abituale del giorno della settimana
+      let dayTime: string | null = day.day_time ? day.day_time.slice(0, 5) : null;
+      if (!dayTime && dateStr) {
+        const jsDay = new Date(dateStr + "T12:00:00").getDay();
+        const dow = jsDay === 0 ? 6 : jsDay - 1; // 0=lun … 4=ven
+        dayTime = schedule[dow] ? schedule[dow].slice(0, 5) : null;
+      }
+
       list.push({
         dayId: day.id,
         dayNumber: day.day_number,
@@ -598,7 +625,7 @@ function UpcomingSessionsCard({ clientId, isClientView, clientName }: {
         monthId: week.month_id,
         label: day.label,
         dateStr,
-        dayTime: day.day_time ? day.day_time.slice(0, 5) : null,
+        dayTime,
         weekLabel: `${monthLabel} · Sett. ${week.week_number}`,
         weekDateStart: week.date_start ?? null,
       });
@@ -660,18 +687,28 @@ function UpcomingSessionsCard({ clientId, isClientView, clientName }: {
     // Notifica alla coach solo se è il cliente a spostare
     if (!coachView) {
       const fmt = (d: string) => new Date(d + "T12:00:00").toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long" });
-      const fromLabel = originalDate ? fmt(originalDate) : "data precedente";
+      const sessionLabel = session?.label ?? "allenamento";
       const originalTime = session?.dayTime ?? null;
-      const fromTime = originalTime ? ` ore ${originalTime}` : "";
       const toLabel = fmt(rescheduleDate);
+
+      let message: string;
+      if (!originalDate) {
+        message = `${clientName} ha spostato "${sessionLabel}" a ${toLabel} ore ${rescheduleTime}.`;
+      } else if (originalDate === rescheduleDate) {
+        // Stesso giorno — solo l'orario è cambiato
+        const fromTimePart = originalTime ? ` (prima: ore ${originalTime})` : "";
+        message = `${clientName} ha cambiato l'orario di "${sessionLabel}" del ${toLabel}: ora alle ${rescheduleTime}${fromTimePart}.`;
+      } else {
+        // Giorno diverso
+        const fromLabel = fmt(originalDate);
+        const fromTime = originalTime ? ` ore ${originalTime}` : "";
+        message = `${clientName} ha spostato "${sessionLabel}" da ${fromLabel}${fromTime} a ${toLabel} ore ${rescheduleTime}.`;
+      }
+
       await fetch("/api/feedback", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          client_id: clientId,
-          type: "reschedule",
-          message: `${clientName} ha spostato "${session?.label ?? "allenamento"}" da ${fromLabel}${fromTime} a ${toLabel} ore ${rescheduleTime}.`,
-        }),
+        body: JSON.stringify({ client_id: clientId, type: "reschedule", message }),
       });
     }
 
@@ -1297,9 +1334,28 @@ export default function ClientPage() {
 
       if (weeksData) {
         const today = new Date(); today.setHours(0, 0, 0, 0);
+        const todayDs = today.toISOString().split("T")[0];
         let best: { date: Date; url: string; label: string; isToday: boolean } | null = null;
 
+        // Calcola mesi ancora bloccati (visible_from futuro o auto-calcolato da settimana1 - 3gg)
+        const monthsMap = new Map((m ?? []).map(mo => [mo.id, mo]));
+        const firstWkDs: Record<string, string> = {};
+        for (const w of weeksData as any[]) {
+          if (!w.date_start) continue;
+          if (!firstWkDs[w.month_id] || w.date_start < firstWkDs[w.month_id]) firstWkDs[w.month_id] = w.date_start;
+        }
+        const lockedMonthIds = new Set<string>();
+        for (const [mid, mo] of Array.from(monthsMap)) {
+          let evf = mo.visible_from as string | null;
+          if (!evf && firstWkDs[mid]) {
+            const dt = new Date(firstWkDs[mid] + "T12:00:00"); dt.setDate(dt.getDate() - 3);
+            evf = dt.toISOString().split("T")[0];
+          }
+          if (evf && evf > todayDs) lockedMonthIds.add(mid);
+        }
+
         for (const week of weeksData as any[]) {
+          if (lockedMonthIds.has(week.month_id)) continue;
           const weekStart = new Date(week.date_start);
           weekStart.setHours(12, 0, 0, 0);
           const days = [...(week.training_days ?? [])].sort((a: any, b: any) => a.day_number - b.day_number);
@@ -1453,7 +1509,13 @@ export default function ClientPage() {
             </div>
           ) : (
             <div className="space-y-3">
-              {months.map(m => (
+              {months.map(m => {
+                const todayStr = new Date().toISOString().split("T")[0];
+                const locked = !!m.visible_from && m.visible_from > todayStr;
+                const visibleDateLabel = locked
+                  ? new Date(m.visible_from! + "T12:00:00").toLocaleDateString("it-IT", { day: "numeric", month: "long" })
+                  : null;
+                return (
                 <Link
                   key={m.id}
                   href={`/clienti/${clientId}/${m.id}`}
@@ -1462,13 +1524,27 @@ export default function ClientPage() {
                   <div>
                     <div className="font-semibold text-gray-900 dark:text-gray-100">{m.label}</div>
                     {m.description && <div className="text-xs text-gray-400 mt-0.5 line-clamp-1">{m.description}</div>}
+                    {!isClientView && locked && (
+                      <div className="text-xs text-amber-500 mt-0.5 flex items-center gap-1">
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                        Visibile dal {visibleDateLabel}
+                      </div>
+                    )}
                   </div>
-                  <svg className="text-gray-300 group-hover:text-gray-500 transition-colors"
-                    width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M9 18l6-6-6-6"/>
-                  </svg>
+                  <div className="flex items-center gap-2">
+                    {isClientView && locked && (
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-gray-400">
+                        <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                      </svg>
+                    )}
+                    <svg className="text-gray-300 group-hover:text-gray-500 transition-colors"
+                      width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M9 18l6-6-6-6"/>
+                    </svg>
+                  </div>
                 </Link>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

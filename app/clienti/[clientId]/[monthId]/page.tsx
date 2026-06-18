@@ -118,6 +118,10 @@ export default function MonthPage() {
   // ── Note coach ────────────────────────────────────────────────
   const [showNotes, setShowNotes] = useState(false);
   const [notesText, setNotesText] = useState("");
+  // ── Visibilità mese ───────────────────────────────────────────
+  const [editingVf, setEditingVf] = useState(false);
+  const [vfDraft, setVfDraft] = useState("");
+  const [savingVf, setSavingVf] = useState(false);
   const [weekDays, setWeekDays] = useState<Record<string, { id: string; day_number: number; label: string | null }[]>>({});
   const [savingNotes, setSavingNotes] = useState(false);
 
@@ -220,6 +224,17 @@ export default function MonthPage() {
     setEditingDesc(false);
   };
 
+  const handleSaveVf = async (value: string | null) => {
+    setSavingVf(true);
+    await supabase.from("training_months").update({ visible_from: value || null }).eq("id", monthId);
+    setSavingVf(false);
+    setMonth(m => m ? { ...m, visible_from: value || null } : m);
+    setEditingVf(false);
+  };
+
+  const formatVf = (ds: string) =>
+    new Date(ds + "T12:00:00").toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long" });
+
   const handleDeleteMonth = async () => {
     setDeleting(true);
     await supabase.from("training_months").delete().eq("id", monthId);
@@ -315,11 +330,96 @@ export default function MonthPage() {
           </div>
         )}
 
+        {/* Visibilità mese */}
+        {(() => {
+          const todayStr = new Date().toISOString().split("T")[0];
+          // Data auto: 3 giorni prima dell'inizio della prima settimana
+          const computedVf = (() => {
+            const ds = weeks[0]?.date_start;
+            if (!ds) return null;
+            const dt = new Date(ds + "T12:00:00");
+            dt.setDate(dt.getDate() - 3);
+            return dt.toISOString().split("T")[0];
+          })();
+          const effectiveVf = month.visible_from ?? computedVf;
+          const isAutomatic = !month.visible_from && !!computedVf;
+
+          return !isClientView ? (
+            <div>
+              {editingVf ? (
+                <div className="flex items-center gap-2">
+                  <input
+                    type="date"
+                    className="input text-sm py-1.5 flex-1"
+                    value={vfDraft}
+                    onChange={e => setVfDraft(e.target.value)}
+                  />
+                  <button
+                    onClick={() => handleSaveVf(vfDraft)}
+                    disabled={savingVf || !vfDraft}
+                    className="btn-primary text-xs py-1.5 px-3 disabled:opacity-50"
+                  >
+                    {savingVf ? "Salvo..." : "Salva"}
+                  </button>
+                  <button onClick={() => setEditingVf(false)} className="btn-secondary text-xs py-1.5 px-3">✕</button>
+                </div>
+              ) : effectiveVf && effectiveVf > todayStr ? (
+                <div className="flex items-center gap-2 text-sm flex-wrap">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-amber-500 flex-shrink-0"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                  <span className="text-amber-600 dark:text-amber-400">
+                    La scheda risulterà visibile il <strong>{formatVf(effectiveVf)}</strong>
+                    {isAutomatic && <span className="text-gray-400 font-normal"> (automatico)</span>}
+                  </span>
+                  <button
+                    onClick={() => { setVfDraft(effectiveVf); setEditingVf(true); }}
+                    className="text-gray-300 hover:text-gray-500 dark:hover:text-gray-400 transition-colors"
+                    title="Modifica data"
+                  >
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                  </button>
+                  {!isAutomatic && (
+                    <button
+                      onClick={() => handleSaveVf(null)}
+                      className="text-xs text-gray-300 hover:text-red-400 transition-colors"
+                      title="Ripristina data automatica"
+                    >
+                      Ripristina automatico
+                    </button>
+                  )}
+                </div>
+              ) : null}
+            </div>
+          ) : null;
+        })()}
+
         {/* Weeks */}
+        {(() => {
+          const todayStr = new Date().toISOString().split("T")[0];
+          const computedVf = (() => {
+            const ds = weeks[0]?.date_start;
+            if (!ds) return null;
+            const dt = new Date(ds + "T12:00:00");
+            dt.setDate(dt.getDate() - 3);
+            return dt.toISOString().split("T")[0];
+          })();
+          const effectiveVf = month.visible_from ?? computedVf;
+          const isLocked = isClientView && !!effectiveVf && effectiveVf > todayStr;
+          return (
         <div>
           <p className="section-label">{weeks.length} settiman{weeks.length === 1 ? "a" : "e"}</p>
 
-          {weeks.length === 0 ? (
+          {isLocked ? (
+            <div className="card p-6 text-center space-y-3">
+              <div className="text-4xl">🔒</div>
+              <p className="font-semibold text-gray-900 dark:text-gray-100">Allenamento in arrivo</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400 leading-relaxed">
+                Il tuo allenamento si attiverà il{" "}
+                <strong className="text-gray-700 dark:text-gray-200">{formatVf(effectiveVf!)}</strong>.
+                <br />
+                Se vuoi anticipare la data, contatta la coach.
+              </p>
+            </div>
+          ) : weeks.length === 0 ? (
             <div className="card p-8 text-center">
               <div className="text-3xl mb-2">📋</div>
               <p className="text-sm text-gray-500">Nessuna settimana ancora.</p>
@@ -399,6 +499,8 @@ export default function MonthPage() {
             </div>
           )}
         </div>
+        );
+        })()}
 
         {/* Delete — solo coach */}
         {!isClientView && <div className="pb-4 text-center">

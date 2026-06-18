@@ -587,8 +587,6 @@ export default function Dashboard() {
   const [prFilter, setPrFilter] = useState<SectionFilter>("all");
   const [ptFilter, setPtFilter] = useState<SectionFilter>(null);
   const [unreadFeedback, setUnreadFeedback] = useState(0);
-  const [syncing, setSyncing] = useState(false);
-  const [syncMsg, setSyncMsg] = useState<{ text: string; ok: boolean } | null>(null);
 
   useEffect(() => {
     fetch("/api/feedback")
@@ -648,24 +646,6 @@ export default function Dashboard() {
   const prClients = clients.filter(c => (c.client_type ?? "PR") === "PR");
   const ptClients = clients.filter(c => c.client_type === "PT");
 
-  const handleSyncCalendar = async () => {
-    setSyncing(true);
-    setSyncMsg(null);
-    try {
-      const res = await fetch("/api/sync-calendar", { method: "POST" });
-      const data = await res.json();
-      if (!res.ok) {
-        setSyncMsg({ text: data.error ?? "Errore sync", ok: false });
-      } else {
-        setSyncMsg({ text: `Sync OK — ${data.updated} date aggiornate (${data.events} eventi trovati)`, ok: true });
-        await fetchClients();
-      }
-    } catch {
-      setSyncMsg({ text: "Errore di rete", ok: false });
-    } finally {
-      setSyncing(false);
-    }
-  };
 
   const hasAnyResult = (type: "PR" | "PT") => {
     const filter = type === "PR" ? prFilter : ptFilter;
@@ -746,24 +726,6 @@ export default function Dashboard() {
             {ptClients.length > 0 && (
               <div className="space-y-1.5">
                 <TypeStatsRow label="PT" clients={ptClients} sectionFilter={ptFilter} onFilter={setPtFilter} />
-                <div className="flex items-center justify-between">
-                  <button
-                    onClick={handleSyncCalendar}
-                    disabled={syncing}
-                    className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-indigo-500 disabled:opacity-50 transition-colors"
-                  >
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
-                      className={syncing ? "animate-spin" : ""}>
-                      <path d="M21 2v6h-6M3 12a9 9 0 0 1 15-6.7L21 8M3 22v-6h6M21 12a9 9 0 0 1-15 6.7L3 16"/>
-                    </svg>
-                    {syncing ? "Sincronizzando..." : "Sync calendario PT"}
-                  </button>
-                  {syncMsg && (
-                    <span className={`text-[11px] ${syncMsg.ok ? "text-green-600" : "text-red-500"}`}>
-                      {syncMsg.text}
-                    </span>
-                  )}
-                </div>
               </div>
             )}
             {prClients.length > 0 && (

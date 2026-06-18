@@ -18,6 +18,7 @@ type ViewMode = "week" | "day";
 
 interface ScheduleEntry { client_id: string; day_of_week: number; time: string; }
 interface PtCalEvent    { client_id: string; event_date: string; event_time: string | null; }
+interface RawOverride   { client_id: string; day_date: string; day_time: string | null; day_number: number; }
 interface CalEvent {
   id: string; client_id: string;
   name: string; surname: string;
@@ -70,6 +71,7 @@ export default function CalendarioPage() {
   const [clients,     setClients]     = useState<Client[]>([]);
   const [schedule,    setSchedule]    = useState<ScheduleEntry[]>([]);
   const [ptEvents,    setPtEvents]    = useState<PtCalEvent[]>([]);
+  const [rawOverrides, setRawOverrides] = useState<RawOverride[]>([]);
   const [showPR,      setShowPR]      = useState(true);
   const [showPT,      setShowPT]      = useState(true);
   const [syncing,     setSyncing]     = useState(false);
@@ -133,6 +135,34 @@ export default function CalendarioPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [weekStart, viewMode, selectedDay.toDateString()]);
 
+  // Fetch override training_days (spostamenti PR all'interno della settimana)
+  const fetchOverrides = useCallback(async (ws: string, we: string) => {
+    const { data } = await supabase
+      .from("training_days")
+      .select("day_date, day_time, day_number, training_weeks!inner(training_months!inner(client_id))")
+      .gte("day_date", ws)
+      .lte("day_date", we)
+      .not("day_date", "is", null);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    setRawOverrides((data ?? []).map((td: any) => ({
+      client_id: td.training_weeks?.training_months?.client_id as string,
+      day_date: td.day_date as string,
+      day_time: td.day_time as string | null,
+      day_number: td.day_number as number,
+    })).filter((o: RawOverride) => o.client_id));
+  }, []);
+
+  useEffect(() => {
+    if (viewMode === "week") {
+      fetchOverrides(localDs(weekDays[0]), localDs(weekDays[DAYS - 1]));
+    } else {
+      const mon = getMonday(selectedDay);
+      const fri = new Date(mon); fri.setDate(fri.getDate() + 4);
+      fetchOverrides(localDs(mon), localDs(fri));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [weekStart, viewMode, selectedDay.toDateString()]);
+
   // Clienti visibili
   const visibleIds = new Set(
     clients
@@ -140,6 +170,26 @@ export default function CalendarioPage() {
       .map(c => c.id)
   );
   const clientMap = new Map(clients.map(c => [c.id, c]));
+
+  // Calcola override da training_days (PR che hanno spostato la sessione nella settimana corrente)
+  const processedOverrides = rawOverrides.map(td => {
+    const d = new Date(td.day_date + "T12:00:00");
+    const jsDay = d.getDay();
+    const newDow = jsDay === 0 ? 6 : jsDay - 1;
+    const clientSched = schedule
+      .filter(e => e.client_id === td.client_id && e.day_of_week < DAYS)
+      .sort((a, b) => a.day_of_week - b.day_of_week);
+    const origEntry = clientSched[td.day_number - 1];
+    const origDow = origEntry?.day_of_week ?? newDow;
+    const newTime = td.day_time?.slice(0, 5) ?? origEntry?.time?.slice(0, 5) ?? "08:00";
+    return { client_id: td.client_id, newDate: td.day_date, newTime, origDow };
+  });
+
+  const suppressedDows: Record<string, Set<number>> = {};
+  for (const ov of processedOverrides) {
+    if (!suppressedDows[ov.client_id]) suppressedDows[ov.client_id] = new Set();
+    suppressedDows[ov.client_id].add(ov.origDow);
+  }
 
   // Costruisce rawByDay per i giorni visualizzati
   const rawByDay = new Map<string, Omit<CalEvent,"col"|"cols">[]>();
@@ -151,6 +201,8 @@ export default function CalendarioPage() {
       const c = clientMap.get(entry.client_id);
       if (!c || c.client_type === "PT") continue;
       if (entry.day_of_week >= DAYS) continue;
+      // Salta il giorno ricorrente se questa settimana è stato spostato
+      if (suppressedDows[entry.client_id]?.has(entry.day_of_week)) continue;
 
       if (viewMode === "week") {
         const ds = localDs(weekDays[entry.day_of_week]);
@@ -172,6 +224,19 @@ export default function CalendarioPage() {
           });
         }
       }
+    }
+
+    // Aggiunge le sessioni spostate nella nuova posizione
+    for (const ov of processedOverrides) {
+      if (!visibleIds.has(ov.client_id)) continue;
+      const c = clientMap.get(ov.client_id);
+      if (!c || c.client_type === "PT") continue;
+      rawByDay.get(ov.newDate)?.push({
+        id: `pr-ov-${ov.client_id}-${ov.newDate}`,
+        client_id: ov.client_id,
+        name: c.name, surname: c.surname,
+        type: "PR", startMin: timeToMin(ov.newTime),
+      });
     }
   }
 

@@ -67,6 +67,19 @@ function parseDtstart(
   return { date, time: `${String(h).padStart(2, "0")}:${min}` };
 }
 
+// ── Cron entry-point (GET) ────────────────────────────────────
+
+export async function GET(request: Request) {
+  const cronSecret = process.env.CRON_SECRET;
+  if (cronSecret) {
+    const auth = request.headers.get("Authorization");
+    if (auth !== `Bearer ${cronSecret}`) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+  }
+  return POST();
+}
+
 // ── Main sync ─────────────────────────────────────────────────
 
 export async function POST() {
