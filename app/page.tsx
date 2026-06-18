@@ -7,7 +7,7 @@ import { Client, ClientType, getInitials, getSubscriptionStatus, TIME_SLOTS_MORN
 import { StatusBadge } from "@/components/StatusBadge";
 import { Modal } from "@/components/Modal";
 
-type FilterType = "all" | "expiring" | "expired" | "inactive" | "paused";
+type FilterType = "all" | "expiring" | "expired" | "paused";
 type SectionFilter = FilterType | null; // null = sezione nascosta
 
 interface ScheduleEntry {
@@ -29,7 +29,6 @@ function TypeStatsRow({
     total:    clients.length,
     expiring: clients.filter(c => !c.is_paused && getSubscriptionStatus(c.subscription_end) === "expiring").length,
     expired:  clients.filter(c => !c.is_paused && getSubscriptionStatus(c.subscription_end) === "expired").length,
-    inactive: clients.filter(c => !c.is_paused && getSubscriptionStatus(c.subscription_end) === "inactive").length,
     paused:   clients.filter(c => c.is_paused).length,
   };
 
@@ -60,17 +59,17 @@ function TypeStatsRow({
         <span className="text-xs text-gray-400">{isPR ? "Programmazione" : "Personal Training"}</span>
         {hidden && <span className="text-[10px] text-gray-400 italic">nascosta · clicca totali per mostrare</span>}
       </div>
-      <div className="grid grid-cols-5 gap-1.5">
+      <div className="grid grid-cols-4 gap-1.5">
         {/* Totali: toggle visibilità */}
         <button onClick={handleTotal} className={pillClass(pillActive("all"))}>
           <span className={`text-lg font-bold leading-none ${pillActive("all") ? "text-white dark:text-gray-900" : hidden ? "text-gray-300 dark:text-gray-600" : "text-gray-900 dark:text-gray-100"}`}>{stats.total}</span>
           <span className={`text-[10px] mt-0.5 ${pillActive("all") ? "text-gray-300 dark:text-gray-600" : "text-gray-400"}`}>totali</span>
         </button>
         {/* Filtri: operano dentro la sezione */}
-        {(["expiring", "expired", "paused", "inactive"] as const).map((f, i) => {
-          const value = [stats.expiring, stats.expired, stats.paused, stats.inactive][i];
-          const color = ["text-amber-600", "text-red-500", "text-indigo-500", "text-gray-400"][i];
-          const sublabel = ["in scad.", "scaduti", "in pausa", "inattivi"][i];
+        {(["expiring", "expired", "paused"] as const).map((f, i) => {
+          const value = [stats.expiring, stats.expired, stats.paused][i];
+          const color = ["text-amber-600", "text-red-500", "text-indigo-500"][i];
+          const sublabel = ["in scad.", "scaduti", "in pausa"][i];
           const active = pillActive(f);
           return (
             <button key={f} onClick={() => handleFilter(f)} disabled={hidden}
@@ -516,7 +515,7 @@ function ClientSection({
       const s = getSubscriptionStatus(c.subscription_end);
       if (s === "expiring") return 0;
       if (s === "active")   return 1;
-      if (s === "expired" || s === "inactive") return 4;
+      if (s === "expired") return 4;
       return 5;
     };
     const so = statusOrder(a) - statusOrder(b);

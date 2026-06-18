@@ -16,14 +16,9 @@ export function StatusBadge({ subscriptionEnd, isPaused }: StatusBadgeProps) {
   }
 
   const status = getSubscriptionStatus(subscriptionEnd);
-
-  if (status === "inactive") {
-    return <span className="badge-expired" style={{ opacity: 0.5 }}>Inattivo</span>;
-  }
-
-  const formatted = new Date(subscriptionEnd!).toLocaleDateString("it-IT", {
-    day: "2-digit", month: "2-digit", year: "2-digit",
-  });
+  const formatted = subscriptionEnd
+    ? new Date(subscriptionEnd).toLocaleDateString("it-IT", { day: "2-digit", month: "2-digit", year: "2-digit" })
+    : null;
 
   if (status === "active") {
     return (
@@ -46,11 +41,11 @@ export function StatusBadge({ subscriptionEnd, isPaused }: StatusBadgeProps) {
     );
   }
 
-  // expired (≤30 giorni fa)
+  // expired
   return (
     <span className="badge-expired">
       <span className="w-1.5 h-1.5 rounded-full bg-red-500 inline-block" />
-      Scaduto · {formatted}
+      {formatted ? `Scaduto · ${formatted}` : "Scaduto"}
     </span>
   );
 }
