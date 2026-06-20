@@ -3473,7 +3473,8 @@ export default function DayPage() {
       .from("workout_sections")
       .select("*, exercises(*)")
       .eq("day_id", dayId)
-      .order("order_index");
+      .order("order_index")
+      .order("order_index", { foreignTable: "exercises" });
 
     // Ensure all 5 sections exist; create missing ones
     const existingTypes = (secs ?? []).map((s: WorkoutSection) => s.section_type);
@@ -3495,7 +3496,8 @@ export default function DayPage() {
         .from("workout_sections")
         .select("*, exercises(*)")
         .eq("day_id", dayId)
-        .order("order_index");
+        .order("order_index")
+        .order("order_index", { foreignTable: "exercises" });
       setSections(
         SECTION_ORDER
           .map(type => (secs2 ?? []).find((s: WorkoutSection) => s.section_type === type)!)

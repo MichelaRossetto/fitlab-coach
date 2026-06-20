@@ -227,7 +227,8 @@ export default function WeekPage() {
           .from("workout_sections")
           .select("*, exercises(*)")
           .eq("day_id", day.id)
-          .order("order_index");
+          .order("order_index")
+          .order("order_index", { foreignTable: "exercises" });
         return { day, sections: secs ?? [] };
       })),
       supabase.from("client_maxes").select("exercise_name, weight_kg").eq("client_id", clientId),
