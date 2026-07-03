@@ -597,7 +597,7 @@ function UpcomingSessionsCard({ clientId, isClientView, clientName }: {
       if (evf && evf > todayStr) lockedMonthIds.add(w.month_id);
     }
 
-    const list: { dayId: string; dayNumber: number; weekId: string; monthId: string; label: string; dateStr: string | null; dayTime: string | null; weekLabel: string; weekDateStart: string | null }[] = [];
+    const list: { dayId: string; dayNumber: number; weekId: string; monthId: string; label: string; dateStr: string | null; dayTime: string | null; weekLabel: string; weekDateStart: string | null; status: string | null }[] = [];
     for (const day of days as any[]) {
       const week = weekMap[day.week_id];
       if (!week) continue;
