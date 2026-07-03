@@ -18,11 +18,12 @@ type ViewMode = "week" | "day";
 
 interface ScheduleEntry { client_id: string; day_of_week: number; time: string; }
 interface PtCalEvent    { client_id: string; event_date: string; event_time: string | null; }
-interface RawOverride   { client_id: string; day_date: string; day_time: string | null; day_number: number; }
+interface RawOverride   { client_id: string; day_date: string; day_time: string | null; day_number: number; saltato: boolean; }
 interface CalEvent {
   id: string; client_id: string;
   name: string; surname: string;
   type: "PR" | "PT";
+  saltato?: boolean;
   startMin: number;
   col: number; cols: number;
 }
@@ -139,7 +140,7 @@ export default function CalendarioPage() {
   const fetchOverrides = useCallback(async (ws: string, we: string) => {
     const { data } = await supabase
       .from("training_days")
-      .select("day_date, day_time, day_number, training_weeks!inner(training_months!inner(client_id))")
+      .select("day_date, day_time, day_number, status, training_weeks!inner(training_months!inner(client_id))")
       .gte("day_date", ws)
       .lte("day_date", we)
       .not("day_date", "is", null);
@@ -149,6 +150,7 @@ export default function CalendarioPage() {
       day_date: td.day_date as string,
       day_time: td.day_time as string | null,
       day_number: td.day_number as number,
+      saltato: td.status === "saltato",
     })).filter((o: RawOverride) => o.client_id));
   }, []);
 
@@ -182,7 +184,7 @@ export default function CalendarioPage() {
     const origEntry = clientSched[td.day_number - 1];
     const origDow = origEntry?.day_of_week ?? newDow;
     const newTime = td.day_time?.slice(0, 5) ?? origEntry?.time?.slice(0, 5) ?? "08:00";
-    return { client_id: td.client_id, newDate: td.day_date, newTime, origDow };
+    return { client_id: td.client_id, newDate: td.day_date, newTime, origDow, saltato: td.saltato };
   });
 
   const suppressedDows: Record<string, Set<number>> = {};
@@ -236,6 +238,7 @@ export default function CalendarioPage() {
         client_id: ov.client_id,
         name: c.name, surname: c.surname,
         type: "PR", startMin: timeToMin(ov.newTime),
+        saltato: ov.saltato,
       });
     }
   }
@@ -442,6 +445,9 @@ export default function CalendarioPage() {
                     const height = HOUR_PX - 4;
                     const colW   = 1 / ev.cols;
                     const isPR   = ev.type === "PR";
+                    const bgColor = ev.saltato ? "#9ca3af" : isPR ? "#C0D738" : "#6366f1";
+                    const textColor = ev.saltato ? "#fff" : isPR ? "#1a1f00" : "#fff";
+                    const subColor  = ev.saltato ? "#e5e7eb" : isPR ? "#4a5000" : "#c7d2fe";
                     return (
                       <div key={ev.id}
                         className="absolute rounded-lg overflow-hidden select-none"
@@ -450,21 +456,22 @@ export default function CalendarioPage() {
                           height: `${height}px`,
                           left:   `${ev.col * colW * 100 + 1}%`,
                           width:  `${colW * 100 - 2}%`,
-                          backgroundColor: isPR ? "#C0D738" : "#6366f1",
+                          backgroundColor: bgColor,
                           minWidth: "28px",
                           zIndex: 10,
+                          opacity: ev.saltato ? 0.7 : 1,
                         }}
-                        title={`${ev.name} ${ev.surname}`}
+                        title={`${ev.name} ${ev.surname}${ev.saltato ? " — Non presente" : ""}`}
                       >
                         <div className="px-1.5 pt-1 h-full overflow-hidden">
                           <p className={`font-bold leading-tight truncate ${isDay ? "text-[14px]" : "text-[11px]"}`}
-                            style={{ color: isPR ? "#1a1f00" : "#fff" }}>
+                            style={{ color: textColor }}>
                             {ev.surname}
                           </p>
                           {height > 30 && (
                             <p className={`leading-tight truncate mt-0.5 ${isDay ? "text-[12px]" : "text-[10px]"}`}
-                              style={{ color: isPR ? "#4a5000" : "#c7d2fe" }}>
-                              {ev.name}
+                              style={{ color: subColor }}>
+                              {ev.saltato ? "Non presente" : ev.name}
                             </p>
                           )}
                         </div>

@@ -531,7 +531,7 @@ function UpcomingSessionsCard({ clientId, isClientView, clientName }: {
   const [open, setOpen] = useState(false);
   const [schedule, setSchedule] = useState<Record<number, string>>({});
   const [loadingS, setLoadingS] = useState(true);
-  const [sessionList, setSessionList] = useState<{ dayId: string; dayNumber: number; weekId: string; monthId: string; label: string; dateStr: string | null; dayTime: string | null; weekLabel: string; weekDateStart: string | null }[]>([]);
+  const [sessionList, setSessionList] = useState<{ dayId: string; dayNumber: number; weekId: string; monthId: string; label: string; dateStr: string | null; dayTime: string | null; weekLabel: string; weekDateStart: string | null; status: string | null }[]>([]);
   const [loadingSessions, setLoadingSessions] = useState(true);
   const [reschedulingDayId, setReschedulingDayId] = useState<string | null>(null);
   const [rescheduleDate, setRescheduleDate] = useState("");
@@ -628,6 +628,7 @@ function UpcomingSessionsCard({ clientId, isClientView, clientName }: {
         dayTime,
         weekLabel: `${monthLabel} · Sett. ${week.week_number}`,
         weekDateStart: week.date_start ?? null,
+        status: day.status ?? null,
       });
     }
 
@@ -656,6 +657,18 @@ function UpcomingSessionsCard({ clientId, isClientView, clientName }: {
   };
 
   const resetReschedule = () => { setReschedulingDayId(null); setRescheduleDate(""); setRescheduleTime(""); setAllSlotCounts({}); setRescheduleError(null); };
+
+  const markAsSaltato = async (dayId: string) => {
+    const session = sessionList.find(s => s.dayId === dayId);
+    const update: Record<string, string> = { status: "saltato" };
+    // Se il giorno non ha ancora day_date esplicita nel DB, la scriviamo
+    // così il calendario la intercetta tra gli override
+    if (session?.dateStr && !session.dateStr.startsWith("__")) {
+      update.day_date = session.dateStr;
+    }
+    await supabase.from("training_days").update(update).eq("id", dayId);
+    setSessionList(prev => prev.map(s => s.dayId === dayId ? { ...s, status: "saltato" } : s));
+  };
 
   const handleConfirmReschedule = async () => {
     if (!rescheduleDate || !rescheduleTime || !reschedulingDayId) return;
@@ -797,15 +810,26 @@ function UpcomingSessionsCard({ clientId, isClientView, clientName }: {
                             {time}
                           </span>
                         )}
-                        {!clientBlocked && (
+                        {session.status === "saltato" && (
+                          <span className="text-[10px] font-medium text-gray-400 bg-gray-100 dark:bg-gray-700 px-2 py-0.5 rounded-full shrink-0">Non presente</span>
+                        )}
+                        {!clientBlocked && session.status !== "saltato" && (
                           isRescheduling
                             ? <button onClick={resetReschedule} className="text-gray-400 hover:text-gray-600 shrink-0 text-xs">✕</button>
-                            : <button
-                                onClick={() => { setReschedulingDayId(session.dayId); checkRescheduleSlot(session.dateStr ?? ""); }}
-                                className="text-[11px] font-medium text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 shrink-0 px-2 py-0.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-                              >
-                                Sposta
-                              </button>
+                            : <div className="flex items-center gap-1 shrink-0">
+                                <button
+                                  onClick={() => { setReschedulingDayId(session.dayId); checkRescheduleSlot(session.dateStr ?? ""); }}
+                                  className="text-[11px] font-medium text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 px-2 py-0.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                                >
+                                  Sposta
+                                </button>
+                                <button
+                                  onClick={() => markAsSaltato(session.dayId)}
+                                  className="text-[11px] font-medium text-gray-400 hover:text-red-500 dark:hover:text-red-400 px-2 py-0.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                                >
+                                  Non presente
+                                </button>
+                              </div>
                         )}
                         {clientBlocked && (
                           <span className="text-[10px] text-gray-400 italic shrink-0">scrivi alla coach</span>
