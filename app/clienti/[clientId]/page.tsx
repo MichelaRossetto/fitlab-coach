@@ -660,14 +660,21 @@ function UpcomingSessionsCard({ clientId, isClientView, clientName }: {
 
   const markAsSaltato = async (dayId: string) => {
     const session = sessionList.find(s => s.dayId === dayId);
-    const update: Record<string, string> = { status: "saltato" };
-    // Se il giorno non ha ancora day_date esplicita nel DB, la scriviamo
-    // così il calendario la intercetta tra gli override
-    if (session?.dateStr && !session.dateStr.startsWith("__")) {
-      update.day_date = session.dateStr;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const update: Record<string, any> = { status: "saltato" };
+    if (session?.dateStr) update.day_date = session.dateStr;
+    const { error } = await supabase.from("training_days").update(update).eq("id", dayId);
+    if (!error) {
+      setSessionList(prev => prev.map(s => s.dayId === dayId ? { ...s, status: "saltato" } : s));
     }
-    await supabase.from("training_days").update(update).eq("id", dayId);
-    setSessionList(prev => prev.map(s => s.dayId === dayId ? { ...s, status: "saltato" } : s));
+  };
+
+  const resetSaltato = async (dayId: string) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { error } = await supabase.from("training_days").update({ status: null } as any).eq("id", dayId);
+    if (!error) {
+      setSessionList(prev => prev.map(s => s.dayId === dayId ? { ...s, status: null } : s));
+    }
   };
 
   const handleConfirmReschedule = async () => {
@@ -811,7 +818,17 @@ function UpcomingSessionsCard({ clientId, isClientView, clientName }: {
                           </span>
                         )}
                         {session.status === "saltato" && (
-                          <span className="text-[10px] font-medium text-gray-400 bg-gray-100 dark:bg-gray-700 px-2 py-0.5 rounded-full shrink-0">Non presente</span>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <span className="text-[10px] font-medium text-gray-400 bg-gray-100 dark:bg-gray-700 px-2 py-0.5 rounded-full">Non presente</span>
+                            {!clientBlocked && (
+                              <button
+                                onClick={() => resetSaltato(session.dayId)}
+                                className="text-[11px] font-medium text-gray-400 hover:text-lime-600 dark:hover:text-lime-400 px-2 py-0.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                              >
+                                Ripristina
+                              </button>
+                            )}
+                          </div>
                         )}
                         {!clientBlocked && session.status !== "saltato" && (
                           isRescheduling
