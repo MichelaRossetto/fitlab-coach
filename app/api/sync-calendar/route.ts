@@ -171,14 +171,16 @@ export async function POST() {
     return true;
   });
 
-  // Sostituisci eventi dalla finestra lookback in poi (30 gg fa → futuro)
-  const lookbackStr = lookbackDate.toISOString().split("T")[0];
-  await adminSupabase
-    .from("pt_calendar_events")
-    .delete()
-    .gte("event_date", lookbackStr);
-
+  // Aggiorna solo gli eventi trovati in iCloud: cancella e re-inserisce per (client_id, event_date).
+  // Gli eventi NON trovati in iCloud (inseriti manualmente) vengono preservati.
   if (dedupedRows.length > 0) {
+    for (const r of dedupedRows) {
+      await adminSupabase
+        .from("pt_calendar_events")
+        .delete()
+        .eq("client_id", r.client_id)
+        .eq("event_date", r.event_date);
+    }
     const { error } = await adminSupabase
       .from("pt_calendar_events")
       .insert(dedupedRows);
