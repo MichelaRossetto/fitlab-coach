@@ -67,9 +67,71 @@ function parseDtstart(
   return { date, time: `${String(h).padStart(2, "0")}:${min}` };
 }
 
+// ── Debug: mostra tutti gli eventi PT senza salvare ──────────
+
+async function debugSync() {
+  const appleId = process.env.ICLOUD_APPLE_ID;
+  const appPassword = process.env.ICLOUD_APP_PASSWORD;
+  if (!appleId || !appPassword) {
+    return NextResponse.json({ error: "Credenziali iCloud non configurate" }, { status: 500 });
+  }
+
+  let davClient: Awaited<ReturnType<typeof createDAVClient>>;
+  try {
+    davClient = await createDAVClient({
+      serverUrl: "https://caldav.icloud.com",
+      credentials: { username: appleId, password: appPassword },
+      authMethod: "Basic",
+      defaultAccountType: "caldav",
+    });
+  } catch (e: unknown) {
+    return NextResponse.json({ error: "Connessione fallita: " + String(e) }, { status: 500 });
+  }
+
+  const calendars = await davClient.fetchCalendars();
+  const ptCalendar = calendars.find(
+    (c) => String(c.displayName ?? "").trim().toUpperCase() === "PT"
+  );
+  if (!ptCalendar) {
+    const names = calendars.map((c) => String(c.displayName ?? "?")).join(", ");
+    return NextResponse.json({ error: `Calendario "PT" non trovato. Disponibili: ${names}` }, { status: 404 });
+  }
+
+  const todayDate = new Date();
+  todayDate.setHours(0, 0, 0, 0);
+  const lookbackDate = new Date(todayDate);
+  lookbackDate.setDate(lookbackDate.getDate() - 30);
+  const endDate = new Date(todayDate);
+  endDate.setMonth(endDate.getMonth() + 4);
+
+  const calObjects = await davClient.fetchCalendarObjects({
+    calendar: ptCalendar,
+    timeRange: { start: lookbackDate.toISOString(), end: endDate.toISOString() },
+  });
+
+  const allEvents: CalEvent[] = [];
+  for (const obj of calObjects) {
+    if (!obj.data) continue;
+    allEvents.push(...parseICalEvents(obj.data));
+  }
+
+  // Ordina per data
+  allEvents.sort((a, b) => a.date.localeCompare(b.date));
+
+  return NextResponse.json({
+    calendars: calendars.map(c => String(c.displayName ?? "?")),
+    calObjects: calObjects.length,
+    events: allEvents.map(e => ({ date: e.date, time: e.time, title: e.title })),
+  });
+}
+
 // ── Cron entry-point (GET) ────────────────────────────────────
 
-export async function GET() {
+export async function GET(req: Request) {
+  const url = new URL(req.url);
+  if (url.searchParams.get("debug") === "true") {
+    return debugSync();
+  }
   return POST();
 }
 
