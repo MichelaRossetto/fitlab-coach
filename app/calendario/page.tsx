@@ -18,7 +18,7 @@ type ViewMode = "week" | "day";
 
 interface ScheduleEntry { client_id: string; day_of_week: number; time: string; }
 interface PtCalEvent    { client_id: string; event_date: string; event_time: string | null; }
-interface RawOverride   { client_id: string; day_date: string; day_time: string | null; day_number: number; saltato: boolean; }
+interface RawOverride   { client_id: string; week_id: string; day_date: string; day_time: string | null; day_number: number; saltato: boolean; }
 interface CalEvent {
   id: string; client_id: string;
   name: string; surname: string;
@@ -73,6 +73,7 @@ export default function CalendarioPage() {
   const [schedule,    setSchedule]    = useState<ScheduleEntry[]>([]);
   const [ptEvents,    setPtEvents]    = useState<PtCalEvent[]>([]);
   const [rawOverrides, setRawOverrides] = useState<RawOverride[]>([]);
+  const [siblingDays, setSiblingDays] = useState<{ client_id: string; day_number: number }[]>([]);
   const [showPR,      setShowPR]      = useState(true);
   const [showPT,      setShowPT]      = useState(true);
   const [syncing,     setSyncing]     = useState(false);
@@ -140,18 +141,41 @@ export default function CalendarioPage() {
   const fetchOverrides = useCallback(async (ws: string, we: string) => {
     const { data } = await supabase
       .from("training_days")
-      .select("day_date, day_time, day_number, status, training_weeks!inner(training_months!inner(client_id))")
+      .select("day_date, day_time, day_number, status, week_id, training_weeks!inner(id, training_months!inner(client_id))")
       .gte("day_date", ws)
       .lte("day_date", we)
       .not("day_date", "is", null);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    setRawOverrides((data ?? []).map((td: any) => ({
+    const overrides: RawOverride[] = (data ?? []).map((td: any) => ({
       client_id: td.training_weeks?.training_months?.client_id as string,
+      week_id: (td.training_weeks?.id ?? td.week_id) as string,
       day_date: td.day_date as string,
       day_time: td.day_time as string | null,
       day_number: td.day_number as number,
       saltato: td.status === "saltato",
-    })).filter((o: RawOverride) => o.client_id));
+    })).filter((o: RawOverride) => o.client_id);
+    setRawOverrides(overrides);
+
+    // Fetch giorni fratelli della stessa settimana di programma per sopprimere
+    // i ricorrenti anche dei giorni fatti in settimane di calendario diverse
+    const weekClientMap: Record<string, string> = {};
+    for (const ov of overrides) {
+      if (ov.week_id) weekClientMap[ov.week_id] = ov.client_id;
+    }
+    const weekIds = Object.keys(weekClientMap);
+    if (weekIds.length > 0) {
+      const { data: sibData } = await supabase
+        .from("training_days")
+        .select("day_number, week_id")
+        .in("week_id", weekIds);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      setSiblingDays((sibData ?? []).map((td: any) => ({
+        client_id: weekClientMap[td.week_id],
+        day_number: td.day_number as number,
+      })).filter(d => d.client_id));
+    } else {
+      setSiblingDays([]);
+    }
   }, []);
 
   useEffect(() => {
@@ -191,6 +215,17 @@ export default function CalendarioPage() {
   for (const ov of processedOverrides) {
     if (!suppressedDows[ov.client_id]) suppressedDows[ov.client_id] = new Set();
     suppressedDows[ov.client_id].add(ov.origDow);
+  }
+  // Sopprimi anche i giorni fratelli della stessa settimana di programma
+  for (const sd of siblingDays) {
+    const clientSched = schedule
+      .filter(e => e.client_id === sd.client_id && e.day_of_week < DAYS)
+      .sort((a, b) => a.day_of_week - b.day_of_week);
+    const origDow = clientSched[sd.day_number - 1]?.day_of_week;
+    if (origDow !== undefined) {
+      if (!suppressedDows[sd.client_id]) suppressedDows[sd.client_id] = new Set();
+      suppressedDows[sd.client_id].add(origDow);
+    }
   }
 
   // Costruisce rawByDay per i giorni visualizzati
