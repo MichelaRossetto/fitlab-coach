@@ -112,6 +112,7 @@ function CalendarView({ scheduleEntries, clients, activeFilter }: {
   const [weekStart, setWeekStart] = useState<Date>(() => getMonday(new Date()));
   const [selectedSlot, setSelectedSlot] = useState<{ day: number; time: string } | null>(null);
   const [sessionOverrides, setSessionOverrides] = useState<Record<string, { newDow: number; newTime: string; origDow: number }[]>>({});
+  const [siblingSuppress, setSiblingSuppress] = useState<Record<string, number[]>>({});
   // Eventi PT da iCloud (pt_calendar_events)
   const [ptCalEvents, setPtCalEvents] = useState<{ client_id: string; event_date: string; event_time: string | null }[]>([]);
   const [overridesVersion, setOverridesVersion] = useState(0);
@@ -138,9 +139,12 @@ function CalendarView({ scheduleEntries, clients, activeFilter }: {
         .not("day_date", "is", null);
       if (!data) return;
       const overrides: Record<string, { newDow: number; newTime: string; origDow: number }[]> = {};
+      const weekClientMap: Record<string, string> = {};
       for (const td of data as any[]) {
         const clientId = td.training_weeks?.training_months?.client_id;
+        const weekId = td.training_weeks?.id;
         if (!clientId || !visibleIds.has(clientId)) continue;
+        if (weekId) weekClientMap[weekId] = clientId;
         const d = new Date(td.day_date + "T12:00:00");
         const jsDay = d.getDay();
         const newDow = jsDay === 0 ? 6 : jsDay - 1;
@@ -157,6 +161,32 @@ function CalendarView({ scheduleEntries, clients, activeFilter }: {
         overrides[clientId].push({ newDow, newTime, origDow });
       }
       setSessionOverrides(overrides);
+
+      // Fetch giorni "fratelli" della stessa settimana di programma per sopprimere
+      // i ricorrenti anche dei giorni fatti in settimane di calendario diverse
+      const weekIds = Object.keys(weekClientMap);
+      if (weekIds.length > 0) {
+        const { data: sibDays } = await supabase
+          .from("training_days")
+          .select("day_number, week_id")
+          .in("week_id", weekIds);
+        const sib: Record<string, number[]> = {};
+        for (const td of (sibDays ?? []) as any[]) {
+          const clientId = weekClientMap[td.week_id];
+          if (!clientId) continue;
+          const clientSchedule = scheduleEntries
+            .filter(e => e.client_id === clientId)
+            .sort((a, b) => a.day_of_week - b.day_of_week);
+          const origDow = clientSchedule[td.day_number - 1]?.day_of_week;
+          if (origDow !== undefined) {
+            if (!sib[clientId]) sib[clientId] = [];
+            sib[clientId].push(origDow);
+          }
+        }
+        setSiblingSuppress(sib);
+      } else {
+        setSiblingSuppress({});
+      }
     };
     load();
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -214,6 +244,12 @@ function CalendarView({ scheduleEntries, clients, activeFilter }: {
       if (!suppressedDows[clientId]) suppressedDows[clientId] = new Set();
       suppressedDows[clientId].add(ov.origDow);
     }
+  }
+  // Sopprimi anche i giorni fratelli della stessa settimana di programma
+  // (es. Day 1 fatto lunedì scorso → sopprime il lunedì ricorrente anche questa settimana)
+  for (const [clientId, dows] of Object.entries(siblingSuppress)) {
+    if (!suppressedDows[clientId]) suppressedDows[clientId] = new Set();
+    for (const d of dows) suppressedDows[clientId].add(d);
   }
 
   // PT con eventi iCloud questa settimana → non usare scheduleEntries per loro
