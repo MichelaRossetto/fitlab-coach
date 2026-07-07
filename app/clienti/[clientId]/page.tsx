@@ -1260,7 +1260,11 @@ function SubscriptionBanner({ clientId, subscriptionEnd, clientName, isClientVie
           message: `${clientName} ha confermato il pagamento dell'abbonamento (scadenza ${expiryLabelFull}).`,
         }),
       }),
-      supabase.from("clients").update({ payment_notified: true } as any).eq("id", clientId),
+      fetch("/api/confirm-payment", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ client_id: clientId }),
+      }),
     ]);
     setSending(false);
     setShowConfirm(false);
