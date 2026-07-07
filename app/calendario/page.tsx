@@ -152,7 +152,7 @@ export default function CalendarioPage() {
       day_date: td.day_date as string,
       day_time: td.day_time as string | null,
       day_number: td.day_number as number,
-      saltato: td.status === "saltato",
+      saltato: td.status === "skip" || td.status === "saltato",
     })).filter((o: RawOverride) => o.client_id);
     setRawOverrides(overrides);
 

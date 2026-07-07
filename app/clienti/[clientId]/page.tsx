@@ -651,7 +651,7 @@ function UpcomingSessionsCard({ clientId, isClientView, clientName }: {
     setRescheduleTime("");
     setAllSlotCounts({});
     if (!newDate) return;
-    const res = await window.fetch(`/api/slot-availability?exclude_client=${clientId}`);
+    const res = await window.fetch(`/api/slot-availability?exclude_client=${clientId}&target_date=${newDate}`);
     const counts: Record<string, number> = await res.json();
     setAllSlotCounts(counts);
   };
@@ -661,11 +661,11 @@ function UpcomingSessionsCard({ clientId, isClientView, clientName }: {
   const markAsSaltato = async (dayId: string) => {
     const session = sessionList.find(s => s.dayId === dayId);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const update: Record<string, any> = { status: "saltato" };
+    const update: Record<string, any> = { status: "skip" };
     if (session?.dateStr) update.day_date = session.dateStr;
     const { error } = await supabase.from("training_days").update(update).eq("id", dayId);
     if (!error) {
-      setSessionList(prev => prev.map(s => s.dayId === dayId ? { ...s, status: "saltato" } : s));
+      setSessionList(prev => prev.map(s => s.dayId === dayId ? { ...s, status: "skip" } : s));
     }
   };
 
@@ -817,7 +817,7 @@ function UpcomingSessionsCard({ clientId, isClientView, clientName }: {
                             {time}
                           </span>
                         )}
-                        {session.status === "saltato" && (
+                        {session.status === "skip" && (
                           <div className="flex items-center gap-1 shrink-0">
                             <span className="text-[10px] font-medium text-gray-400 bg-gray-100 dark:bg-gray-700 px-2 py-0.5 rounded-full">Non presente</span>
                             {!clientBlocked && (
@@ -830,7 +830,7 @@ function UpcomingSessionsCard({ clientId, isClientView, clientName }: {
                             )}
                           </div>
                         )}
-                        {!clientBlocked && session.status !== "saltato" && (
+                        {!clientBlocked && session.status !== "skip" && (
                           isRescheduling
                             ? <button onClick={resetReschedule} className="text-gray-400 hover:text-gray-600 shrink-0 text-xs">✕</button>
                             : <div className="flex items-center gap-1 shrink-0">
@@ -1402,7 +1402,7 @@ export default function ClientPage() {
           const days = [...(week.training_days ?? [])].sort((a: any, b: any) => a.day_number - b.day_number);
 
           for (const day of days as any[]) {
-            if (day.status === "skip") continue;
+            if (day.status === "skip" || day.status === "saltato") continue;
 
             let dayDate: Date | null = null;
             if (day.day_date) {
