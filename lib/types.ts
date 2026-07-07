@@ -12,6 +12,7 @@ export interface Client {
   paypal_link: string | null;
   client_type: ClientType;
   is_paused: boolean | null;
+  payment_notified: boolean | null;
 }
 
 export interface TrainingMonth {

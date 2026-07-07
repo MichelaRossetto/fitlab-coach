@@ -956,6 +956,7 @@ function EditClientForm({ client, onSuccess, onCancel }: {
     const oldEmail = client.email;
 
     // Aggiorna tabella clients
+    const subscriptionEndChanged = (form.subscription_end || null) !== client.subscription_end;
     const { error: err } = await supabase.from("clients").update({
       name: form.name.trim(), surname: form.surname.trim(),
       email: newEmail, phone: form.phone.trim() || null,
@@ -963,7 +964,8 @@ function EditClientForm({ client, onSuccess, onCancel }: {
       notes: form.notes.trim() || null,
       is_paused: isPaused,
       client_type: clientType,
-    }).eq("id", client.id);
+      ...(subscriptionEndChanged ? { payment_notified: false } : {}),
+    } as any).eq("id", client.id);
     if (err) { setSaving(false); setError(err.message); return; }
 
     // Se l'email è cambiata, aggiorna anche auth.users
@@ -1208,22 +1210,18 @@ function NewMonthForm({ clientId, existingMonths, lastWeekAny, subscriptionEnd, 
 }
 
 // ─── Subscription Banner ──────────────────────────────────────
-function SubscriptionBanner({ clientId, subscriptionEnd, clientName }: {
+function SubscriptionBanner({ clientId, subscriptionEnd, clientName, isClientView, paymentNotified, onPaymentConfirmed }: {
   clientId: string;
   subscriptionEnd: string | null;
   clientName: string;
+  isClientView: boolean;
+  paymentNotified: boolean;
+  onPaymentConfirmed: () => void;
 }) {
-  const [dismissed, setDismissed] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [sending, setSending] = useState(false);
 
-  useEffect(() => {
-    if (!subscriptionEnd) return;
-    const key = `paid_ack_${clientId}_${subscriptionEnd}`;
-    if (localStorage.getItem(key) === "1") setDismissed(true);
-  }, [clientId, subscriptionEnd]);
-
-  if (!subscriptionEnd || dismissed) return null;
+  if (!subscriptionEnd) return null;
 
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const expiry = new Date(subscriptionEnd + "T00:00:00");
@@ -1232,29 +1230,66 @@ function SubscriptionBanner({ clientId, subscriptionEnd, clientName }: {
   if (daysLeft > 5) return null;
 
   const expired = daysLeft < 0;
+  const expiryLabel = expiry.toLocaleDateString("it-IT", { day: "numeric", month: "long" });
+  const expiryLabelFull = expiry.toLocaleDateString("it-IT", { day: "numeric", month: "long", year: "numeric" });
   const bannerLabel = expired
-    ? `Abbonamento scaduto il ${expiry.toLocaleDateString("it-IT", { day: "numeric", month: "long", year: "numeric" })}`
+    ? `Abbonamento scaduto il ${expiryLabelFull}`
     : daysLeft === 0
     ? "Abbonamento in scadenza oggi"
-    : `Abbonamento in scadenza tra ${daysLeft} giorn${daysLeft === 1 ? "o" : "i"} · ${expiry.toLocaleDateString("it-IT", { day: "numeric", month: "long" })}`;
+    : `Abbonamento in scadenza tra ${daysLeft} giorn${daysLeft === 1 ? "o" : "i"} · ${expiryLabel}`;
 
   const handleConfirmPayment = async () => {
     setSending(true);
-    await fetch("/api/feedback", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        client_id: clientId,
-        type: "payment",
-        message: `${clientName} ha effettuato il pagamento dell'abbonamento (scadenza ${expiry.toLocaleDateString("it-IT", { day: "numeric", month: "long", year: "numeric" })}).`,
+    await Promise.all([
+      fetch("/api/feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          client_id: clientId,
+          type: "payment",
+          message: `${clientName} ha confermato il pagamento dell'abbonamento (scadenza ${expiryLabelFull}).`,
+        }),
       }),
-    });
-    localStorage.setItem(`paid_ack_${clientId}_${subscriptionEnd}`, "1");
+      supabase.from("clients").update({ payment_notified: true } as any).eq("id", clientId),
+    ]);
     setSending(false);
     setShowConfirm(false);
-    setDismissed(true);
+    onPaymentConfirmed();
   };
 
+  // Vista cliente — pagamento già confermato
+  if (isClientView && paymentNotified) {
+    return (
+      <div className="rounded-2xl px-4 py-3 flex items-center gap-3 bg-green-500/10 border border-green-400/40 dark:bg-green-500/15">
+        <div className="shrink-0 w-8 h-8 rounded-xl flex items-center justify-center bg-green-500/15">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/>
+          </svg>
+        </div>
+        <p className="flex-1 text-sm font-medium text-green-600 dark:text-green-400">
+          Pagamento confermato ✓ — La coach aggiornerà la data a breve
+        </p>
+      </div>
+    );
+  }
+
+  // Vista coach — cliente ha confermato
+  if (!isClientView && paymentNotified) {
+    return (
+      <div className="rounded-2xl px-4 py-3 flex items-center gap-3 bg-amber-500/10 border border-amber-400/40 dark:bg-amber-500/15">
+        <div className="shrink-0 w-8 h-8 rounded-xl flex items-center justify-center bg-amber-500/15">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+          </svg>
+        </div>
+        <p className="flex-1 text-sm font-medium text-amber-600 dark:text-amber-400">
+          {clientName.split(" ")[0]} ha confermato il pagamento — Aggiorna la data di scadenza
+        </p>
+      </div>
+    );
+  }
+
+  // Banner rosso standard (nessuna conferma ancora)
   return (
     <>
       <div className="rounded-2xl px-4 py-3 flex items-center gap-3 bg-red-500/10 border border-red-400/40 dark:bg-red-500/15">
@@ -1265,15 +1300,16 @@ function SubscriptionBanner({ clientId, subscriptionEnd, clientName }: {
           </svg>
         </div>
         <p className="flex-1 text-sm font-medium text-red-600 dark:text-red-400">{bannerLabel}</p>
-        <button
-          onClick={() => setShowConfirm(true)}
-          className="shrink-0 text-xs font-bold px-3 py-1.5 rounded-xl bg-red-500 hover:bg-red-600 text-white transition-all"
-        >
-          Pagato
-        </button>
+        {isClientView && (
+          <button
+            onClick={() => setShowConfirm(true)}
+            className="shrink-0 text-xs font-bold px-3 py-1.5 rounded-xl bg-red-500 hover:bg-red-600 text-white transition-all"
+          >
+            Clicca qui per confermare il pagamento
+          </button>
+        )}
       </div>
 
-      {/* Modale conferma */}
       {showConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center px-4" style={{ backgroundColor: "rgba(0,0,0,0.5)" }}>
           <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 max-w-sm w-full shadow-xl space-y-4">
@@ -1290,11 +1326,7 @@ function SubscriptionBanner({ clientId, subscriptionEnd, clientName }: {
               Confermi di aver effettuato il bonifico o di aver saldato direttamente in sede con la coach?
             </p>
             <div className="flex gap-2 pt-1">
-              <button
-                onClick={() => setShowConfirm(false)}
-                className="btn-secondary flex-1 text-sm"
-                disabled={sending}
-              >
+              <button onClick={() => setShowConfirm(false)} className="btn-secondary flex-1 text-sm" disabled={sending}>
                 Annulla
               </button>
               <button
@@ -1478,7 +1510,14 @@ export default function ClientPage() {
 
       <main className="max-w-2xl mx-auto px-4 py-5 space-y-5">
         {/* Banner scadenza abbonamento */}
-        <SubscriptionBanner clientId={clientId} subscriptionEnd={client.subscription_end ?? null} clientName={`${client.name} ${client.surname}`} />
+        <SubscriptionBanner
+          clientId={clientId}
+          subscriptionEnd={client.subscription_end ?? null}
+          clientName={`${client.name} ${client.surname}`}
+          isClientView={isClientView}
+          paymentNotified={!!client.payment_notified}
+          onPaymentConfirmed={() => setClient(prev => prev ? { ...prev, payment_notified: true } : prev)}
+        />
 
         {/* Unified Profile Card */}
         <UnifiedProfileCard
