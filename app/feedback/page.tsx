@@ -27,6 +27,8 @@ export default function FeedbackPage() {
   const [items, setItems] = useState<Feedback[]>([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<"feedback" | "pagamenti" | "spostamenti">("pagamenti");
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     fetch("/api/feedback")
@@ -39,6 +41,15 @@ export default function FeedbackPage() {
   const markRead = async (id: string) => {
     await fetch("/api/feedback", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) });
     setItems(prev => prev.map(i => i.id === id ? { ...i, read: true } : i));
+  };
+
+  const deleteItem = async () => {
+    if (!deleteConfirm) return;
+    setDeleting(true);
+    await fetch("/api/feedback", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: deleteConfirm }) });
+    setItems(prev => prev.filter(i => i.id !== deleteConfirm));
+    setDeleteConfirm(null);
+    setDeleting(false);
   };
 
   const payments = items.filter(i => i.type === "payment");
@@ -98,27 +109,38 @@ export default function FeedbackPage() {
           ) : activeItems.map(item => (
             <div key={item.id} className={`card p-4 space-y-2 transition-colors ${!item.read ? "border-l-4 border-lime-400" : ""}`}>
               <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 min-w-0">
                   {item.type === "payment" ? (
-                    <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
+                    <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 shrink-0">
                       💳 Pagamento
                     </span>
                   ) : item.type === "reschedule" ? (
-                    <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
+                    <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 shrink-0">
                       🔄 Spostamento
                     </span>
                   ) : (
-                    <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${FEEDBACK_TYPE_COLORS[item.type]}`}>
+                    <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full shrink-0 ${FEEDBACK_TYPE_COLORS[item.type]}`}>
                       {FEEDBACK_TYPE_LABELS[item.type]}
                     </span>
                   )}
-                  <span className="text-sm font-semibold text-gray-800 dark:text-gray-100">
+                  <span className="text-sm font-semibold text-gray-800 dark:text-gray-100 truncate">
                     {item.clients ? `${item.clients.name} ${item.clients.surname}` : "Cliente"}
                   </span>
                 </div>
-                <span className="text-[11px] text-gray-400 shrink-0">
-                  {new Date(item.created_at).toLocaleDateString("it-IT", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
-                </span>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="text-[11px] text-gray-400">
+                    {new Date(item.created_at).toLocaleDateString("it-IT", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
+                  </span>
+                  <button
+                    onClick={() => setDeleteConfirm(item.id)}
+                    className="p-1 rounded-lg text-gray-300 hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                    title="Elimina messaggio"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/>
+                    </svg>
+                  </button>
+                </div>
               </div>
               <p className="text-sm text-gray-600 dark:text-gray-300 leading-relaxed">{item.message}</p>
               {!item.read && (
@@ -131,6 +153,24 @@ export default function FeedbackPage() {
           ))}
         </div>
       </div>
+
+      {/* Popup conferma eliminazione */}
+      {deleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4" style={{ backgroundColor: "rgba(0,0,0,0.5)" }}>
+          <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 max-w-sm w-full shadow-xl space-y-4">
+            <h3 className="font-bold text-gray-900 dark:text-gray-100 text-base">Elimina messaggio</h3>
+            <p className="text-sm text-gray-600 dark:text-gray-300">Sei sicura di voler eliminare questo messaggio? L&apos;azione non è reversibile.</p>
+            <div className="flex gap-2 pt-1">
+              <button onClick={() => setDeleteConfirm(null)} disabled={deleting} className="btn-secondary flex-1 text-sm">
+                Annulla
+              </button>
+              <button onClick={deleteItem} disabled={deleting} className="flex-1 text-sm font-bold py-2.5 rounded-xl text-white bg-red-500 hover:bg-red-600 transition-all disabled:opacity-60">
+                {deleting ? "Elimino..." : "Elimina"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
