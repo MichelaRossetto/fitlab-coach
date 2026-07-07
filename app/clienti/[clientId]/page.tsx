@@ -18,15 +18,23 @@ const MORNING_SLOTS   = ["08:00","09:00","10:00","11:00","12:00","13:00"];
 const AFTERNOON_SLOTS = ["16:00","17:00","18:00","19:00"];
 
 // ─── Unified Profile Card ─────────────────────────────────────
-function UnifiedProfileCard({ client, clientId, isClientView, returnTo, onClientUpdated }: {
+function UnifiedProfileCard({ client, clientId, isClientView, returnTo, onClientUpdated, requestOpenAnagrafica }: {
   client: Client;
   clientId: string;
   isClientView: boolean;
   returnTo?: string;
   onClientUpdated: () => void;
+  requestOpenAnagrafica?: number;
 }) {
   const router = useRouter();
   const [openSection, setOpenSection] = useState<"anagrafica" | "orari" | "massimali" | null>(null);
+
+  useEffect(() => {
+    if (requestOpenAnagrafica) {
+      setOpenSection("anagrafica");
+      setTimeout(() => document.getElementById("anagrafica-section")?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
+    }
+  }, [requestOpenAnagrafica]);
   const [showEdit, setShowEdit] = useState(false);
 
   // ── Schedule state ──
@@ -230,6 +238,7 @@ function UnifiedProfileCard({ client, clientId, isClientView, returnTo, onClient
 
       {/* ── Sezione Anagrafica ── */}
       <button
+        id="anagrafica-section"
         onClick={() => setOpenSection(s => s === "anagrafica" ? null : "anagrafica")}
         className="w-full flex items-center justify-between px-4 py-2.5 border-t border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
       >
@@ -1210,13 +1219,14 @@ function NewMonthForm({ clientId, existingMonths, lastWeekAny, subscriptionEnd, 
 }
 
 // ─── Subscription Banner ──────────────────────────────────────
-function SubscriptionBanner({ clientId, subscriptionEnd, clientName, isClientView, paymentNotified, onPaymentConfirmed }: {
+function SubscriptionBanner({ clientId, subscriptionEnd, clientName, isClientView, paymentNotified, onPaymentConfirmed, onUpdateDateClick }: {
   clientId: string;
   subscriptionEnd: string | null;
   clientName: string;
   isClientView: boolean;
   paymentNotified: boolean;
   onPaymentConfirmed: () => void;
+  onUpdateDateClick: () => void;
 }) {
   const [showConfirm, setShowConfirm] = useState(false);
   const [sending, setSending] = useState(false);
@@ -1285,6 +1295,12 @@ function SubscriptionBanner({ clientId, subscriptionEnd, clientName, isClientVie
         <p className="flex-1 text-sm font-medium text-amber-600 dark:text-amber-400">
           {clientName.split(" ")[0]} ha confermato il pagamento — Aggiorna la data di scadenza
         </p>
+        <button
+          onClick={onUpdateDateClick}
+          className="shrink-0 text-xs font-bold px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white transition-all"
+        >
+          Aggiorna
+        </button>
       </div>
     );
   }
@@ -1300,12 +1316,19 @@ function SubscriptionBanner({ clientId, subscriptionEnd, clientName, isClientVie
           </svg>
         </div>
         <p className="flex-1 text-sm font-medium text-red-600 dark:text-red-400">{bannerLabel}</p>
-        {isClientView && (
+        {isClientView ? (
           <button
             onClick={() => setShowConfirm(true)}
             className="shrink-0 text-xs font-bold px-3 py-1.5 rounded-xl bg-red-500 hover:bg-red-600 text-white transition-all"
           >
             Clicca qui per confermare il pagamento
+          </button>
+        ) : (
+          <button
+            onClick={onUpdateDateClick}
+            className="shrink-0 text-xs font-bold px-3 py-1.5 rounded-xl bg-red-500 hover:bg-red-600 text-white transition-all"
+          >
+            Aggiorna scadenza
           </button>
         )}
       </div>
@@ -1361,6 +1384,7 @@ export default function ClientPage() {
   const [showNewMonth, setShowNewMonth] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [openAnagraficaRequest, setOpenAnagraficaRequest] = useState(0);
 
   const fetch = useCallback(async () => {
     setLoading(true);
@@ -1517,6 +1541,7 @@ export default function ClientPage() {
           isClientView={isClientView}
           paymentNotified={!!client.payment_notified}
           onPaymentConfirmed={() => setClient(prev => prev ? { ...prev, payment_notified: true } : prev)}
+          onUpdateDateClick={() => setOpenAnagraficaRequest(n => n + 1)}
         />
 
         {/* Unified Profile Card */}
@@ -1526,6 +1551,7 @@ export default function ClientPage() {
           isClientView={isClientView}
           returnTo={returnTo}
           onClientUpdated={fetch}
+          requestOpenAnagrafica={openAnagraficaRequest}
         />
 
         {/* ─── Bottone allenamento del giorno ─── */}
