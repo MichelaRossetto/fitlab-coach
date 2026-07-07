@@ -1283,21 +1283,21 @@ function SubscriptionBanner({ clientId, subscriptionEnd, clientName, isClientVie
     );
   }
 
-  // Vista coach — cliente ha confermato
+  // Vista coach — cliente ha confermato (verde)
   if (!isClientView && paymentNotified) {
     return (
-      <div className="rounded-2xl px-4 py-3 flex items-center gap-3 bg-amber-500/10 border border-amber-400/40 dark:bg-amber-500/15">
-        <div className="shrink-0 w-8 h-8 rounded-xl flex items-center justify-center bg-amber-500/15">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+      <div className="rounded-2xl px-4 py-3 flex items-center gap-3 bg-green-500/10 border border-green-400/40 dark:bg-green-500/15">
+        <div className="shrink-0 w-8 h-8 rounded-xl flex items-center justify-center bg-green-500/15">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/>
           </svg>
         </div>
-        <p className="flex-1 text-sm font-medium text-amber-600 dark:text-amber-400">
-          {clientName.split(" ")[0]} ha confermato il pagamento — Aggiorna la data di scadenza
+        <p className="flex-1 text-sm font-medium text-green-600 dark:text-green-400">
+          {clientName.split(" ")[0]} ha già confermato il pagamento ✓ — Aggiorna la data di scadenza
         </p>
         <button
           onClick={onUpdateDateClick}
-          className="shrink-0 text-xs font-bold px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white transition-all"
+          className="shrink-0 text-xs font-bold px-3 py-1.5 rounded-xl bg-green-500 hover:bg-green-600 text-white transition-all"
         >
           Aggiorna
         </button>
@@ -1305,7 +1305,8 @@ function SubscriptionBanner({ clientId, subscriptionEnd, clientName, isClientVie
     );
   }
 
-  // Banner rosso standard (nessuna conferma ancora)
+  // Banner rosso — nessuna conferma ancora
+  const coachLabel = isClientView ? bannerLabel : `${clientName.split(" ")[0]} non ha ancora confermato il pagamento · scade il ${expiryLabel}`;
   return (
     <>
       <div className="rounded-2xl px-4 py-3 flex items-center gap-3 bg-red-500/10 border border-red-400/40 dark:bg-red-500/15">
@@ -1315,7 +1316,7 @@ function SubscriptionBanner({ clientId, subscriptionEnd, clientName, isClientVie
             <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
           </svg>
         </div>
-        <p className="flex-1 text-sm font-medium text-red-600 dark:text-red-400">{bannerLabel}</p>
+        <p className="flex-1 text-sm font-medium text-red-600 dark:text-red-400">{coachLabel}</p>
         {isClientView ? (
           <button
             onClick={() => setShowConfirm(true)}
