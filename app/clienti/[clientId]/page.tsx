@@ -964,18 +964,28 @@ function EditClientForm({ client, onSuccess, onCancel }: {
     const newEmail = form.email.trim() || null;
     const oldEmail = client.email;
 
-    // Aggiorna tabella clients
+    // Aggiorna tabella clients (note salvate separatamente via API admin)
     const subscriptionEndChanged = (form.subscription_end || null) !== client.subscription_end;
     const { error: err } = await supabase.from("clients").update({
       name: form.name.trim(), surname: form.surname.trim(),
       email: newEmail, phone: form.phone.trim() || null,
       subscription_end: form.subscription_end || null,
-      notes: form.notes.trim() || null,
       is_paused: isPaused,
       client_type: clientType,
       ...(subscriptionEndChanged ? { payment_notified: false } : {}),
     } as any).eq("id", client.id);
     if (err) { setSaving(false); setError(err.message); return; }
+
+    // Salva note via API server-side (bypassa RLS)
+    const notesRes = await window.fetch("/api/update-client-notes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ client_id: client.id, notes: form.notes }),
+    });
+    if (!notesRes.ok) {
+      const r = await notesRes.json();
+      setSaving(false); setError("Errore salvataggio note: " + r.error); return;
+    }
 
     // Se l'email è cambiata, aggiorna anche auth.users
     if (oldEmail && newEmail && oldEmail !== newEmail) {
@@ -1005,7 +1015,7 @@ function EditClientForm({ client, onSuccess, onCancel }: {
       <div><label className="label">Email</label><input className="input" type="email" value={form.email} onChange={set("email")} /></div>
       <div><label className="label">Telefono</label><input className="input" type="tel" value={form.phone} onChange={set("phone")} /></div>
       <div><label className="label">Scadenza abbonamento</label><input className="input" type="date" value={form.subscription_end} onChange={set("subscription_end")} /></div>
-      <div><label className="label">Note</label><textarea className="input resize-none" rows={2} value={form.notes} onChange={set("notes")} /></div>
+      <div><label className="label">Note</label><textarea className="input" rows={8} value={form.notes} onChange={set("notes")} /></div>
 
       {/* Toggle PR/PT */}
       <div>
