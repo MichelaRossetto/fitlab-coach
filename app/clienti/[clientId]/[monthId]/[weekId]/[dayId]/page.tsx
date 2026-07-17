@@ -3169,42 +3169,43 @@ function BulkAddModal({ sections, dayLabel, lib, libLoaded, maxes, onSave, onCan
           const isCardioliss = block.subtype === "cardioliss";
           return (
             <div key={block.subtype} className="space-y-2">
-              {/* Block header with rounds (fortime only) + cap time */}
+              {/* Block header */}
               <div className="flex items-center gap-2">
                 <span className="text-xs font-bold uppercase tracking-wider" style={{ color }}>
                   {WORKOUT_SUBTYPE_LABELS[block.subtype]}
                 </span>
-                <div className="flex items-center gap-2 ml-auto">
-                  {block.subtype === "fortime" && (
-                    <div className="flex items-center gap-1">
-                      <input
-                        className="input text-xs w-12 text-center"
-                        value={block.rounds}
-                        onChange={e => setState(prev => ({
-                          ...prev,
-                          workout: { blocks: prev.workout.blocks.map((b, bi) => bi === blockIdx ? { ...b, rounds: e.target.value } : b) },
-                        }))}
-                        placeholder="3"
-                      />
-                      <span className="text-[10px] text-gray-400">rounds</span>
-                    </div>
-                  )}
-                  {!isCardioliss && (
-                    <div className="flex items-center gap-1">
-                      <label className="text-[10px] text-gray-400">Cap:</label>
-                      <input
-                        className="input text-xs w-14 text-center"
-                        value={block.capTime}
-                        onChange={e => setState(prev => ({
-                          ...prev,
-                          workout: { blocks: prev.workout.blocks.map((b, bi) => bi === blockIdx ? { ...b, capTime: e.target.value } : b) },
-                        }))}
-                        placeholder="15"
-                      />
-                      <span className="text-[10px] text-gray-400">min</span>
-                    </div>
-                  )}
-                </div>
+              </div>
+              {/* Durata + rounds */}
+              <div className="flex items-center gap-3">
+                {block.subtype === "fortime" && (
+                  <div className="flex items-center gap-1.5">
+                    <label className="text-xs text-gray-500 font-medium">Rounds:</label>
+                    <input
+                      className="input text-xs w-14 text-center"
+                      value={block.rounds}
+                      onChange={e => setState(prev => ({
+                        ...prev,
+                        workout: { blocks: prev.workout.blocks.map((b, bi) => bi === blockIdx ? { ...b, rounds: e.target.value } : b) },
+                      }))}
+                      placeholder="3"
+                    />
+                  </div>
+                )}
+                {!isCardioliss && (
+                  <div className="flex items-center gap-1.5">
+                    <label className="text-xs text-gray-500 font-medium">Durata:</label>
+                    <input
+                      className="input text-xs w-16 text-center"
+                      value={block.capTime}
+                      onChange={e => setState(prev => ({
+                        ...prev,
+                        workout: { blocks: prev.workout.blocks.map((b, bi) => bi === blockIdx ? { ...b, capTime: e.target.value } : b) },
+                      }))}
+                      placeholder="8"
+                    />
+                    <span className="text-xs text-gray-500">min</span>
+                  </div>
+                )}
               </div>
 
               {/* Rows */}
