@@ -548,6 +548,7 @@ function UpcomingSessionsCard({ clientId, isClientView, clientName }: {
   const [allSlotCounts, setAllSlotCounts] = useState<Record<string, number>>({});
   const [rescheduleSaving, setRescheduleSaving] = useState(false);
   const [rescheduleError, setRescheduleError] = useState<string | null>(null);
+  const [closedDays, setClosedDays] = useState<Record<string, string | null>>({});
 
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const localDateStr = (d: Date) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
@@ -564,6 +565,22 @@ function UpcomingSessionsCard({ clientId, isClientView, clientName }: {
     };
     load();
   }, [clientId]);
+
+  // Giorni chiusi alle prenotazioni (chiusure, festivi, ferie)
+  useEffect(() => {
+    const load = async () => {
+      const { data } = await supabase
+        .from("closed_days")
+        .select("day_date, reason")
+        .gte("day_date", todayStr);
+      const map: Record<string, string | null> = {};
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (data ?? []).forEach((r: any) => { map[r.day_date] = r.reason ?? null; });
+      setClosedDays(map);
+    };
+    load();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const loadSessionList = useCallback(async () => {
     setLoadingSessions(true);
@@ -659,7 +676,13 @@ function UpcomingSessionsCard({ clientId, isClientView, clientName }: {
     setRescheduleDate(newDate);
     setRescheduleTime("");
     setAllSlotCounts({});
+    setRescheduleError(null);
     if (!newDate) return;
+    // Giorni chiusi: il cliente non può prenotare, la coach sì
+    if (!coachView && newDate in closedDays) {
+      setRescheduleError(closedDays[newDate] || "Giorno chiuso — scegli un'altra data");
+      return;
+    }
     const res = await window.fetch(`/api/slot-availability?exclude_client=${clientId}&target_date=${newDate}`);
     const counts: Record<string, number> = await res.json();
     setAllSlotCounts(counts);
@@ -688,6 +711,10 @@ function UpcomingSessionsCard({ clientId, isClientView, clientName }: {
 
   const handleConfirmReschedule = async () => {
     if (!rescheduleDate || !rescheduleTime || !reschedulingDayId) return;
+    if (!coachView && rescheduleDate in closedDays) {
+      setRescheduleError(closedDays[rescheduleDate] || "Giorno chiuso — scegli un'altra data");
+      return;
+    }
     setRescheduleSaving(true);
     setRescheduleError(null);
 
@@ -864,6 +891,7 @@ function UpcomingSessionsCard({ clientId, isClientView, clientName }: {
                       {isRescheduling && (() => {
                         const newJsDay = rescheduleDate ? new Date(rescheduleDate + "T12:00:00").getDay() : null;
                         const newOurDow = newJsDay !== null ? (newJsDay === 0 ? 6 : newJsDay - 1) : null;
+                        const dateClosed = !coachView && !!rescheduleDate && rescheduleDate in closedDays;
                         const MAX_SLOTS = 5;
                         const allSlots = [...MORNING_SLOTS, ...AFTERNOON_SLOTS];
                         const slotsFull = rescheduleTime
@@ -882,7 +910,7 @@ function UpcomingSessionsCard({ clientId, isClientView, clientName }: {
                                 onChange={e => checkRescheduleSlot(e.target.value)}
                               />
                             </div>
-                            {rescheduleDate && newOurDow !== null && (
+                            {rescheduleDate && newOurDow !== null && !dateClosed && (
                               <div>
                                 <label className="text-[10px] text-gray-400 block mb-1.5">Scegli orario</label>
                                 <div className="grid grid-cols-4 gap-1">
@@ -915,12 +943,16 @@ function UpcomingSessionsCard({ clientId, isClientView, clientName }: {
                                 </div>
                               </div>
                             )}
-                            {rescheduleError && (
+                            {dateClosed ? (
+                              <div className="text-[10px] text-amber-400 text-center bg-amber-400/10 border border-amber-400/20 rounded-lg px-2 py-1.5">
+                                🔒 {closedDays[rescheduleDate] || "Giorno chiuso"} — scegli un&apos;altra data
+                              </div>
+                            ) : rescheduleError && (
                               <div className="text-[10px] text-red-400 text-center">{rescheduleError}</div>
                             )}
                             <button
                               onClick={handleConfirmReschedule}
-                              disabled={!rescheduleDate || !rescheduleTime || rescheduleSaving || slotsFull}
+                              disabled={!rescheduleDate || !rescheduleTime || rescheduleSaving || slotsFull || dateClosed}
                               className="w-full py-1.5 rounded-lg text-xs font-bold transition-all disabled:opacity-40"
                               style={{ backgroundColor: "#D4E600", color: "#111" }}
                             >
