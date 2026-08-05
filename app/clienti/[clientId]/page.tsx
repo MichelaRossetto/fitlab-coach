@@ -1355,27 +1355,30 @@ function SubscriptionBanner({ clientId, subscriptionEnd, clientName, isClientVie
   const coachLabel = isClientView ? bannerLabel : `${clientName.split(" ")[0]} non ha ancora confermato il pagamento · scade il ${expiryLabel}`;
   return (
     <>
-      <div className="rounded-2xl px-4 py-3 flex items-center gap-3 bg-red-500/10 border border-red-400/40 dark:bg-red-500/15">
-        <div className="shrink-0 w-8 h-8 rounded-xl flex items-center justify-center bg-red-500/15">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
-            <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
-          </svg>
+      <div className="rounded-2xl px-4 py-3 bg-red-500/10 border border-red-400/40 dark:bg-red-500/15">
+        <div className="flex items-center gap-3">
+          <div className="shrink-0 w-8 h-8 rounded-xl flex items-center justify-center bg-red-500/15">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+              <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+            </svg>
+          </div>
+          <p className="flex-1 text-sm font-medium text-red-600 dark:text-red-400">{coachLabel}</p>
+          {!isClientView && (
+            <button
+              onClick={onUpdateDateClick}
+              className="shrink-0 text-xs font-bold px-3 py-1.5 rounded-xl bg-red-500 hover:bg-red-600 text-white transition-all"
+            >
+              Aggiorna scadenza
+            </button>
+          )}
         </div>
-        <p className="flex-1 text-sm font-medium text-red-600 dark:text-red-400">{coachLabel}</p>
-        {isClientView ? (
+        {isClientView && (
           <button
             onClick={() => setShowConfirm(true)}
-            className="shrink-0 text-xs font-bold px-3 py-1.5 rounded-xl bg-red-500 hover:bg-red-600 text-white transition-all"
+            className="mt-3 w-full text-sm font-bold px-4 py-2.5 rounded-xl bg-red-500 hover:bg-red-600 active:bg-red-700 text-white transition-all"
           >
-            Clicca qui per confermare il pagamento
-          </button>
-        ) : (
-          <button
-            onClick={onUpdateDateClick}
-            className="shrink-0 text-xs font-bold px-3 py-1.5 rounded-xl bg-red-500 hover:bg-red-600 text-white transition-all"
-          >
-            Aggiorna scadenza
+            Conferma pagamento
           </button>
         )}
       </div>
