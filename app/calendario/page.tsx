@@ -74,6 +74,7 @@ export default function CalendarioPage() {
   const [ptEvents,    setPtEvents]    = useState<PtCalEvent[]>([]);
   const [rawOverrides, setRawOverrides] = useState<RawOverride[]>([]);
   const [siblingDays, setSiblingDays] = useState<{ client_id: string; day_number: number }[]>([]);
+  const [coveredMonthKeys, setCoveredMonthKeys] = useState<Set<string>>(new Set());
   const [showPR,      setShowPR]      = useState(true);
   const [showPT,      setShowPT]      = useState(true);
   const [syncing,     setSyncing]     = useState(false);
@@ -94,15 +95,17 @@ export default function CalendarioPage() {
     scrollRef.current?.scrollTo({ top: Math.max(0, topPx) });
   }, []);
 
-  // Fetch clients + schedule once
+  // Fetch clients + schedule + training months once
   useEffect(() => {
     const load = async () => {
-      const [{ data: c }, schedRes] = await Promise.all([
+      const [{ data: c }, schedRes, { data: tMonths }] = await Promise.all([
         supabase.from("clients").select("*"),
         fetch("/api/schedules"),
+        supabase.from("training_months").select("client_id, year, month_num"),
       ]);
       setClients(c ?? []);
       setSchedule((await schedRes.json()) ?? []);
+      setCoveredMonthKeys(new Set((tMonths ?? []).map(m => `${m.client_id}-${m.year}-${m.month_num}`)));
     };
     load();
   }, []);
@@ -242,7 +245,10 @@ export default function CalendarioPage() {
       if (suppressedDows[entry.client_id]?.has(entry.day_of_week)) continue;
 
       if (viewMode === "week") {
-        const ds = localDs(weekDays[entry.day_of_week]);
+        const slotDate = weekDays[entry.day_of_week];
+        const mk = `${entry.client_id}-${slotDate.getFullYear()}-${slotDate.getMonth() + 1}`;
+        if (!coveredMonthKeys.has(mk)) continue; // nessun programma per questo mese
+        const ds = localDs(slotDate);
         rawByDay.get(ds)?.push({
           id: `pr-${entry.client_id}`,
           client_id: entry.client_id,
@@ -253,6 +259,8 @@ export default function CalendarioPage() {
         const jsDay = selectedDay.getDay();
         const selDow = jsDay === 0 ? 6 : jsDay - 1;
         if (entry.day_of_week === selDow) {
+          const mk = `${entry.client_id}-${selectedDay.getFullYear()}-${selectedDay.getMonth() + 1}`;
+          if (!coveredMonthKeys.has(mk)) continue; // nessun programma per questo mese
           rawByDay.get(localDs(selectedDay))?.push({
             id: `pr-${entry.client_id}`,
             client_id: entry.client_id,

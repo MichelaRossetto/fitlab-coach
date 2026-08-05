@@ -1519,6 +1519,12 @@ export default function ClientPage() {
 
             if (!dayDate || dayDate < today) continue;
 
+            // Non mostrare sessioni proiettate in mesi senza training_month
+            const projMonth = dayDate.getMonth() + 1;
+            const projYear  = dayDate.getFullYear();
+            const monthForDate = (m ?? []).find(mo => mo.year === projYear && mo.month_num === projMonth);
+            if (!monthForDate) continue;
+
             if (!best || dayDate < best.date) {
               best = {
                 date: dayDate,
