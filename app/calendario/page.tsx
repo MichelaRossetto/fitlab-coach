@@ -59,6 +59,15 @@ function layoutEvents(events: Omit<CalEvent,"col"|"cols">[]): CalEvent[] {
   return result.map(ev => ({ ...ev, cols: totalCols }));
 }
 
+// Controlla se il cliente ha un training_month per il mese della data oppure il mese precedente
+function hasCoveredMonth(clientId: string, date: Date, keys: Set<string>): boolean {
+  const y  = date.getFullYear();
+  const mn = date.getMonth() + 1;
+  const prevMn = mn === 1 ? 12 : mn - 1;
+  const prevY  = mn === 1 ? y - 1 : y;
+  return keys.has(`${clientId}-${y}-${mn}`) || keys.has(`${clientId}-${prevY}-${prevMn}`);
+}
+
 const DAY_LABELS_LONG = ["Lunedì","Martedì","Mercoledì","Giovedì","Venerdì","Sabato","Domenica"];
 const DAY_LABELS  = ["Lun","Mar","Mer","Gio","Ven","Sab"];
 const MONTH_SHORT = ["Gen","Feb","Mar","Apr","Mag","Giu","Lug","Ago","Set","Ott","Nov","Dic"];
@@ -246,8 +255,7 @@ export default function CalendarioPage() {
 
       if (viewMode === "week") {
         const slotDate = weekDays[entry.day_of_week];
-        const mk = `${entry.client_id}-${slotDate.getFullYear()}-${slotDate.getMonth() + 1}`;
-        if (!coveredMonthKeys.has(mk)) continue; // nessun programma per questo mese
+        if (!hasCoveredMonth(entry.client_id, slotDate, coveredMonthKeys)) continue;
         const ds = localDs(slotDate);
         rawByDay.get(ds)?.push({
           id: `pr-${entry.client_id}`,
@@ -259,8 +267,7 @@ export default function CalendarioPage() {
         const jsDay = selectedDay.getDay();
         const selDow = jsDay === 0 ? 6 : jsDay - 1;
         if (entry.day_of_week === selDow) {
-          const mk = `${entry.client_id}-${selectedDay.getFullYear()}-${selectedDay.getMonth() + 1}`;
-          if (!coveredMonthKeys.has(mk)) continue; // nessun programma per questo mese
+          if (!hasCoveredMonth(entry.client_id, selectedDay, coveredMonthKeys)) continue;
           rawByDay.get(localDs(selectedDay))?.push({
             id: `pr-${entry.client_id}`,
             client_id: entry.client_id,
