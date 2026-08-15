@@ -3477,9 +3477,26 @@ export default function DayPage() {
       .order("order_index")
       .order("order_index", { foreignTable: "exercises" });
 
-    // Ensure all 5 sections exist; create missing ones
+    // Ensure required sections exist; create missing ones.
+    // Se il giorno ha già warmup + strength + workout (struttura completa seeded),
+    // non auto-creare accessories/core vuoti — il coach li ha omessi intenzionalmente.
     const existingTypes = (secs ?? []).map((s: WorkoutSection) => s.section_type);
-    const missingSections = SECTION_ORDER.filter(t => !existingTypes.includes(t));
+    const dayHasContent = existingTypes.includes("warmup") && existingTypes.includes("strength") && existingTypes.includes("workout");
+    const missingSections = SECTION_ORDER.filter(t => {
+      if (existingTypes.includes(t)) return false;
+      if (dayHasContent && (t === "accessories" || t === "core")) return false;
+      return true;
+    });
+
+    // Helper: costruisce l'array di sezioni supportando più sezioni "workout"
+    const buildSections = (allSecs: WorkoutSection[]) => [
+      ...SECTION_ORDER.slice(0, -1) // warmup, strength, accessories, core
+        .map(type => allSecs.find((s: WorkoutSection) => s.section_type === type)!)
+        .filter(Boolean),
+      ...allSecs
+        .filter((s: WorkoutSection) => s.section_type === "workout")
+        .sort((a: WorkoutSection, b: WorkoutSection) => a.order_index - b.order_index),
+    ];
 
     if (missingSections.length > 0) {
       // Insert one by one so a single failure (e.g. ENUM mismatch for "core") doesn't block the others
@@ -3499,17 +3516,9 @@ export default function DayPage() {
         .eq("day_id", dayId)
         .order("order_index")
         .order("order_index", { foreignTable: "exercises" });
-      setSections(
-        SECTION_ORDER
-          .map(type => (secs2 ?? []).find((s: WorkoutSection) => s.section_type === type)!)
-          .filter(Boolean)
-      );
+      setSections(buildSections(secs2 ?? []));
     } else {
-      setSections(
-        SECTION_ORDER
-          .map(type => (secs ?? []).find((s: WorkoutSection) => s.section_type === type)!)
-          .filter(Boolean)
-      );
+      setSections(buildSections(secs ?? []));
     }
     setLoading(false);
   }, [dayId, clientId, weekId]);
@@ -3841,9 +3850,14 @@ export default function DayPage() {
       core: "Core Training", workout: "Workout",
     };
     const WKLABELS: Record<string, string> = { amrap: "AMRAP", emom: "EMOM", fortime: "FOR TIME", cardioliss: "CARDIO LISS" };
-    const filled = sectionOrder
-      .map(t => sections.find(s => s.section_type === t))
-      .filter(s => s && (s.exercises?.length ?? 0) > 0) as WorkoutSection[];
+    const filled = [
+      ...sectionOrder.slice(0, -1)
+        .map(t => sections.find(s => s.section_type === t))
+        .filter(s => s && (s.exercises?.length ?? 0) > 0),
+      ...sections
+        .filter(s => s.section_type === "workout" && (s.exercises?.length ?? 0) > 0)
+        .sort((a, b) => a.order_index - b.order_index),
+    ] as WorkoutSection[];
 
     const resolveMax = (exName: string): number | null => {
       const name = exName.trim().toLowerCase();

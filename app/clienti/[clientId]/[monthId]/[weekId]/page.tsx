@@ -374,9 +374,14 @@ export default function WeekPage() {
     };
 
     const daysHtml = allDayData.map(({ day, sections }) => {
-      const filled = sectionOrder
-        .map(t => (sections as any[]).find((s: any) => s.section_type === t))
-        .filter(s => s && (s.exercises?.length ?? 0) > 0);
+      const filled = [
+        ...sectionOrder.slice(0, -1)
+          .map(t => (sections as any[]).find((s: any) => s.section_type === t))
+          .filter(s => s && (s.exercises?.length ?? 0) > 0),
+        ...(sections as any[])
+          .filter((s: any) => s.section_type === "workout" && (s.exercises?.length ?? 0) > 0)
+          .sort((a: any, b: any) => a.order_index - b.order_index),
+      ];
 
       if (filled.length === 0) return "";
 
