@@ -3478,15 +3478,14 @@ export default function DayPage() {
       .order("order_index", { foreignTable: "exercises" });
 
     // Ensure required sections exist; create missing ones.
-    // Se il giorno ha già warmup + strength + workout (struttura completa seeded),
-    // non auto-creare accessories/core vuoti — il coach li ha omessi intenzionalmente.
+    // Se il giorno ha già almeno una sezione (è stato seeded dal coach),
+    // non auto-creare sezioni vuote — il coach ha omesso intenzionalmente quelle mancanti.
+    // Solo i giorni completamente vuoti (nuovi) ricevono il template completo.
     const existingTypes = (secs ?? []).map((s: WorkoutSection) => s.section_type);
-    const dayHasContent = existingTypes.includes("warmup") && existingTypes.includes("strength") && existingTypes.includes("workout");
-    const missingSections = SECTION_ORDER.filter(t => {
-      if (existingTypes.includes(t)) return false;
-      if (dayHasContent && (t === "accessories" || t === "core")) return false;
-      return true;
-    });
+    const dayHasContent = (secs ?? []).length > 0;
+    const missingSections = dayHasContent
+      ? []
+      : SECTION_ORDER.filter(t => !existingTypes.includes(t));
 
     // Helper: costruisce l'array di sezioni supportando più sezioni "workout"
     const buildSections = (allSecs: WorkoutSection[]) => [
