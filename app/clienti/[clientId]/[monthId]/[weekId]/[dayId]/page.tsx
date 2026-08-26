@@ -1397,9 +1397,9 @@ function SectionBlock({ section, lib, editingExId, maxes, onToggleEdit, onUpdate
   const color = SECTION_COLORS[section.section_type];
   const exercises = section.exercises ?? [];
 
-  // Mappa subtype → cap time per i sotto-titoli workout (es. { amrap: "15", emom: "12" })
+  // Mappa subtype → cap time per i sotto-titoli workout/core (es. { amrap: "15", emom: "12" })
   const capTimeBySubtype: Record<string, string> = {};
-  if (section.section_type === "workout" && section.section_subtype) {
+  if (section.section_subtype) {
     section.section_subtype.split("+").forEach((s, i) => {
       const cap = section.cap_time?.split("+")[i];
       if (cap) capTimeBySubtype[s] = cap;
@@ -1416,7 +1416,7 @@ function SectionBlock({ section, lib, editingExId, maxes, onToggleEdit, onUpdate
     });
   }
 
-  const subtypeLabel = section.section_type === "workout" && section.section_subtype
+  const subtypeLabel = section.section_subtype
     ? (() => {
         const subtypes = section.section_subtype.split("+");
         const caps = section.cap_time?.split("+") ?? [];
