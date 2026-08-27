@@ -4086,12 +4086,6 @@ export default function DayPage() {
           </div>
         )}
 
-        {day.notes && (
-          <div className="card p-4 border-l-4" style={{ borderLeftColor: "#C0D738" }}>
-            <p className="text-sm text-gray-600 italic dark:text-gray-300">{day.notes}</p>
-          </div>
-        )}
-
         {sections.map(section => (
           <SectionBlock
             key={section.id}
@@ -4110,6 +4104,16 @@ export default function DayPage() {
             onSaveClientNote={isClientView ? handleSaveClientNote : undefined}
           />
         ))}
+
+        {/* Defaticamento / Note coach */}
+        {day.notes && (
+          <div className="card p-4 border-l-4" style={{ borderLeftColor: "#0EA5E9" }}>
+            <p className="text-[11px] font-semibold uppercase tracking-wider mb-2" style={{ color: "#0EA5E9" }}>
+              🧘 Defaticamento
+            </p>
+            <p className="text-sm text-gray-600 dark:text-gray-300 whitespace-pre-wrap leading-relaxed">{day.notes}</p>
+          </div>
+        )}
 
         {/* Cancella tutto il giorno */}
         {!isClientView && totalExercises > 0 && (
